@@ -1,10 +1,10 @@
 import { executeCommand } from "../../commandPalette/executeCommand";
 import { useDestinationActionStore, requestDestinationAction } from "../../commandPalette/destinationActions";
-import { lazy, Suspense, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useTabsStore, normalizePane, useDocumentStore, useSettingsStore, useUIStore, type TabType } from "../../stores";
-import { useStartupStore } from "../../stores/startupStore";
 import { useStartupExperienceStore } from "../../lib/startupAnimation/store";
-import { useCollectionStore } from "../../stores/collectionStore";
+import { hasReleaseStartupTrace, observeStartupShellPaint } from "../../lib/startupDiagnostics";
+import { afterLocalStartupReady, hasLocalStartupReady } from "../../lib/startupOptionalWork";
 import { useVimModeStore } from "../../stores/vimModeStore";
 import { useI18n } from "../../lib/i18n";
 import { useGlobalShortcuts } from "../../hooks/useKeyboardShortcuts";
@@ -53,10 +53,7 @@ import { runAutoPostponeSession } from "../../lib/autoPostponeSession";
 import { resolveTabType } from "../../navigation/tabDestinations";
 const PaywallModal = lazy(() => import("../monetization/PaywallModal").then(({ PaywallModal: modal }) => ({ default: modal })));
 
-// Auto-postpone scans the full scheduled backlog and may write many rows. Give
-// the mobile shell time to paint and finish its first library/settings loads
-// before starting that background work.
-const AUTO_POSTPONE_BOOT_DELAY_MS = 2_000;
+let startupUpdateChecked = false;
 
 function getActiveTabPane() {
   const paneIds = useTabsStore.getState().getTabPaneIds();
@@ -74,6 +71,12 @@ function AppShellRoot({
   children: React.ReactNode;
   className?: string;
 }) {
+  useLayoutEffect(() => {
+    useStartupExperienceStore.getState().markRoutePainted();
+  }, []);
+  useEffect(() => {
+    if (hasReleaseStartupTrace()) return observeStartupShellPaint();
+  }, []);
   return (
     <div data-paper-surface="chrome"
       {...tourAnchor("shellRoot")}
@@ -113,6 +116,7 @@ export function MainLayout() {
   const modal = useModal();
   const [startupNoticePending, setStartupNoticePending] = useState(true);
   const [startupNoticeSettled, setStartupNoticeSettled] = useState(false);
+  const [canAutoOpenTour, setCanAutoOpenTour] = useState(hasLocalStartupReady);
   // Imperative handle into the tour host. Stable across renders; populated
   // by <TourHost> on mount. Used by the auto-open hook, the Settings replay
   // button, the command palette, and the Vimium command.
@@ -289,14 +293,6 @@ export function MainLayout() {
 
     void initTabs();
 
-    // Knowledge Peck startup overlay (design D2): MainLayout is the catch-all
-    // main route — its first painted frame is the route-ready signal. Utility
-    // routes (#/auth/callback, #/screenshot-overlay) never render MainLayout,
-    // so only a genuine main-window launch marks readiness.
-    requestAnimationFrame(() => {
-      useStartupExperienceStore.getState().markRoutePainted();
-    });
-
     // Warm the common tab chunks once the backend gate clears. The first tap
     // on a cold tab otherwise races the WebView cold-start fetch-stall window
     // and can spin until the user navigates away and back.
@@ -305,38 +301,22 @@ export function MainLayout() {
     });
   }, []);
 
-  // Boot-time queue preload. The queue surface is only fetched by the
-  // active queue view (MobileQueueView / ReviewQueueView), and those fetches
-  // are gated behind `useIsActiveTab()`. On a cold start where the Queue tab
-  // is not the initially-active tab (e.g. a restored session opens on
-  // Dashboard), no tab loads the queue, so switching to Queue later shows a
-  // stuck "Loading…" until the activation effect finally fires. Hydrate the
-  // queue at boot regardless of which tab is foregrounded, and again whenever
-  // the active collection changes (which resets startup state). The store
-  // dedupes concurrent requests with the same key, so this never double-loads.
-  const ensureStartup = useStartupStore((state) => state.ensureStartup);
-  const activeCollectionId = useCollectionStore((state) => state.activeCollectionId);
   useEffect(() => {
-    void ensureStartup("queue", { queueMode: "due-today" });
-  }, [ensureStartup, activeCollectionId]);
-
-  // Let initial mobile library/settings requests settle before the session scan.
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
+    return afterLocalStartupReady(() => {
       void runAutoPostponeSession();
-    }, AUTO_POSTPONE_BOOT_DELAY_MS);
-    return () => window.clearTimeout(timer);
+    });
   }, []);
 
-  // Background update check on startup (desktop only). Runs once, after a
-  // short delay so it doesn't compete with boot. Each version is shown to the
+  // Background update check on startup (desktop only). Each version is shown to the
   // user at most once: the moment we surface the toast we mark the version
   // seen via setSkippedVersion(), so checkForUpdates(false) suppresses it on
   // every subsequent boot for that version. A genuinely new version notifies
   // once. Manual "Check for Updates" in Settings (force=true) still works.
   useEffect(() => {
     if (!isTauri()) return;
-    const timer = window.setTimeout(() => {
+    return afterLocalStartupReady(() => {
+      if (startupUpdateChecked) return;
+      startupUpdateChecked = true;
       checkForUpdates(false)
         .then((update) => {
           if (!update) return;
@@ -359,8 +339,7 @@ export function MainLayout() {
         .catch((err) => {
           console.warn("[MainLayout] startup update check failed:", err);
         });
-    }, 30000);
-    return () => window.clearTimeout(timer);
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -765,12 +744,14 @@ export function MainLayout() {
     // specific document, a review session, etc. The tour must not interrupt.
     return /#\/(?!$)/.test(hash);
   }, []);
+  useEffect(() => afterLocalStartupReady(() => setCanAutoOpenTour(true)), []);
   useOnboardingAutoOpen({
     openTour: () => tourControlRef.current?.open(),
     startupNoticePending,
     startupNoticeSettled,
     isCatchAllRoute: true, // MainLayout only mounts on the catch-all route.
     isDeepLinkedLaunch,
+    enabled: canAutoOpenTour,
   });
 
   const vimiumCommands = useMemo<VimiumCommand[]>(() => {

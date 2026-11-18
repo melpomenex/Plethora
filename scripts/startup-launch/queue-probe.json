@@ -1,0 +1,16 @@
+{
+  "surface": "queue",
+  "shell": {
+    "region": [55, 50, 740, 140],
+    "click": [162, 22],
+    "before": "scheduled for incremental reading",
+    "after": "spaced repetition companion"
+  },
+  "restoreAfterShell": [275, 22],
+  "local": {
+    "region": [55, 62, 1150, 590],
+    "click": [841, 255],
+    "before": "(?=.*Hide Inspector)(?=.*Fixture [0-9]+)",
+    "after": "(?=.*Show Inspector)(?=.*Fixture [0-9]+)"
+  }
+}

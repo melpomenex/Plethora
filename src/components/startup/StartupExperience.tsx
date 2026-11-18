@@ -4,17 +4,16 @@
  * Layers (design D1): the static pre-React frame in index.html paints first;
  * this overlay renders an identical first frame (same mascot size/position/
  * colors from KP_GEOMETRY + the shared timeline layout) and plays the
- * choreography above the booting app; a 250 ms crossfade reveals it.
+ * choreography above the booting app until the shell can paint.
  *
- * Lifecycle (design D2/D3): appReady = startup data ready (ensureStartup
- * reaching "ready", which transitively implies backend-ready) AND the main
- * route painted (MainLayout marker). All timing flows through an injectable
+ * The navigation shell ends the presentation on its first ready frame.
+ * Timing before that frame flows through an injectable
  * clock (`window.__kpTestClock` seam; performance.now otherwise) and the pure
  * timeline modules — one rAF loop while animating, cancelled on every exit.
  *
  * Variants (design D8, resolved once at mount): kill switch → none;
  * e-ink → 3 crisp stepped stills; reduced motion → static mark + single card
- * + ≤ 250 ms crossfade; else the full desktop/phone choreography.
+ * instead of moving elements; else the full desktop/phone choreography.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -28,8 +27,6 @@ import {
   transition,
 } from "../../lib/startupAnimation/machine";
 import {
-  REVEAL_FADE_MS,
-  accelerationPlan,
   buildTimeline,
   fragmentVisualStatesAt,
   sampleTimeline,
@@ -50,7 +47,6 @@ import {
 } from "../../lib/startupAnimation/types";
 import { usePresentation } from "../../contexts/PresentationContext";
 import { useSettingsStore } from "../../stores/settingsStore";
-import { useStartupStore } from "../../stores/startupStore";
 
 /** Injectable clock seam: deterministic tests fake time through here. */
 type KpClockWindow = Window & { __kpTestClock?: () => number };
@@ -101,12 +97,6 @@ interface DriverState {
   rafId: number | null;
   started: boolean;
   startedAt: number;
-  /** Wall clock at APP_READY; null until then (1× playback). */
-  readyWallAt: number | null;
-  /** Virtual time at APP_READY — compression continues from here. */
-  readyVirtualAt: number;
-  /** Playback rate from ready on (≥ 1; see accelerationPlan). */
-  timeScale: number;
   lastVisualKey: string;
   elements: Map<string, HTMLElement>;
 }
@@ -114,8 +104,8 @@ interface DriverState {
 export function StartupExperience() {
   const presentation = usePresentation();
   const stage = useStartupExperienceStore((s) => s.stage);
+  const [freeze] = useState(readFreezeStage);
   const [armed, setArmed] = useState(false);
-  const [fading, setFading] = useState(false);
   const [aborting, setAborting] = useState(false);
   const [einkStep, setEinkStep] = useState(1);
 
@@ -124,14 +114,10 @@ export function StartupExperience() {
     rafId: null,
     started: false,
     startedAt: 0,
-    readyWallAt: null,
-    readyVirtualAt: 0,
-    timeScale: 1,
     lastVisualKey: "",
     elements: new Map(),
   });
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
-  const unsubscribeRef = useRef<Array<() => void>>([]);
 
   const formFactor: FormFactor = presentation.isMobileShell ? "phone" : "desktop";
   const mode: KPAnimationMode = resolveAnimationMode({
@@ -140,8 +126,6 @@ export function StartupExperience() {
     isEinkMode: presentation.isEinkMode,
     reducedMotion: presentation.reducedMotion,
   });
-  const modeRef = useRef(mode);
-  modeRef.current = mode;
 
   const timeline = buildTimeline("knowledge-peck", formFactor);
   const layout = sceneLayout(formFactor);
@@ -221,45 +205,6 @@ export function StartupExperience() {
     }
   };
 
-  /**
-   * Wall → virtual mapping: 1× until ready, then a single compression rate
-   * over every remaining beat (monotonic by construction; never jumps, so
-   * un-played pecks still play — see accelerationPlan).
-   */
-  const virtualNow = (): number => {
-    const d = driverRef.current;
-    if (d.readyWallAt === null) return nowMs() - d.startedAt;
-    return d.readyVirtualAt + (nowMs() - d.readyWallAt) * d.timeScale;
-  };
-
-  const onAppReady = (): void => {
-    const current = useStartupExperienceStore.getState().stage;
-    if (current === "reveal" || current === "done" || current === "aborted") return;
-    const m = modeRef.current;
-    if (m === "eink") {
-      // Reveal without animation: jump to the final still, then unmount.
-      setEinkStep(3);
-      setTimer(() => useStartupExperienceStore.getState().setStage("done"), EINK_STEP_MS);
-      return;
-    }
-    if (m === "reduced-motion") {
-      // Single ≤ 250 ms crossfade into the app (spec: reduced-motion variant).
-      setFading(true);
-      setTimer(() => useStartupExperienceStore.getState().setStage("done"), REVEAL_FADE_MS);
-      return;
-    }
-    const d = driverRef.current;
-    if (d.readyWallAt === null) {
-      const elapsedAtReady =
-        current === "handoff" || !d.started ? 0 : Math.max(0, nowMs() - d.startedAt);
-      const plan = accelerationPlan(elapsedAtReady, timeline);
-      d.timeScale = plan.timeScale;
-      d.readyVirtualAt = plan.startVirtualMs;
-      d.readyWallAt = nowMs();
-    }
-    dispatch("APP_READY");
-  };
-
   /* ---------------------------------------------------------------- */
   /* Mount: arm, resolve mode, wire readiness + watchdog, cleanup.     */
   /* ---------------------------------------------------------------- */
@@ -273,7 +218,6 @@ export function StartupExperience() {
     if (!shouldArmForRoute(hash) || !claimLaunch()) return;
     setArmed(true);
 
-    const freeze = readFreezeStage();
     if (freeze) {
       // Frozen scene: sampled once; no lifecycle wiring, no timers, no rAF.
       requestAnimationFrame(() => {
@@ -290,43 +234,18 @@ export function StartupExperience() {
     }
 
     const store = useStartupExperienceStore.getState();
+    if (store.routePainted) return;
     store.setStage(transition(store.stage, "MOUNTED"));
 
-    if (modeRef.current === "none") {
-      // Kill switch: no branded layer and no delay — the app reveals itself.
-      store.setStage("aborted");
+    if (mode === "none") {
       store.setStage("done");
       return;
     }
 
     // Driver start: full mode begins the choreography on its first frame.
-    if (modeRef.current === "full") {
+    if (mode === "full") {
       store.setStage("choreography");
     }
-
-    // Data readiness: initiate/join the deduplicated startup snapshot.
-    const handleStatus = (status: string) => {
-      if (status === "ready") {
-        useStartupExperienceStore.getState().markDataReady();
-      }
-    };
-    handleStatus(useStartupStore.getState().status);
-    // A failed startup surface resolves null after its bounded retry sequence.
-    // Do not abort from the global store's status subscription: another
-    // concurrent surface may still be loading successfully.
-    void useStartupStore.getState().ensureStartup("startup").then((snapshot) => {
-      if (snapshot === null) dispatch("APP_ERROR");
-    });
-    unsubscribeRef.current.push(
-      useStartupStore.subscribe((state) => handleStatus(state.status))
-    );
-
-    unsubscribeRef.current.push(
-      useStartupExperienceStore.subscribe((state, prev) => {
-        if (state.appReady && !prev.appReady) onAppReady();
-      })
-    );
-    if (useStartupExperienceStore.getState().appReady) onAppReady();
 
     // Watchdog: the overlay can never outlive 15 s regardless of stores.
     setTimer(() => dispatch("WATCHDOG"), WATCHDOG_MS);
@@ -334,8 +253,6 @@ export function StartupExperience() {
     return () => {
       cancelRaf();
       clearTimers();
-      for (const unsub of unsubscribeRef.current) unsub();
-      unsubscribeRef.current = [];
       useStartupExperienceStore.getState().reset();
     };
   }, []);
@@ -345,15 +262,14 @@ export function StartupExperience() {
   /* ---------------------------------------------------------------- */
   useEffect(() => {
     if (!armed || mode === "none") return;
+    if (stage === "done") {
+      clearTimers();
+      return;
+    }
 
     if (stage === "aborted") {
       setAborting(true);
       setTimer(() => useStartupExperienceStore.getState().setStage("done"), ABORT_FADE_MS);
-      return;
-    }
-    if (stage === "reveal") {
-      setFading(true);
-      setTimer(() => useStartupExperienceStore.getState().setStage("done"), REVEAL_FADE_MS);
       return;
     }
     if (mode !== "full" || !isAnimating(stage)) return;
@@ -369,22 +285,12 @@ export function StartupExperience() {
       const currentStage = useStartupExperienceStore.getState().stage;
       if (!isAnimating(currentStage)) return;
 
-      const virtualT = virtualNow();
+      const virtualT = nowMs() - d.startedAt;
 
-      if (
-        currentStage === "choreography" &&
-        d.readyWallAt === null &&
-        virtualT >= timeline.script.idleAt
-      ) {
+      if (virtualT >= timeline.script.idleAt) {
         // Slow startup: settle into the stable idle pose; the rAF loop stops.
         applySample(timeline.script.idleAt);
         useStartupExperienceStore.getState().setStage("idle");
-        return;
-      }
-
-      if (currentStage === "resolve" && virtualT >= timeline.script.brandedSpanEnd) {
-        applySample(timeline.script.brandedSpanEnd);
-        useStartupExperienceStore.getState().setStage("reveal");
         return;
       }
 
@@ -403,10 +309,9 @@ export function StartupExperience() {
     setTimer(() => setEinkStep((s) => Math.min(3, s + 1)), EINK_STEP_MS);
   }, [armed, mode, stage, einkStep]);
 
-  if (!armed || mode === "none" || stage === "done") return null;
+  if (!armed || mode === "none" || (stage === "done" && !freeze)) return null;
 
-  const shieldActive =
-    !fading && !aborting && stage !== "reveal" && stage !== "aborted";
+  const shieldActive = stage !== "aborted";
 
   const einkVisuals: FragmentVisualState[] = Array.from(
     { length: timeline.script.fragmentCount },
@@ -425,7 +330,7 @@ export function StartupExperience() {
       data-kp-stage={stage}
       data-form-factor={formFactor}
       data-variant={mode}
-      data-fading={fading || aborting ? "true" : "false"}
+      data-fading={aborting ? "true" : "false"}
       data-aborting={aborting ? "true" : "false"}
       aria-hidden="true"
     >

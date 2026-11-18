@@ -41,19 +41,22 @@ vi.mock("../collectionStore", () => ({
 
 vi.mock("../documentStore", () => ({
   useDocumentStore: Object.assign(vi.fn(), {
-    getState: () => ({ hydrateStartupDocuments }),
+    getState: () => ({ documents: [], hydrateStartupDocuments }),
+    setState: vi.fn(),
     subscribe: () => () => undefined,
   }),
 }));
 
 vi.mock("../queueStore", () => ({
   useQueueStore: Object.assign(vi.fn(), {
-    getState: () => ({ hydrateStartupQueue }),
+    getState: () => ({ items: [], hydrateStartupQueue }),
+    setState: vi.fn(),
     subscribe: () => () => undefined,
   }),
 }));
 
 import { useStartupStore } from "../startupStore";
+import { waitForBackendReady } from "../../lib/tauri";
 
 function snapshot() {
   return {
@@ -70,6 +73,7 @@ function snapshot() {
 describe("startupStore snapshot watchdog", () => {
   beforeEach(() => {
     getStartupSnapshot.mockReset();
+    vi.mocked(waitForBackendReady).mockReset().mockResolvedValue(undefined);
     hydrateStartup.mockReset();
     hydrateStartupDocuments.mockReset();
     hydrateStartupQueue.mockReset();
@@ -81,6 +85,39 @@ describe("startupStore snapshot watchdog", () => {
       lastSurface: null,
       lastQueueMode: null,
     });
+  });
+
+  it("supersedes a still-pending snapshot on explicit retry", async () => {
+    let finishFirst: (value: ReturnType<typeof snapshot>) => void = () => {};
+    getStartupSnapshot.mockReturnValueOnce(new Promise((resolve) => { finishFirst = resolve; }));
+    const stale = useStartupStore.getState().ensureStartup("queue");
+    await Promise.resolve();
+    getStartupSnapshot.mockResolvedValueOnce({ ...snapshot(), dueCount: 2 });
+    await expect(useStartupStore.getState().retryStartup("queue")).resolves.toMatchObject({ dueCount: 2 });
+
+    finishFirst({ ...snapshot(), dueCount: 1 });
+    await expect(stale).resolves.toBeNull();
+    expect(useStartupStore.getState().snapshot?.dueCount).toBe(2);
+    expect(hydrateStartupQueue).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits through a migration and dispatches one snapshot after readiness", async () => {
+    vi.useFakeTimers();
+    try {
+      let finishMigration = () => {};
+      vi.mocked(waitForBackendReady).mockReturnValue(new Promise<void>((resolve) => { finishMigration = resolve; }));
+      const first = useStartupStore.getState().ensureStartup("queue");
+      await vi.advanceTimersByTimeAsync(15_000);
+      expect(getStartupSnapshot).not.toHaveBeenCalled();
+      expect(useStartupStore.getState().ensureStartup("queue")).toBe(first);
+      getStartupSnapshot.mockResolvedValueOnce(snapshot());
+      finishMigration();
+      await expect(first).resolves.toBeDefined();
+      expect(getStartupSnapshot).toHaveBeenCalledTimes(1);
+      expect(hydrateStartupQueue).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("resolves null on a stalled request, frees the inflight slot, and stays retryable", async () => {
@@ -103,8 +140,8 @@ describe("startupStore snapshot watchdog", () => {
       const second = useStartupStore.getState().ensureStartup("queue", {
         queueMode: "due-today",
       });
-      expect(getStartupSnapshot).toHaveBeenCalledTimes(2);
       await expect(second).resolves.toBeDefined();
+      expect(getStartupSnapshot).toHaveBeenCalledTimes(2);
       expect(useStartupStore.getState().status).toBe("ready");
       expect(hydrateStartupQueue).toHaveBeenCalled();
     } finally {

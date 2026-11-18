@@ -125,7 +125,8 @@ import { HashRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializePWA } from "./lib/pwa";
-import { isTauri } from "./lib/tauri";
+import { invokeCommand, isTauri } from "./lib/tauri";
+import { afterLocalStartupReady } from "./lib/startupOptionalWork";
 import { GlobalAudioHost } from "./components/audio/GlobalAudioHost";
 import { logBuildFingerprint } from "./lib/buildDiagnostics";
 import { installNetworkDebugInstrumentation, isNetworkDebugEnabled } from "./debug/networkDebug";
@@ -281,22 +282,10 @@ try {
   // Settings not yet available — CSS falls through to system-ui.
 }
 
-function runAfterFirstPaint(task: () => void, idleTimeout = 3000) {
-  const scheduleIdle = () => {
-    type IdleWindow = Window & {
-      requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
-    };
-    const win = window as IdleWindow;
-    if (typeof win.requestIdleCallback === "function") {
-      win.requestIdleCallback(task, { timeout: idleTimeout });
-    } else {
-      setTimeout(task, Math.min(idleTimeout, 1500));
-    }
-  };
-
-  requestAnimationFrame(() => {
-    requestAnimationFrame(scheduleIdle);
-  });
+function StartupAnalytics() {
+  const [ready, setReady] = useState(false);
+  useEffect(() => afterLocalStartupReady(() => setReady(true)), []);
+  return ready ? <Analytics /> : null;
 }
 
 // Mount React before optional startup integrations. These integrations are
@@ -345,7 +334,7 @@ if (marketingCaptureActive) {
 // registry; populate it after the first paint and keep the public shape intact.
 if (typeof window !== "undefined") {
   (window as unknown as { plethora: { stores: Record<string, unknown> } }).plethora = { stores: {} };
-  runAfterFirstPaint(() => {
+  afterLocalStartupReady(() => {
     import("./stores")
       .then((stores) => {
         (window as unknown as { plethora: { stores: Record<string, unknown> } }).plethora.stores = {
@@ -371,7 +360,12 @@ if (typeof window !== "undefined") {
 // selected provider after hydration on every native startup so HTTP AI routes
 // see exactly the same provider as the desktop assistant.
 if (isTauri()) {
-  runAfterFirstPaint(() => {
+  afterLocalStartupReady(() => {
+    void invokeCommand("start_optional_runtime").catch((error) => {
+      console.warn("[startup] Optional native services failed:", error);
+    });
+  });
+  afterLocalStartupReady(() => {
     import("./stores/llmProvidersStore")
       .then(({ syncPrimaryProviderToNativeAI, useLLMProvidersStore }) =>
         syncPrimaryProviderToNativeAI(useLLMProvidersStore.getState().providers),
@@ -384,7 +378,7 @@ if (isTauri()) {
 
 // Keep the in-app reminder alive on every surface. The scheduler is deliberately
 // deferred until after the first paint so local boot remains responsive.
-runAfterFirstPaint(() => {
+afterLocalStartupReady(() => {
   import("./lib/feedback/reminderScheduler")
     .then(({ startReminderScheduler }) => startReminderScheduler())
     .catch((error) => console.error("[feedback] scheduler failed to load:", error));
@@ -393,7 +387,7 @@ runAfterFirstPaint(() => {
 // Background Rust transcription flows cannot read WebView localStorage. Keep a
 // secret-free mirror of the selected provider/model/language in app_settings,
 // but do not let this optional bridge delay the first interactive render.
-runAfterFirstPaint(() => {
+afterLocalStartupReady(() => {
   import("./lib/transcriptionConfigMirror")
     .then(({ startTranscriptionConfigMirror }) => startTranscriptionConfigMirror())
     .catch((error) => console.error("[transcription] config mirror failed to load:", error));
@@ -404,7 +398,7 @@ runAfterFirstPaint(() => {
 // identity (including access-token validity) is established first, so any
 // billing-triggered entitlement refresh resolves against a mirrored session
 // or is safely superseded by the generation guard in entitlementStore.
-runAfterFirstPaint(() => {
+afterLocalStartupReady(() => {
   import("./stores/accountStore")
     .then(({ useAccountStore }) => {
       const bootstrapAccount = () => {
@@ -434,7 +428,7 @@ runAfterFirstPaint(() => {
 // implement-native-ios-storekit2-billing §3.4): iOS → AppStoreBillingProvider
 // (native StoreKit 2); other platforms → dev-only mock. Also performs relaunch
 // reconciliation of any pending transaction JWS payloads.
-runAfterFirstPaint(() => {
+afterLocalStartupReady(() => {
   import("./stores/billingStore")
     .then(({ useBillingStore }) => useBillingStore.getState().init())
     .catch((error) => console.error('[billing] startup init failed:', error));
@@ -442,17 +436,17 @@ runAfterFirstPaint(() => {
 
 // One-time removal of real-time-sync residue (y-indexeddb databases, stale
 // localStorage keys) on installs that predate the sync removal.
-runAfterFirstPaint(() => {
-  import("./lib/syncResidueCleanup").then(({ runSyncResidueCleanup }) =>
-    runSyncResidueCleanup(),
-  );
+afterLocalStartupReady(() => {
+  void import("./lib/syncResidueCleanup")
+    .then(({ runSyncResidueCleanup }) => runSyncResidueCleanup())
+    .catch((error) => console.warn("[startup] Sync cleanup unavailable:", error));
 });
 
 // Idempotent legacy-audiobook → Audio Edition migration (openspec change
 // add-audio-editions-and-hands-free-study-mode, task 1.5). Guarded by a
 // localStorage completion flag plus per-document edition checks, so repeated
 // startups are cheap no-ops.
-runAfterFirstPaint(() => {
+afterLocalStartupReady(() => {
   import("./utils/audioEditionMigration")
     .then(({ runLegacyAudiobookMigration }) => runLegacyAudiobookMigration())
     .then(({ migratedCount }) => {
@@ -580,7 +574,7 @@ reactRoot.render(
               <KindleImportDialogHost />
             </Suspense>
             {/* Only load Vercel Analytics in web/PWA mode, not in Tauri desktop */}
-            {!isTauri() && !marketingCaptureActive && <Analytics />}
+            {!isTauri() && !marketingCaptureActive && <StartupAnalytics />}
             {/* Knowledge Peck branded startup overlay (openspec change
                 knowledge-peck-startup-animation). Statically imported — it
                 must render before lazy routes resolve — and mounted as the

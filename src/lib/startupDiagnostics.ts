@@ -1,4 +1,6 @@
-/** Safe Android startup diagnostics. This deliberately accepts only counts,
+import { hasLocalStartupReady, markLocalStartupReady } from "./startupOptionalWork";
+
+/** Safe startup diagnostics. This deliberately accepts only counts,
  * timings, and state labels; document titles, ids, and content have no place in
  * the diagnostic payload. */
 export type AndroidStartupPhase =
@@ -16,12 +18,13 @@ export type AndroidStartupPhase =
   | "snapshot-request-failed"
   | "snapshot-retry"
   | "snapshot-hydrated"
+  | "shell-painted"
   | "surface-ready"
   | "interaction-ready"
   | "recovery-visible";
 
 export interface AndroidStartupDiagnosticDetails {
-  surface?: "startup" | "dashboard" | "documents" | "queue" | "continue-reading";
+  surface?: "startup" | "dashboard" | "documents" | "queue" | "continue-reading" | "analytics" | "review";
   command?: "wait_for_backend_ready" | "get_startup_snapshot";
   request?: number;
   attempt?: number;
@@ -34,8 +37,14 @@ export interface AndroidStartupDiagnosticDetails {
 }
 
 declare const __PLETHORA_BUILD_ID__: string | undefined;
+declare global {
+  interface Window {
+    __PLETHORA_STARTUP_TRACE__?: boolean;
+  }
+}
 
 export const ANDROID_STARTUP_TRACE_PREFIX = "[startup:android] ";
+const RELEASE_STARTUP_TRACE_PREFIX = "[startup:frontend] ";
 const MAX_RECORDS = 128;
 const MAX_PHASE_RECORDS = 16;
 // Capture before console forwarding installs. Never invoke native transport to
@@ -46,6 +55,10 @@ const records: Readonly<AndroidStartupTraceRecord>[] = [];
 const phaseCounts = new Map<AndroidStartupPhase, number>();
 let sequence = 0;
 
+export function hasReleaseStartupTrace(): boolean {
+  return typeof window !== "undefined" && window.__PLETHORA_STARTUP_TRACE__ === true;
+}
+
 export interface AndroidStartupTraceRecord extends AndroidStartupDiagnosticDetails {
   phase: AndroidStartupPhase;
   sequence: number;
@@ -54,7 +67,7 @@ export interface AndroidStartupTraceRecord extends AndroidStartupDiagnosticDetai
 }
 
 const LABELS: Partial<Record<keyof AndroidStartupDiagnosticDetails, readonly string[]>> = {
-  surface: ["startup", "dashboard", "documents", "queue", "continue-reading"],
+  surface: ["startup", "dashboard", "documents", "queue", "continue-reading", "analytics", "review"],
   command: ["wait_for_backend_ready", "get_startup_snapshot"],
   outcome: ["success", "empty", "populated", "timeout", "error", "retrying"],
   failureKind: ["timeout", "transport", "database", "other"],
@@ -82,30 +95,43 @@ export function getAndroidStartupTrace(): Readonly<AndroidStartupTraceRecord>[] 
  * removal, then cross a painted frame and an event-loop turn before reporting
  * the usable endpoint. The caller invalidates it on collection/surface change. */
 export function observeAndroidStartupSurface(details: AndroidStartupDiagnosticDetails): () => void {
+  return observeStartupSurface(details, true);
+}
+
+export function observeStartupSurface(
+  details: AndroidStartupDiagnosticDetails,
+  trace = hasReleaseStartupTrace(),
+): () => void {
+  if (!trace && hasLocalStartupReady()) return () => {};
   let cancelled = false;
   let frame = 0;
   let inputTurn: ReturnType<typeof setTimeout> | undefined;
   const observer = new MutationObserver(() => schedule());
   const finish = () => {
     if (cancelled || document.querySelector(".kp-overlay")) return;
-    recordAndroidStartupDiagnostic("interaction-ready", details);
+    if (trace) recordAndroidStartupDiagnostic("interaction-ready", details);
+    markLocalStartupReady();
     cancelled = true;
     cancelAnimationFrame(frame);
     observer.disconnect();
     clearTimeout(expiry);
   };
   const schedule = () => {
-    cancelAnimationFrame(frame);
+    if (frame || inputTurn !== undefined) return;
     frame = requestAnimationFrame(() => {
+      frame = 0;
       if (cancelled || document.querySelector(".kp-overlay")) return;
       frame = requestAnimationFrame(() => {
-        if (inputTurn !== undefined) clearTimeout(inputTurn);
-        inputTurn = setTimeout(finish, 0);
+        frame = 0;
+        inputTurn = setTimeout(() => {
+          inputTurn = undefined;
+          finish();
+        }, 0);
       });
     });
   };
   observer.observe(document.body, { childList: true, subtree: true });
-  recordAndroidStartupDiagnostic("surface-ready", details);
+  if (trace) recordAndroidStartupDiagnostic("surface-ready", details);
   schedule();
   const expiry = setTimeout(() => observer.disconnect(), 180_000);
   return () => {
@@ -115,6 +141,15 @@ export function observeAndroidStartupSurface(details: AndroidStartupDiagnosticDe
     if (inputTurn !== undefined) clearTimeout(inputTurn);
     cancelAnimationFrame(frame);
   };
+}
+
+/** This marks paint only. The release harness verifies foreground input on the
+ * operating system's display before it accepts the shell endpoint. */
+export function observeStartupShellPaint(): () => void {
+  let frame = requestAnimationFrame(() => {
+    frame = requestAnimationFrame(() => recordAndroidStartupDiagnostic("shell-painted"));
+  });
+  return () => cancelAnimationFrame(frame);
 }
 
 export function classifyAndroidStartupFailure(error: unknown): NonNullable<AndroidStartupDiagnosticDetails["failureKind"]> {
@@ -150,5 +185,7 @@ export function recordAndroidStartupDiagnostic(
   });
   if (records.length === MAX_RECORDS) records.shift();
   records.push(record);
-  originalInfo?.(ANDROID_STARTUP_TRACE_PREFIX + JSON.stringify(record));
+  if (hasReleaseStartupTrace() && record.sequence > MAX_RECORDS) return;
+  const prefix = hasReleaseStartupTrace() ? RELEASE_STARTUP_TRACE_PREFIX : ANDROID_STARTUP_TRACE_PREFIX;
+  originalInfo?.(prefix + JSON.stringify(record));
 }

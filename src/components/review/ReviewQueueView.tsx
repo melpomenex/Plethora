@@ -94,6 +94,7 @@ import { useI18n } from "../../lib/i18n";
 import { ScheduleView } from "../schedule/ScheduleView";
 import { useIsActiveTab } from "../common/Tabs";
 import { useStartupStore } from "../../stores/startupStore";
+import { observeStartupSurface } from "../../lib/startupDiagnostics";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { SavedQueueDropdown } from "../queue/SavedQueueDropdown";
 import { ManageSavedQueuesModal } from "../queue/ManageSavedQueuesModal";
@@ -610,6 +611,15 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
     }
     return ordered;
   }, [items, queueMode, queueFilterMode, preset, searchQuery, selectedFileType, sessionCustomization, effectiveItemTypes, customSubset, queueSortMode, activeSavedQueue, orderingMode, strictManual]);
+
+  useEffect(() => {
+    if (!isActiveTab || !hasCompletedFirstLoad || isLoading || error) return;
+    return observeStartupSurface({
+      surface: "queue",
+      outcome: visibleItems.length ? "populated" : "empty",
+      queueItems: visibleItems.length,
+    });
+  }, [activeCollectionId, error, hasCompletedFirstLoad, isActiveTab, isLoading, visibleItems.length]);
 
   useEffect(() => {
     const container = queueScrollRef.current;
@@ -1614,7 +1624,7 @@ export function ReviewQueueView({ onStartReview, onOpenDocument, onOpenScrollMod
             </div>
           )}
 
-          {(isLoading && items.length === 0) ? (
+          {((isLoading || !hasCompletedFirstLoad) && items.length === 0 && !error) ? (
             <div className="text-center py-12 text-muted-foreground">{t("queue.loading")}</div>
           ) : visibleItems.length === 0 ? (
             sessionCustomization.semanticStudy?.enabled && sessionCustomization.semanticStudy?.focalTopic ? (

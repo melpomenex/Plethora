@@ -4,10 +4,7 @@
   "description": "Allows the main application webview to apply the persisted interface zoom.",
   "remote": {
     "urls": [
-      "http://localhost:9527/*",
-      "http://127.0.0.1:9527/*",
-      "http://localhost:15173/*",
-      "http://127.0.0.1:15173/*"
+      "http://(localhost|127\\.0\\.0\\.1):(9527|15173)/*"
     ]
   },
   "windows": ["main"],

@@ -1,4 +1,6 @@
 /** Pure, deterministic report math; device timings never become unit-test assertions. */
+import { statistics } from '../startup-launch/report.mjs';
+
 export const BENCH_PACKAGE = 'com.plethora.app.startupbench';
 
 export function parseMarker(line) {
@@ -33,12 +35,11 @@ export function sampleFromMarkers(markers) {
 }
 
 export function summarize(samples) {
-  const times = samples.filter((s) => s.status === 'usable').map((s) => s.usableMs).sort((a, b) => a - b);
+  const times = samples.filter((s) => s.status === 'usable').map((s) => s.usableMs);
   const n = times.length;
-  const median = n ? (times[Math.floor((n - 1) / 2)] + times[Math.floor(n / 2)]) / 2 : null;
-  const p95 = n ? times[Math.ceil(n * 0.95) - 1] : null;
-  return { total: samples.length, usable: n, failed: samples.length - n, medianMs: median, p95Ms: p95,
-    passed: samples.length >= 20 && n === samples.length && p95 <= 5000 };
+  const { medianMs, p95Ms } = statistics(times);
+  return { total: samples.length, usable: n, failed: samples.length - n, medianMs, p95Ms,
+    passed: samples.length >= 20 && n === samples.length && p95Ms <= 5000 };
 }
 
 export function summarizeReport(report) {

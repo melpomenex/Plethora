@@ -28,12 +28,15 @@ import { useKnowledgeHealthStore } from "../../stores/knowledgeHealthStore";
 import { formatHealthConfidenceLabel } from "../../types/knowledgeHealth";
 import { useI18n } from "../../lib/i18n";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
+import { useIsActiveTab } from "../common/Tabs";
+import { observeStartupSurface } from "../../lib/startupDiagnostics";
 
 
 export function AnalyticsTab() {
   const { addTab } = useTabsStore();
   const _documents = useDocumentStore((state) => state.documents);
   const { t } = useI18n();
+  const isActiveTab = useIsActiveTab();
   const {
     dashboardStats,
     memoryStats,
@@ -56,6 +59,10 @@ export function AnalyticsTab() {
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  useEffect(() => {
+    if (isActiveTab && dashboardStats && !isLoading && !error) return observeStartupSurface({ surface: "analytics" });
+  }, [dashboardStats, error, isActiveTab, isLoading]);
 
   const reviewHeatmapData = useMemo(() => {
     const map: Record<string, { count: number; retentionRate: number }> = {};

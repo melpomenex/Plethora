@@ -72,21 +72,11 @@ self.addEventListener('install', (event) => {
   console.log('[SW] Installing service worker:', VERSION);
 
   event.waitUntil(
-    Promise.all([
-      // Cache static assets
-      caches.open(STATIC_CACHE).then((cache) => cache.addAll(STATIC_ASSETS)),
-      // Pre-cache essential API data
-      caches.open(API_CACHE).then((cache) => {
-        // Optionally preload some data
-        return cache.addAll([
-          '/api/documents?limit=20',
-          '/api/analytics/dashboard',
-        ]);
-      }),
-    ]).then(() => {
-      // Activate immediately
-      return self.skipWaiting();
-    })
+    // Local IndexedDB supplies startup data. API availability cannot decide
+    // whether the offline app shell installs.
+    caches.open(STATIC_CACHE)
+      .then((cache) => cache.addAll(STATIC_ASSETS))
+      .then(() => self.skipWaiting())
   );
 });
 

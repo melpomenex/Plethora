@@ -26,16 +26,27 @@ fn install_early_panic_hook() {
 }
 
 fn main() {
+    #[cfg(target_os = "linux")]
+    plethora_tauri_lib::startup_trace::mark("native-entry");
+
     install_early_panic_hook();
     early_log("startup: main begin");
 
     #[cfg(target_os = "linux")]
     {
         use plethora_tauri_lib::graphics::GraphicsBackend;
+        use plethora_tauri_lib::startup_trace::mark;
 
         // Sanitize AppRun's Python paths and configure multimedia paths before
         // any graphics or webview initialization can spawn helper processes.
+        mark("linux-runtime-start");
         let runtime = plethora_tauri_lib::linux_runtime::initialize();
+        mark(match runtime.gst_plugin_cache {
+            "reused" => "linux-runtime-cache-reused",
+            "staged" => "linux-runtime-cache-staged",
+            "appdir-fallback" => "linux-runtime-cache-fallback",
+            _ => "linux-runtime-complete",
+        });
         early_log(&format!(
             "[runtime] appimage={} python-sanitized={} gst-plugin-cache={} gst-plugin-dir={} gst-registry={}",
             runtime.appimage,
@@ -59,7 +70,9 @@ fn main() {
         // Conditional GPU acceleration is owned by the graphics policy
         // module. It runs before any webview exists and leaves hardware
         // acceleration enabled on supported GPUs.
+        mark("linux-graphics-start");
         let diagnostics = plethora_tauri_lib::graphics::init_with_diagnostics();
+        mark("linux-graphics-complete");
         let decision = diagnostics.decision;
         let setting = |key: &str| {
             diagnostics

@@ -142,6 +142,7 @@ describe("startup coordinator store", () => {
     const first = useStartupStore.getState().ensureStartup("dashboard");
     const second = useStartupStore.getState().ensureStartup("dashboard");
     expect(first).toBe(second);
+    await Promise.resolve();
     expect(startupApi.getStartupSnapshot).toHaveBeenCalledTimes(1);
 
     resolveRequest(snapshot());
@@ -274,6 +275,7 @@ describe("startup coordinator store", () => {
     }));
 
     const request = useStartupStore.getState().ensureStartup("dashboard");
+    await Promise.resolve();
     collectionState.loaded = true;
     collectionState.activeCollectionId = "collection-b";
     collectionState.subscriber?.(
@@ -292,6 +294,7 @@ describe("startup coordinator store", () => {
       resolveOldRequest = resolve;
     }));
     const older = useStartupStore.getState().ensureStartup("queue", { queueMode: "due-today" });
+    await Promise.resolve();
 
     const newestSnapshot = {
       ...snapshot(),
@@ -320,6 +323,7 @@ describe("startup coordinator store", () => {
     }));
 
     const request = useStartupStore.getState().ensureStartup("queue", { queueMode: "due-today" });
+    await Promise.resolve();
     collectionState.loaded = true;
     collectionState.activeCollectionId = "collection-b";
     collectionState.subscriber?.(

@@ -1,4 +1,4 @@
-//! Content-free Android markers independent of Tauri IPC and plugin logging.
+//! Content-free launch markers independent of Tauri IPC and plugin logging.
 
 #[cfg(target_os = "android")]
 pub(crate) fn mark(phase: &'static str) {
@@ -38,5 +38,47 @@ pub(crate) fn mark(phase: &'static str) {
     }
 }
 
-#[cfg(not(target_os = "android"))]
+#[cfg(target_os = "linux")]
+pub fn enabled() -> bool {
+    static ENABLED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ENABLED
+        .get_or_init(|| std::env::var_os("PLETHORA_STARTUP_TRACE").as_deref() == Some("1".as_ref()))
+}
+
+#[cfg(target_os = "linux")]
+pub fn mark(phase: &'static str) {
+    use std::io::Write;
+    use std::sync::{
+        atomic::{AtomicUsize, Ordering},
+        OnceLock,
+    };
+    use std::time::Instant;
+
+    static EPOCH: OnceLock<Instant> = OnceLock::new();
+    static COUNT: AtomicUsize = AtomicUsize::new(0);
+    if !enabled() || COUNT.fetch_add(1, Ordering::Relaxed) >= 128 {
+        return;
+    }
+    let marker = serde_json::json!({
+        "phase": phase, "clock": "rust",
+        "elapsedMs": EPOCH.get_or_init(Instant::now).elapsed().as_millis(),
+    });
+    let _ = writeln!(std::io::stderr().lock(), "[startup:native] {marker}");
+}
+
+#[cfg(target_os = "linux")]
+pub(crate) fn attach_webview(window: &tauri::WebviewWindow) {
+    use webkit2gtk::{SettingsExt, WebViewExt};
+
+    if enabled() {
+        let _ = window.with_webview(|webview| {
+            if let Some(settings) = webview.inner().settings() {
+                settings.set_enable_write_console_messages_to_stdout(true);
+            }
+            mark("webview-observer-installed");
+        });
+    }
+}
+
+#[cfg(not(any(target_os = "android", target_os = "linux")))]
 pub(crate) fn mark(_phase: &'static str) {}

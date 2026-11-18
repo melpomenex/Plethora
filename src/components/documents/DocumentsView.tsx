@@ -112,7 +112,7 @@ import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
 import { invokeCommand, isTauri, isNativeAndroid, isNativeMobile } from "../../lib/tauri";
 import type { CaptureListingSource } from "../../api/capture-activity";
-import { observeAndroidStartupSurface } from "../../lib/startupDiagnostics";
+import { hasReleaseStartupTrace, observeStartupSurface } from "../../lib/startupDiagnostics";
 import { renderPdfCover } from "../../lib/pdfCoverRender";
 import { importAnkiPackageFromPicker, inferAnkiDeckNames } from "../../utils/ankiImport";
 import { useI18n } from "../../lib/i18n";
@@ -417,12 +417,12 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   }, [isActiveTab, loadDocuments, activeCollectionId, allLibraryScope]);
 
   useEffect(() => {
-    if (!hasCompletedFirstLoad || isLoading || error || !isNativeAndroid() || !isActiveTab) return;
-    return observeAndroidStartupSurface({
+    if (!hasCompletedFirstLoad || isLoading || error || !isActiveTab) return;
+    return observeStartupSurface({
       surface: "documents",
       outcome: documents.length > 0 ? "populated" : "empty",
       documents: documents.length,
-    });
+    }, isNativeAndroid() || hasReleaseStartupTrace());
   }, [activeCollectionId, hasCompletedFirstLoad, isActiveTab, isLoading, error]);
 
   useEffect(() => {

@@ -256,6 +256,7 @@ tauri-plugin-window-state = "2"
 # set the Dock icon for unbundled (tauri dev) runs, where macOS never applies
 # the .app bundle's icns.
 [target.'cfg(target_os = "linux")'.dependencies]
+webkit2gtk = "2"
 # Already in Cargo.lock (5.19.0); used by audio_lifecycle.rs to observe login1
 # PrepareForSleep and BlueZ audio sink disconnects over the system D-Bus.
 zbus = "5"

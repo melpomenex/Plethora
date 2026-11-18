@@ -7,6 +7,7 @@ import { useI18n } from "../../lib/i18n";
 import { formatRelativeTime } from "../../utils/relativeTime";
 import { usePresentationMode } from "../../contexts/PresentationContext";
 import { useIsActiveTab } from "../common/Tabs";
+import { observeStartupSurface } from "../../lib/startupDiagnostics";
 import { useStartupStore } from "../../stores/startupStore";
 import { type DocumentWithProgress } from "../../types/position";
 import type { StartupProgressItem } from "../../types/startup";
@@ -93,6 +94,10 @@ export function DashboardTab() {
     [startupProgress],
   );
   const hasResumableReading = resumableDocs.length > 0;
+
+  useEffect(() => {
+    if (isActiveTab && stats && !isLoading && !error) return observeStartupSurface({ surface: "dashboard" });
+  }, [activeCollectionId, error, isActiveTab, isLoading, stats]);
 
   useEffect(() => {
     if (!isActiveTab) return;

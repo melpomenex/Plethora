@@ -5,10 +5,23 @@ import { installPromiseCompat } from "./utils/promiseCompat";
 import { installUint8ArrayCompat } from "./utils/uint8ArrayCompat";
 import React from "react";
 import ReactDOM, { type Root } from "react-dom/client";
-import { recordAndroidStartupDiagnostic } from "./lib/startupDiagnostics";
+import { hasReleaseStartupTrace, recordAndroidStartupDiagnostic } from "./lib/startupDiagnostics";
+import { createFrontendStartupAttempt } from "./lib/frontendStartupAttempt";
 
-const traceAndroid = /Android/i.test(navigator.userAgent);
-if (traceAndroid) recordAndroidStartupDiagnostic("bootstrap-entry");
+const traceStartup = hasReleaseStartupTrace() || /Android/i.test(navigator.userAgent);
+if (traceStartup) recordAndroidStartupDiagnostic("bootstrap-entry");
+const BOOT_START = performance.now();
+const display = document.getElementById("error-display");
+
+const startup = createFrontendStartupAttempt(
+  !/^#\/(screenshot-overlay|auth\/callback)(?:[/?]|$)/.test(window.location.hash),
+  (failure) => {
+    window.clearInterval(heartbeat);
+    window.dispatchEvent(new CustomEvent("plethora:startup-recovery", { detail: failure }));
+    if (traceStartup) recordAndroidStartupDiagnostic("recovery-visible", { outcome: failure });
+  },
+);
+window.__plethoraStartupAttempt = startup;
 
 type BootstrapWindow = Window & {
   __plethoraReactRoot?: Root;
@@ -97,8 +110,6 @@ if (typeof crypto !== "undefined" && typeof crypto.randomUUID !== "function") {
 // warm up, so a single dynamic import is equivalent — with one request
 // waterfall instead of fifteen, each of which could wedge on the flaky iOS
 // dev-server path.
-const display = document.getElementById("error-display");
-
 const showStatus = (text: string) => {
   if (!display) return;
   display.textContent = text;
@@ -111,7 +122,6 @@ const hideStatus = () => {
   display.style.display = "none";
 };
 
-const BOOT_START = performance.now();
 let settled = false;
 
 // Progress heartbeat. Doubles as a liveness probe: if the elapsed counter
@@ -126,44 +136,34 @@ const heartbeat = window.setInterval(() => {
   document.body?.setAttribute("data-plethora-heartbeat", String(bootstrapHeartbeat));
 }, 1000);
 
-// Last-resort recovery: a wedged load can always be retried manually.
-window.setTimeout(() => {
-  if (settled || !display) return;
-  display.addEventListener("click", () => window.location.reload());
-  const hint = document.createElement("div");
-  hint.style.marginTop = "24px";
-  hint.textContent = "Tap anywhere to reload";
-  display.appendChild(hint);
-}, 60000);
-
 const loadMain = () => interfaceZoomReady.then(() => import("./main"));
 
 const attempt = (retriesLeft: number): void => {
-  if (traceAndroid) recordAndroidStartupDiagnostic("main-import-start");
+  if (traceStartup) recordAndroidStartupDiagnostic("main-import-start");
   loadMain()
     .then(() => {
-      if (traceAndroid) recordAndroidStartupDiagnostic("main-import-complete", { outcome: "success" });
+      if (traceStartup) recordAndroidStartupDiagnostic("main-import-complete", { outcome: "success" });
       settled = true;
       window.clearInterval(heartbeat);
-      // Startup succeeded — remove the status overlay so it cannot cover the
-      // live app surface.
-      hideStatus();
+      if (!startup.failed) hideStatus();
+      startup.mainLoaded();
     })
     .catch((error: unknown) => {
-      if (traceAndroid) recordAndroidStartupDiagnostic("main-import-failed", { outcome: "error" });
+      if (traceStartup) recordAndroidStartupDiagnostic("main-import-failed", { outcome: "error" });
       // One automatic retry: a transient WebKit/proxy hiccup during the large
       // graph fetch must not surface as a fatal startup error.
-      if (retriesLeft > 0 && !settled) {
-        window.setTimeout(() => attempt(retriesLeft - 1), 1500);
+      if (retriesLeft > 0 && !settled && !startup.failed) {
+        window.setTimeout(() => {
+          if (!startup.failed) attempt(retriesLeft - 1);
+        }, 1500);
         return;
       }
       settled = true;
       window.clearInterval(heartbeat);
       console.error("[startup] main module failed to load:", error);
-      const reason =
-        error instanceof Error ? `${error.message}\n${error.stack ?? ""}` : String(error);
-      showStatus(`Startup failed:\n${reason}`);
+      startup.fail("error");
     });
 };
 
-attempt(1);
+if (display?.dataset.startupRecovery === "true") startup.fail("timeout");
+else attempt(1);

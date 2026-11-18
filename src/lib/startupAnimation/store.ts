@@ -1,10 +1,6 @@
 /**
  * Startup-experience runtime store (companion-store pattern: a tiny zustand
  * store + module-level guards, consumed by the StartupExperience host).
- *
- * `appReady` is the D2 conjunction: startup data ready (ensureStartup
- * reached "ready", which transitively implies the backend-ready gate) AND
- * the main route having painted at least one frame.
  */
 
 import { create } from "zustand";
@@ -13,12 +9,7 @@ import type { KPAnimationMode, Stage } from "./types";
 interface StartupExperienceState {
   stage: Stage;
   mode: KPAnimationMode;
-  dataReady: boolean;
   routePainted: boolean;
-  /** Derived conjunction, recomputed by the flag-setting actions. */
-  appReady: boolean;
-  markDataReady: () => void;
-  markDataError: () => void;
   markRoutePainted: () => void;
   setStage: (stage: Stage) => void;
   forceExit: () => void;
@@ -28,8 +19,6 @@ interface StartupExperienceState {
 
 const INITIAL: Omit<
   StartupExperienceState,
-  | "markDataReady"
-  | "markDataError"
   | "markRoutePainted"
   | "setStage"
   | "forceExit"
@@ -37,28 +26,13 @@ const INITIAL: Omit<
 > = {
   stage: "handoff",
   mode: "full",
-  dataReady: false,
   routePainted: false,
-  appReady: false,
 };
-
-function withAppReady(
-  state: StartupExperienceState,
-  patch: Partial<Pick<StartupExperienceState, "dataReady" | "routePainted">>
-): Partial<StartupExperienceState> {
-  const dataReady = patch.dataReady ?? state.dataReady;
-  const routePainted = patch.routePainted ?? state.routePainted;
-  return { ...patch, appReady: dataReady && routePainted };
-}
 
 export const useStartupExperienceStore = create<StartupExperienceState>(
   (set) => ({
     ...INITIAL,
-    markDataReady: () => set((s) => withAppReady(s, { dataReady: true })),
-    markDataError: () =>
-      set(() => ({ dataReady: false, appReady: false, stage: "aborted" })),
-    markRoutePainted: () =>
-      set((s) => withAppReady(s, { routePainted: true })),
+    markRoutePainted: () => set({ routePainted: true, stage: "done" }),
     setStage: (stage) => set({ stage }),
     forceExit: () => set({ stage: "aborted" }),
     reset: () => set({ ...INITIAL }),

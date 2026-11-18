@@ -1,6 +1,6 @@
 /**
  * Startup-experience store unit tests: once-per-runtime guard, route gating,
- * appReady conjunction semantics, and force-exit.
+ * shell readiness and force-exit.
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import {
@@ -39,31 +39,12 @@ describe("route gating", () => {
   });
 });
 
-describe("appReady conjunction semantics (design D2)", () => {
-  it("appReady is true only when dataReady AND routePainted", () => {
-    const s = useStartupExperienceStore.getState();
-    expect(s.appReady).toBe(false);
-
-    s.markDataReady();
-    expect(useStartupExperienceStore.getState().dataReady).toBe(true);
-    expect(useStartupExperienceStore.getState().appReady).toBe(false);
-
-    useStartupExperienceStore.getState().markRoutePainted();
-    expect(useStartupExperienceStore.getState().routePainted).toBe(true);
-    expect(useStartupExperienceStore.getState().appReady).toBe(true);
-  });
-
-  it("routePainted alone is not readiness", () => {
-    useStartupExperienceStore.getState().markRoutePainted();
-    expect(useStartupExperienceStore.getState().appReady).toBe(false);
-  });
-});
-
-describe("error exit and force exit", () => {
-  it("markDataError aborts immediately (errors are never concealed)", () => {
-    useStartupExperienceStore.getState().markDataError();
-    expect(useStartupExperienceStore.getState().stage).toBe("aborted");
-    expect(useStartupExperienceStore.getState().appReady).toBe(false);
+describe("shell readiness and force exit", () => {
+  it("ends the startup presentation when the shell is ready", () => {
+    const state = useStartupExperienceStore.getState();
+    state.setStage("choreography");
+    state.markRoutePainted();
+    expect(useStartupExperienceStore.getState()).toMatchObject({ routePainted: true, stage: "done" });
   });
 
   it("forceExit aborts from any stage", () => {
@@ -76,13 +57,11 @@ describe("error exit and force exit", () => {
 describe("reset (unmount cleanup)", () => {
   it("restores pristine flags but does not refund the launch claim", () => {
     claimLaunch();
-    useStartupExperienceStore.getState().markDataReady();
-    useStartupExperienceStore.getState().setStage("reveal");
+    useStartupExperienceStore.getState().markRoutePainted();
     useStartupExperienceStore.getState().reset();
     const s = useStartupExperienceStore.getState();
     expect(s.stage).toBe("handoff");
-    expect(s.dataReady).toBe(false);
-    expect(s.appReady).toBe(false);
+    expect(s.routePainted).toBe(false);
     expect(claimLaunch()).toBe(false); // still spent this runtime
   });
 });

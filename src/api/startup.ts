@@ -2,6 +2,7 @@ import { getQueueOrderingMode } from "../stores/queueOrderingSettings";
 import { invokeCommand, isNativeAndroid, isTauri } from "../lib/tauri";
 import {
   classifyAndroidStartupFailure,
+  hasReleaseStartupTrace,
   recordAndroidStartupDiagnostic,
 } from "../lib/startupDiagnostics";
 import { mapDocuments } from "./documents";
@@ -60,6 +61,7 @@ export async function getStartupSnapshot(options: {
 } = {}): Promise<StartupSnapshot> {
   const startedAt = performance.now();
   const surface = options.surface ?? "dashboard";
+  const traceStartup = isNativeAndroid() || hasReleaseStartupTrace();
   const args = {
     includeQueue: options.includeQueue ?? surface === "queue",
     documentLimit: STARTUP_DOCUMENT_LIMIT,
@@ -69,7 +71,7 @@ export async function getStartupSnapshot(options: {
     ...(surface === "queue" && { orderingMode: getQueueOrderingMode() }),
     progressLimit: STARTUP_PROGRESS_LIMIT,
   };
-  if (isNativeAndroid()) {
+  if (traceStartup) {
     recordAndroidStartupDiagnostic("snapshot-request-start", { surface });
   }
   try {
@@ -114,7 +116,7 @@ export async function getStartupSnapshot(options: {
     if (bytes > STARTUP_RESPONSE_BYTE_BUDGET) {
       console.warn(`[startup] snapshot exceeded 256 KiB (${bytes} bytes)`);
     }
-    if (isNativeAndroid()) {
+    if (traceStartup) {
       recordAndroidStartupDiagnostic("snapshot-request-complete", {
         surface,
         durationMs: Math.round(performance.now() - startedAt),
@@ -126,7 +128,7 @@ export async function getStartupSnapshot(options: {
     }
     return snapshot;
   } catch (error) {
-    if (isNativeAndroid()) {
+    if (traceStartup) {
       recordAndroidStartupDiagnostic("snapshot-request-failed", {
         surface,
         durationMs: Math.round(performance.now() - startedAt),

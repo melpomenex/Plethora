@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
+import { markLocalStartupReady } from "../../../lib/startupOptionalWork";
 
 const { Placeholder, autoPostpone, mobileShell } = vi.hoisted(() => ({
   Placeholder: () => null,
@@ -401,11 +402,16 @@ describe("MainLayout applies Default View after a restored session", () => {
   it("starts the shared postpone session from the main mobile shell once", async () => {
     mobileShell.enabled = true;
     vi.useFakeTimers();
+    vi.stubGlobal("requestIdleCallback", undefined);
     render(<MainLayout />);
 
     expect(autoPostpone.run).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(2_000);
+    vi.advanceTimersByTime(5_000);
+    expect(autoPostpone.run).not.toHaveBeenCalled();
+    markLocalStartupReady();
+    vi.runAllTimers();
     expect(autoPostpone.run).toHaveBeenCalledTimes(1);
+    vi.unstubAllGlobals();
   });
 
   it("activates an existing destination tab instead of duplicating it", async () => {

@@ -181,9 +181,30 @@
         white-space: pre-wrap;
       "
     ></div>
+    <dialog id="startup-recovery" aria-labelledby="startup-recovery-message">
+      <p id="startup-recovery-message">Plethora is taking too long to start.</p>
+      <button id="startup-reload" type="button">Reload Plethora</button>
+    </dialog>
     <script>
       (function () {
         var errorDiv = document.getElementById("error-display");
+        var recovery = document.getElementById("startup-recovery");
+        var recoveryMessage = document.getElementById("startup-recovery-message");
+        var reload = document.getElementById("startup-reload");
+        recovery.style.margin = "auto";
+        recovery.style.maxWidth = "calc(100% - 2rem)";
+        recovery.style.padding = "1rem";
+        reload.style.marginTop = "0.75rem";
+        reload.style.padding = "0.25rem 0.5rem";
+        reload.addEventListener("click", function () { window.location.reload(); });
+        recovery.addEventListener("cancel", function (event) { event.preventDefault(); });
+        window.addEventListener("plethora:startup-recovery", function (event) {
+          errorDiv.dataset.startupRecovery = "true";
+          errorDiv.style.display = "none";
+          if (event.detail === "error") recoveryMessage.textContent = "Plethora couldn’t start.";
+          if (!recovery.open) recovery.showModal();
+          reload.focus();
+        });
         function isBenignResizeObserverMessage(message) {
           if (!message) return false;
           return (
@@ -192,6 +213,7 @@
           );
         }
         window.addEventListener("error", function (e) {
+          if (errorDiv.dataset.startupRecovery === "true") return;
           if (isBenignResizeObserverMessage(e.message || "")) {
             e.preventDefault && e.preventDefault();
             return;
@@ -201,6 +223,7 @@
             "Error: " + e.message + "\n" + (e.error && e.error.stack ? e.error.stack : "") + "\n\n";
         });
         window.addEventListener("unhandledrejection", function (e) {
+          if (errorDiv.dataset.startupRecovery === "true") return;
           var reasonText = "";
           if (typeof e.reason === "string") {
             reasonText = e.reason;
@@ -226,19 +249,13 @@
     </script>
     <script type="module" src="src/main-bootstrap.ts"></script>
     <script>
-      // Diagnostic only: if the module graph never starts, make that fact
-      // visible instead of leaving the static frame indistinguishable from a
-      // mounted startup overlay.
+      // The bootstrap also owns a deadline once its module has evaluated.
       setTimeout(function () {
         var root = document.getElementById("root");
         if (root && root.getAttribute("data-plethora-mounted") !== "true") {
-          var display = document.getElementById("error-display");
-          if (display) {
-            display.textContent = "Startup timeout: main module did not mount React within 5 seconds.";
-            display.style.display = "block";
-          }
+          window.dispatchEvent(new CustomEvent("plethora:startup-recovery", { detail: "timeout" }));
         }
-      }, 5000);
+      }, 15000);
     </script>
   </body>
 </html>

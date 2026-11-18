@@ -3,6 +3,7 @@ import { getStartupSnapshot } from "../api/startup";
 import { isNativeAndroid, waitForBackendReady } from "../lib/tauri";
 import {
   classifyAndroidStartupFailure,
+  hasReleaseStartupTrace,
   recordAndroidStartupDiagnostic,
 } from "../lib/startupDiagnostics";
 import type { StartupSnapshot, StartupSurface } from "../types/startup";
@@ -122,16 +123,14 @@ export const useStartupStore = create<StartupState>((set, get) => ({
     surfaceGenerations.set(surfaceKey, surfaceGeneration);
     const android = isNativeAndroid();
 
-    if (android) {
-      const documentState = useDocumentStore.getState();
-      if (!documentState.hasCompletedFirstLoad && documentState.documents.length === 0) {
-        useDocumentStore.setState({ isLoading: true, error: null });
-      }
-      if (surface === "queue") {
-        const queueState = useQueueStore.getState();
-        if (!queueState.hasCompletedFirstLoad && queueState.items.length === 0) {
-          useQueueStore.setState({ isLoading: true, error: null });
-        }
+    const documentState = useDocumentStore.getState();
+    if (!documentState.hasCompletedFirstLoad && documentState.documents.length === 0) {
+      useDocumentStore.setState({ isLoading: true, error: null });
+    }
+    if (surface === "queue") {
+      const queueState = useQueueStore.getState();
+      if (!queueState.hasCompletedFirstLoad && queueState.items.length === 0) {
+        useQueueStore.setState({ isLoading: true, error: null });
       }
     }
 
@@ -160,7 +159,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
         useQueueStore.getState().hydrateStartupQueue(snapshot.queue.items);
       }
       void useSavedQueueStore.getState().loadSavedQueues(snapshot.activeCollectionId);
-      if (android) {
+      if (android || hasReleaseStartupTrace()) {
         recordAndroidStartupDiagnostic("snapshot-hydrated", {
           surface,
           outcome: snapshot.documents.items.length + snapshot.queue.items.length > 0 ? "populated" : "empty",
@@ -189,6 +188,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
           // request watchdog avoids treating slow database migrations as a
           // failed/empty startup query.
           await waitForBackendReady();
+          if (!isCurrentRequest()) return null;
           const snapshot = await requestSnapshotWithTimeout(surface, options);
           const applied = await applySnapshot(snapshot);
           if (applied) return applied;
@@ -234,6 +234,18 @@ export const useStartupStore = create<StartupState>((set, get) => ({
     };
 
     const runLegacyStartup = async (): Promise<StartupSnapshot | null> => {
+      // The request watchdog starts once storage can actually answer. Without
+      // this ordering each frontend retry queues another snapshot behind the
+      // same migration, and all those queries run after readiness.
+      try {
+        await waitForBackendReady();
+      } catch (error) {
+        if (isCurrentRequest()) {
+          set({ status: "error", error: error instanceof Error ? error.message : "Local storage is unavailable" });
+        }
+        return null;
+      }
+      if (!isCurrentRequest()) return null;
       let snapshotTimer: ReturnType<typeof setTimeout> | undefined;
       const snapshotTimeout = new Promise<null>((resolve) => {
         snapshotTimer = setTimeout(() => resolve(null), SNAPSHOT_REQUEST_TIMEOUT_MS);
@@ -244,13 +256,15 @@ export const useStartupStore = create<StartupState>((set, get) => ({
           snapshotTimeout,
         ]);
         if (snapshot === null) {
-          set({ status: "idle" });
+          if (isCurrentRequest()) set({ status: "idle" });
           return null;
         }
         return await applySnapshot(snapshot);
       } catch (error) {
+        if (!isCurrentRequest()) return null;
         try {
           await fallbackToLegacyLoads(surface, options?.queueMode);
+          if (!isCurrentRequest()) return null;
           set({
             status: "ready",
             error: error instanceof Error ? error.message : "Startup snapshot unavailable; used legacy loads",
@@ -259,6 +273,7 @@ export const useStartupStore = create<StartupState>((set, get) => ({
             lastQueueMode: surface === "queue" ? (options?.queueMode ?? "due-all") : null,
           });
         } catch (fallbackError) {
+          if (!isCurrentRequest()) return null;
           set({
             status: "error",
             error: fallbackError instanceof Error ? fallbackError.message : "Failed to load startup data",
@@ -280,14 +295,22 @@ export const useStartupStore = create<StartupState>((set, get) => ({
   },
 
   retryStartup: (surface = get().lastSurface ?? "dashboard") => {
-    set({ status: "idle", error: null });
     const queueMode = get().lastQueueMode;
+    const collectionId = useCollectionStore.getState().activeCollectionId;
+    inflight.delete(requestKey(collectionId, surface, surface === "queue" ? queueMode ?? undefined : undefined));
+    set({ status: "idle", error: null });
     return get().ensureStartup(
       surface,
       surface === "queue" && queueMode ? { queueMode } : undefined,
     );
   },
 }));
+
+useStartupStore.subscribe((state) => {
+  const attempt = typeof window !== "undefined" ? window.__plethoraStartupAttempt : undefined;
+  if (state.status === "ready") attempt?.dataLoaded();
+  if (state.status === "error") attempt?.fail("error");
+});
 
 // A collection switch invalidates every collection-scoped startup response.
 // The visible surface will request the new snapshot through a new key; late

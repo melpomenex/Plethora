@@ -1,4 +1,4 @@
-import { recordAndroidStartupDiagnostic } from "./startupDiagnostics";
+import { hasReleaseStartupTrace, recordAndroidStartupDiagnostic } from "./startupDiagnostics";
 
 /**
  * Type-safe wrapper for Tauri invoke commands
@@ -33,7 +33,7 @@ let androidBackendReadyReported = false;
 let startupCommandRequest = 0;
 
 async function invokeWithStartupTrace(command: string, args?: Record<string, unknown>): Promise<unknown> {
-  if (!isNativeAndroid() || (command !== "wait_for_backend_ready" && command !== "get_startup_snapshot")) {
+  if ((!isNativeAndroid() && !hasReleaseStartupTrace()) || (command !== "wait_for_backend_ready" && command !== "get_startup_snapshot")) {
     return args === undefined ? tauriInvoke!(command) : tauriInvoke!(command, args);
   }
   const request = ++startupCommandRequest;
@@ -98,6 +98,10 @@ async function awaitBackendReadyWithRetry(): Promise<void> {
       await probeBackendReady();
       return;
     } catch (error) {
+      if (error instanceof Error && error.message === "local-startup-failed") {
+        if (typeof window !== "undefined") window.__plethoraStartupAttempt?.fail("error");
+        throw error;
+      }
       lastError = error;
       console.warn(
         `[startup] backend readiness probe stalled (attempt ${attempt}/${BACKEND_READY_MAX_ATTEMPTS}); retrying:`,

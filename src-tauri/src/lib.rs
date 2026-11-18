@@ -95,16 +95,14 @@ use anyhow::Context;
 use database::Database;
 use std::collections::HashSet;
 use std::io::Write;
-use std::sync::{
-    atomic::{AtomicBool, Ordering},
-    Arc, Mutex,
-};
+use std::sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex};
 use tauri::{Emitter, Manager};
 use tokio::sync::Notify;
 use url::Url;
 #[cfg(feature = "startup-bench")]
 mod startup_fixture;
-mod startup_trace;
+#[doc(hidden)]
+pub mod startup_trace;
 
 // Global state for the database
 struct AppState {
@@ -122,26 +120,30 @@ impl AppState {
     }
 }
 
-/// Gates frontend commands until database migrations and managed services are
-/// ready. Native mobile webviews can begin issuing IPC while setup is still in
-/// progress, so repository state must exist early without being queried early.
+/// Gates frontend commands until database migrations and managed services settle.
 #[derive(Default)]
 struct BackendReadyState {
-    ready: AtomicBool,
+    result: std::sync::OnceLock<Result<(), &'static str>>,
     notify: Notify,
+    optional_started: AtomicBool,
 }
 
 impl BackendReadyState {
     fn mark_ready(&self) {
-        self.ready.store(true, Ordering::Release);
-        self.notify.notify_waiters();
+        self.finish(Ok(()));
     }
 
-    async fn wait(&self) {
-        while !self.ready.load(Ordering::Acquire) {
+    fn finish(&self, result: Result<(), &'static str>) {
+        if self.result.set(result).is_ok() {
+            self.notify.notify_waiters();
+        }
+    }
+
+    async fn wait(&self) -> Result<(), &'static str> {
+        loop {
             let notified = self.notify.notified();
-            if self.ready.load(Ordering::Acquire) {
-                break;
+            if let Some(result) = self.result.get() {
+                return *result;
             }
             notified.await;
         }
@@ -395,8 +397,28 @@ fn greet(name: &str) -> String {
 #[tauri::command]
 async fn wait_for_backend_ready(state: tauri::State<'_, BackendReadyState>) -> Result<(), String> {
     startup_trace::mark("readiness-handler-entry");
-    state.wait().await;
+    let result = state.wait().await.map_err(str::to_owned);
     startup_trace::mark("readiness-handler-complete");
+    result
+}
+
+#[tauri::command]
+async fn start_optional_runtime(
+    app: tauri::AppHandle,
+    state: tauri::State<'_, BackendReadyState>,
+    repository: tauri::State<'_, database::Repository>,
+) -> Result<(), String> {
+    state.wait().await.map_err(str::to_owned)?;
+    if state.optional_started.swap(true, Ordering::AcqRel) {
+        return Ok(());
+    }
+    sync::scheduler::init(app.clone());
+    startup_trace::mark("sync-scheduler-initialized");
+    if let Err(error) =
+        browser_sync_server::initialize_if_enabled(Arc::new(repository.inner().clone()), app, None).await
+    {
+        tracing::warn!("Browser sync server initialization failed: {error}");
+    }
     Ok(())
 }
 
@@ -452,7 +474,19 @@ mod backend_ready_tests {
         tokio::time::timeout(Duration::from_secs(1), waiter)
             .await
             .expect("backend-ready waiter timed out")
-            .expect("backend-ready waiter panicked");
+            .expect("backend-ready waiter panicked")
+            .expect("backend initialization failed");
+    }
+
+    #[tokio::test]
+    async fn failed_initialization_releases_current_and_future_waiters() {
+        let state = BackendReadyState::default();
+        let (waited, ()) = tokio::join!(state.wait(), async {
+            tokio::task::yield_now().await;
+            state.finish(Err("local-startup-failed"));
+        });
+        assert_eq!(waited, Err("local-startup-failed"));
+        assert_eq!(state.wait().await, waited);
     }
 }
 
@@ -729,7 +763,10 @@ fn apply_window_icons(app: &tauri::AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    #[cfg(not(target_os = "linux"))]
     startup_trace::mark("native-entry");
+    #[cfg(target_os = "linux")]
+    startup_trace::mark("tauri-entry");
     // Install the rustls crypto provider as the very first thing. reqwest's
     // `rustls-tls` feature compiles rustls 0.23 in `*-no-provider` mode, so no
     // provider is auto-registered. On Android the first TLS Client build (which
@@ -861,6 +898,25 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
             external_open::on_second_instance(app, argv, cwd);
         }));
+    }
+
+    #[cfg(target_os = "linux")]
+    if startup_trace::enabled() {
+        builder = builder
+            .plugin(
+                tauri::plugin::Builder::<_, ()>::new("startup-trace")
+                    .js_init_script("window.__PLETHORA_STARTUP_TRACE__ = true;")
+                    .build(),
+            )
+            .on_page_load(|webview, payload| {
+                if webview.label() == "main" {
+                    use tauri::webview::PageLoadEvent;
+                    startup_trace::mark(match payload.event() {
+                        PageLoadEvent::Started => "webview-load-start",
+                        PageLoadEvent::Finished => "webview-load-complete",
+                    });
+                }
+            });
     }
 
     #[cfg(any(target_os = "macos", target_os = "ios"))]
@@ -1139,6 +1195,10 @@ pub fn run() {
             install_panic_hook(app_handle.clone());
             log_startup(&app_handle, "startup: begin");
             startup_trace::mark("setup-entry");
+            #[cfg(target_os = "linux")]
+            if let Some(window) = app.get_webview_window("main") {
+                startup_trace::attach_webview(&window);
+            }
 
             // Dev runs are unbundled binaries; give them the rounded Dock
             // icon that bundled .app builds get from their icns.
@@ -1193,22 +1253,58 @@ pub fn run() {
             app.manage(BackendReadyState::default());
             app.manage(external_open::PendingExternalOpens::default());
 
-            let result: anyhow::Result<()> = tauri::async_runtime::block_on(async {
-                // Instantly register critical managed states with lazy/placeholder values.
-                // This happens within the active Tokio runtime context, preventing abort crashes.
-                // It ensures that any early IPC calls from the fast-loading mobile WebView
-                // resolve the State injection successfully rather than throwing "state not managed" errors.
+            // Window APIs stay on the setup thread. Let the WebView paint
+            // while required local initialization proceeds on the runtime.
+            if let Some(window) = app.get_webview_window("main") {
+                // On desktop release builds the frontend is served over
+                // http://localhost via tauri-plugin-localhost, so navigate
+                // the main window there. On android/ios the localhost plugin
+                // is absent and the frontend is served from the bundled
+                // frontendDist via the tauri:// protocol — navigating to
+                // localhost:9527 there leaves the screen blank ("could not
+                // be loaded"), so skip the redirect on mobile.
+                #[cfg(all(
+                    not(dev),
+                    not(any(target_os = "android", target_os = "ios"))
+                ))]
+                if let Ok(url) = Url::parse(&format!("http://localhost:{LOCALHOST_PORT}/")) {
+                    let _ = window.navigate(url);
+                }
+                #[cfg(all(
+                    feature = "devtools",
+                    not(any(target_os = "ios", target_os = "android"))
+                ))]
+                if crate::utils::keychain::env_or_legacy("PLETHORA_OPEN_DEVTOOLS").is_some() {
+                    window.open_devtools();
+                }
+                startup_trace::mark("webview-setup-complete");
+
+                // Hide the Linux menu bar where it would otherwise clutter the UI.
+                // Windows WebView2 needs the native menu visible for accelerators.
+                #[cfg(target_os = "linux")]
+                {
+                    let _ = window.hide_menu();
+                }
+
+                #[cfg(desktop)]
+                external_open::queue_startup_args(&app_handle);
+            }
+
+            let app = app_handle.clone();
+            let initialize = async move {
+                let app_handle = app.clone();
+                // These services are constructed in the Tokio runtime.
                 app.manage(AppState::new());
                 let saved_ai_config =
-                    commands::ai::load_ai_config_preferences(&app.handle().clone());
+                    commands::ai::load_ai_config_preferences(&app);
                 app.manage(AIState {
                     config: Arc::new(std::sync::Mutex::new(saved_ai_config)),
                 });
                 app.manage(FocusTimer::new());
-            app.manage(media_control::MediaControlBridge::default());
-            app.manage(media_compat::jobs::MediaCompatState::new());
-            app.manage(audio_lifecycle::AudioLifecycleState::default());
-            audio_lifecycle::start(app.handle());
+                app.manage(media_control::MediaControlBridge::default());
+                app.manage(media_compat::jobs::MediaCompatState::new());
+                app.manage(audio_lifecycle::AudioLifecycleState::default());
+                audio_lifecycle::start(&app);
                 app.manage(commands::podcast::PodcastTranscriptionTokens::default());
                 // document_id -> plugin job id for running on-device STT jobs
                 // (cancel support for transcribe_audio_file_on_device).
@@ -1216,12 +1312,10 @@ pub fn run() {
                 app.manage(Arc::new(entitlements::EntitlementCache::new()));
                 app.manage(Arc::new(plethora_auth::AuthManager::new()));
                 startup_trace::mark("auth-init-start");
-                plethora_auth::init(app.handle().clone());
+                plethora_auth::init(app.clone());
                 startup_trace::mark("auth-init-complete");
                 app.manage(Arc::new(plethora_cloud::CloudJobService::new()));
                 app.manage(Arc::new(sync::SyncEngine::new()));
-                sync::scheduler::init(app.handle().clone());
-                startup_trace::mark("sync-scheduler-initialized");
 
                 // Initialize the OCR processor with defaults before any IPC
                 // can arrive: cold-start OCR commands used to fail with
@@ -1349,21 +1443,17 @@ pub fn run() {
                     }
                 }
 
-                // Retrieve the AppState managed early on the builder and store the database in it
-                let app_state = app.state::<AppState>();
                 let pool = db.pool().clone();
-                *app_state.db.lock().expect("app state mutex poisoned") = Some(db);
-
                 log_startup(&app_handle, "startup: database initialized");
                 startup_trace::mark("database-open-complete");
 
-                // Register the real repository immediately so early mobile IPC
-                // can resolve State<Repository>. invokeCommand waits on
-                // BackendReadyState, so normal commands cannot query it before
-                // migrations complete.
-                let repo = database::Repository::new(pool.clone());
-                if !app.manage(repo.clone()) {
-                    anyhow::bail!("Repository state was already managed before database setup");
+                #[cfg(target_os = "linux")]
+                if startup_trace::enabled() {
+                    let delay = std::env::var("PLETHORA_STARTUP_MIGRATION_DELAY_MS")
+                        .ok().and_then(|value| value.parse::<u64>().ok()).unwrap_or(0).min(30_000);
+                    if delay > 0 {
+                        tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
+                    }
                 }
 
                 startup_trace::mark("migrations-start");
@@ -1376,6 +1466,15 @@ pub fn run() {
 
                 #[cfg(feature = "startup-bench")]
                 startup_fixture::prepare(&app_dir, &pool).await?;
+
+                // Publish database handles only once required migrations and
+                // recovery are complete. Commands using the shared readiness
+                // gate wait for the rest of managed state as well.
+                let repo = database::Repository::new(pool.clone());
+                if !app.manage(repo.clone()) {
+                    anyhow::bail!("Repository state was already managed before database setup");
+                }
+                *app.state::<AppState>().db.lock().expect("app state mutex poisoned") = Some(db);
 
                 migrations::fsrs7_migration::spawn_fsrs7_migration(pool.clone());
 
@@ -1422,11 +1521,11 @@ pub fn run() {
                 app.manage(models::hf::commands::ActiveHfDownloads::default());
                 app.manage(transcription::TranscriptionState {
                     job_queue: transcription::job_queue::JobQueue::new(
-                        app.handle().clone(),
+                        app.clone(),
                         repo.clone(),
                     ),
                     auto_queue: transcription::auto_queue::AutoTranscriptionQueue::new(
-                        app.handle().clone(),
+                        app.clone(),
                         repo.clone(),
                     ),
                 });
@@ -1450,7 +1549,7 @@ pub fn run() {
                 // else the OnDevice backend stays the lexical-only stub.
                 #[cfg(target_os = "android")]
                 {
-                    let bridge_app = app.handle().clone();
+                    let bridge_app = app.clone();
                     ai_learning::embeddings_backend::install_on_device_embedder(std::sync::Arc::new(
                         move |texts: &[String], normalize: bool, kind: &str| {
                             let plugin_kind = match kind {
@@ -1480,7 +1579,7 @@ pub fn run() {
 
                 #[cfg(target_os = "ios")]
                 {
-                    let bridge_app = app.handle().clone();
+                    let bridge_app = app.clone();
                     ai_learning::embeddings_backend::install_on_device_embedder(std::sync::Arc::new(
                         move |texts: &[String], _normalize: bool, _kind: &str| {
                             plethora_apple_intelligence::embed_texts_via_app(
@@ -1505,8 +1604,8 @@ pub fn run() {
                             })
                         },
                     ));
-                    let spotlight_app = app.handle().clone();
-                    let spotlight_app_delete = app.handle().clone();
+                    let spotlight_app = app.clone();
+                    let spotlight_app_delete = app.clone();
                     ai_learning::spotlight::install_spotlight_projector(
                         std::sync::Arc::new(move |items: &[ai_learning::spotlight::SpotlightItem]| {
                             let payload: Vec<serde_json::Value> = items
@@ -1627,71 +1726,31 @@ pub fn run() {
                 // Repository state was managed earlier in setup (right after it
                 // was created), so there is nothing to manage here.
 
-                // Initialize browser sync server in the background if auto-start is enabled.
-                let bg_app_handle = app_handle.clone();
-                let repo_arc = std::sync::Arc::new(database::Repository::new(pool));
-                tauri::async_runtime::spawn(async move {
-                    if let Err(e) =
-                        browser_sync_server::initialize_if_enabled(repo_arc, bg_app_handle, None)
-                            .await
-                    {
-                        tracing::warn!("Browser sync server initialization failed: {}", e);
+                Ok::<(), anyhow::Error>(())
+            };
+            tauri::async_runtime::spawn(async move {
+                let result = initialize.await;
+                let readiness = app_handle.state::<BackendReadyState>();
+                match result {
+                    Ok(()) => {
+                        readiness.mark_ready();
+                        startup_trace::mark("native-ready");
+                        log_startup(&app_handle, "startup: backend ready");
+                        log_startup(&app_handle, "startup: complete");
                     }
-                });
-
-                if let Some(window) = app.get_webview_window("main") {
-                    // On desktop release builds the frontend is served over
-                    // http://localhost via tauri-plugin-localhost, so navigate
-                    // the main window there. On android/ios the localhost plugin
-                    // is absent and the frontend is served from the bundled
-                    // frontendDist via the tauri:// protocol — navigating to
-                    // localhost:9527 there leaves the screen blank ("could not
-                    // be loaded"), so skip the redirect on mobile.
-                    #[cfg(all(
-                        not(dev),
-                        not(any(target_os = "android", target_os = "ios"))
-                    ))]
-                    if let Ok(url) = Url::parse(&format!("http://localhost:{LOCALHOST_PORT}/")) {
-                        let _ = window.navigate(url);
+                    Err(err) => {
+                        readiness.finish(Err("local-startup-failed"));
+                        startup_trace::mark("native-failed");
+                        log_startup(&app_handle, &format!("startup: error: {err:#}"));
                     }
-                    #[cfg(all(
-                        feature = "devtools",
-                        not(any(target_os = "ios", target_os = "android"))
-                    ))]
-                    if crate::utils::keychain::env_or_legacy("PLETHORA_OPEN_DEVTOOLS").is_some() {
-                        window.open_devtools();
-                    }
-                    tracing::info!("Webview ready at {:?}", window.url());
-
-                    // Hide the Linux menu bar where it would otherwise clutter the UI.
-                    // Windows WebView2 needs the native menu visible for accelerators.
-                    #[cfg(target_os = "linux")]
-                    {
-                        let _ = window.hide_menu();
-                    }
-
-                    #[cfg(desktop)]
-                    external_open::queue_startup_args(&app_handle);
                 }
-
-                app.state::<BackendReadyState>().mark_ready();
-                startup_trace::mark("native-ready");
-                log_startup(&app_handle, "startup: backend ready");
-
-                Ok(())
             });
-
-            if let Err(err) = result {
-                log_startup(&app_handle, &format!("startup: error: {err:#}"));
-                return Err(err.into());
-            }
-
-            log_startup(&app_handle, "startup: complete");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             greet,
             wait_for_backend_ready,
+            start_optional_runtime,
             ping_health,
             commands::memory_scenario::get_memory_scenario_config,
             download_update_apk,

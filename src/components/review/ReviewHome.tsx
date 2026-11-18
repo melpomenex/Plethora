@@ -1,5 +1,6 @@
 import { useDestinationAction } from "../../commandPalette/destinationActions";
 import { useEffect, useMemo, useState } from "react";
+import { observeStartupSurface } from "../../lib/startupDiagnostics";
 import {
   ArrowsClockwise,
   ChartBar,
@@ -88,6 +89,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   } = useStudyDeckStore();
 
   const [dueItems, setDueItems] = useState<LearningItem[]>([]);
+  const [loadedCollection, setLoadedCollection] = useState<typeof activeCollectionId>();
   const [allItems, setAllItems] = useState<AllLearningItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -128,6 +130,7 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
     try {
       const items = await getDueItems(activeCollectionId);
       setDueItems(items);
+      setLoadedCollection(activeCollectionId);
       await loadStreak();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("reviewHome.failedToLoadStats"));
@@ -156,6 +159,12 @@ export function ReviewHome({ onStartReview, onOpenDeckManager }: ReviewHomeProps
   useEffect(() => {
     if (isActiveTab) loadStats();
   }, [activeCollectionId, isActiveTab]);
+
+  useEffect(() => {
+    if (isActiveTab && loadedCollection !== undefined && loadedCollection === activeCollectionId && !isLoading && !error) {
+      return observeStartupSurface({ surface: "review" });
+    }
+  }, [activeCollectionId, error, isActiveTab, isLoading, loadedCollection]);
 
   useEffect(() => {
     if (isActiveTab) loadDeckStats();

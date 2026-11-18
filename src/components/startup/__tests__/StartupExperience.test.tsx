@@ -3,8 +3,7 @@
  *
  * Uses fake timers with requestAnimationFrame faked through setTimeout, the
  * component's `__kpTestClock` injectable clock for deterministic virtual
- * time, module mocks for the presentation context and the startup store
- * (established vi.hoisted patterns), and the REAL startup-experience store.
+ * time, a presentation mock, and the real startup-experience store.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, render, cleanup } from "@testing-library/react";
@@ -23,31 +22,12 @@ const mocks = vi.hoisted(() => {
     isEinkMode: false,
     setDisplayMode: () => {},
   };
-  return {
-    presentation,
-    ensureStartup: vi.fn(async () => null),
-    setStartupStatus: (_status: string) => {},
-  };
+  return { presentation };
 });
 
 vi.mock("../../../contexts/PresentationContext", () => ({
   usePresentation: () => mocks.presentation,
 }));
-
-vi.mock("../../../stores/startupStore", async () => {
-  const { create } = await import("zustand");
-  const useStartupStore = create(() => ({
-    status: "idle",
-    error: null,
-    ensureStartup: mocks.ensureStartup,
-    retryStartup: vi.fn(async () => null),
-  }));
-  // Expose a status driver to the tests (the component subscribes to this).
-  (mocks as { setStartupStatus: (s: string) => void }).setStartupStatus = (
-    status: string
-  ) => useStartupStore.setState({ status });
-  return { useStartupStore };
-});
 
 import { StartupExperience } from "../StartupExperience";
 import {
@@ -67,14 +47,12 @@ interface SetupOptions {
   eink?: boolean;
   mobile?: boolean;
   startupAnimationEnabled?: boolean;
-  initialStatus?: string;
   /** Skip the launch-claim reset (simulates the same live JS runtime). */
   reuseRuntime?: boolean;
 }
 
 interface Driver {
   advance: (ms: number) => void;
-  clock: () => number;
   rerender: (ui: ReactElement) => void;
   unmount: () => void;
 }
@@ -88,7 +66,6 @@ function setup(options: SetupOptions = {}): Driver {
     eink = false,
     mobile = false,
     startupAnimationEnabled = true,
-    initialStatus = "idle",
     reuseRuntime = false,
   } = options;
 
@@ -96,7 +73,6 @@ function setup(options: SetupOptions = {}): Driver {
   mocks.presentation.reducedMotion = reducedMotion;
   mocks.presentation.isEinkMode = eink;
   mocks.presentation.isMobileShell = mobile;
-  mocks.setStartupStatus(initialStatus);
 
   if (!reuseRuntime) __resetLaunchClaimForTests();
   useStartupExperienceStore.getState().reset();
@@ -122,7 +98,6 @@ function setup(options: SetupOptions = {}): Driver {
         vi.advanceTimersByTime(ms);
       });
     },
-    clock: () => fakeClock,
     rerender: (ui: ReactElement) => view.rerender(ui),
     unmount: () => view.unmount(),
   };
@@ -131,7 +106,6 @@ function setup(options: SetupOptions = {}): Driver {
 const markReady = (): void => {
   act(() => {
     useStartupExperienceStore.getState().markRoutePainted();
-    mocks.setStartupStatus("ready");
   });
 };
 
@@ -143,7 +117,6 @@ beforeEach(() => {
     (cb: (t: number) => void) => setTimeout(() => cb(fakeClock), 16) as unknown as number
   );
   vi.stubGlobal("cancelAnimationFrame", (id: number) => clearTimeout(id));
-  mocks.ensureStartup.mockReset().mockResolvedValue(null);
 });
 
 afterEach(() => {
@@ -162,7 +135,6 @@ describe("arming and variant selection", () => {
     expect(overlayRoot()!.getAttribute("data-variant")).toBe("full");
     expect(overlayRoot()!.getAttribute("data-form-factor")).toBe("desktop");
     expect(stageOf()).toBe("choreography");
-    expect(mocks.ensureStartup).toHaveBeenCalledWith("startup");
   });
 
   it("phone form factor selects the 2-fragment mobile script", () => {
@@ -175,11 +147,10 @@ describe("arming and variant selection", () => {
     expect(document.querySelectorAll('[data-kp-part^="connector-"]').length).toBe(1);
   });
 
-  it("kill switch renders nothing and never touches the startup snapshot", () => {
+  it("kill switch renders no startup overlay", () => {
     const d = setup({ startupAnimationEnabled: false });
     d.advance(32);
     expect(overlayRoot()).toBeNull();
-    expect(mocks.ensureStartup).not.toHaveBeenCalled();
   });
 
   it("utility routes never arm", () => {
@@ -202,108 +173,31 @@ describe("arming and variant selection", () => {
   });
 });
 
-describe("stage progression (desktop full choreography)", () => {
-  it("normal cold startup: choreography → resolve → reveal → gone", () => {
-    const d = setup();
-    d.advance(16);
-    expect(stageOf()).toBe("choreography");
+describe("shell readiness", () => {
+  it.each([{}, { reducedMotion: true }, { eink: true }])(
+    "removes the overlay and releases input in the shell's ready commit",
+    (options) => {
+      const driver = setup(options);
+      driver.advance(16);
+      expect(overlayRoot()).not.toBeNull();
+      expect(document.querySelector(".kp-shield")).not.toBeNull();
 
-    markReady();
-    d.advance(16);
-    expect(stageOf()).toBe("resolve");
+      markReady();
 
-    // Fast start: the remaining choreography compresses into the ~900 ms
-    // play budget (every peck still plays), then the 250 ms crossfade.
-    d.advance(950);
-    expect(stageOf()).toBe("reveal");
-    expect(overlayRoot()!.getAttribute("data-fading")).toBe("true");
+      expect(overlayRoot()).toBeNull();
+      expect(document.querySelector(".kp-shield")).toBeNull();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
 
-    d.advance(300);
-    expect(overlayRoot()).toBeNull();
-  });
-
-  it("ready before the choreography begins still plays every peck, compressed", () => {
-    const d = setup();
-    d.advance(16);
-    markReady();
-    d.advance(16);
-    expect(stageOf()).toBe("resolve");
-
-    // Mid-compression: the first peck must have landed (fragment → card) —
-    // the metaphor is never skipped on a fast start.
-    d.advance(500);
-    const fragment = document.querySelector('[data-kp-part="fragment-1"]');
-    expect(fragment?.getAttribute("data-visual")).toBe("card");
-    expect(stageOf()).toBe("resolve"); // still playing compressed beats
-
-    d.advance(450);
-    expect(
-      stageOf() === "reveal" || overlayRoot() === null,
-      `expected reveal/done ~950ms after ready, got ${stageOf()}`
-    ).toBe(true);
-  });
-});
-
-describe("adaptive budgets (amended: complete-metaphor playback)", () => {
-  it("pointer-events released ≤ 900 ms and overlay gone ≤ 1150 ms after appReady", () => {
-    const d = setup();
-    d.advance(200); // mid-fragments
-
-    const readyClock = d.clock();
-    markReady();
-
-    let revealAt: number | null = null;
-    let goneAt: number | null = null;
-    for (let t = 0; t <= 1400; t += 16) {
-      d.advance(16);
-      const root = overlayRoot();
-      if (root === null) {
-        goneAt = d.clock() - readyClock;
-        break;
-      }
-      if (revealAt === null && root.getAttribute("data-kp-stage") === "reveal") {
-        revealAt = d.clock() - readyClock;
-      }
-    }
-    expect(revealAt, "reveal must start within 900 ms of readiness").not.toBeNull();
-    expect(revealAt!).toBeLessThanOrEqual(950); // 900 budget + one poll frame
-    expect(goneAt, "overlay must unmount within 1150 ms of readiness").not.toBeNull();
-    expect(goneAt!).toBeLessThanOrEqual(1200);
-  });
-
-  it("slow startup reaches idle, holds without restarting, and resolves once ready", () => {
-    const d = setup();
-    d.advance(16);
-    d.advance(1800); // past desktop idleAt (1520)
+  it("holds the idle pose until the shell is ready", () => {
+    const driver = setup();
+    driver.advance(16);
+    driver.advance(1_800);
     expect(stageOf()).toBe("idle");
-    const scene = document.querySelector(".kp-scene")!;
-    expect(scene.getAttribute("data-idle")).toBe("true");
-
-    d.advance(3000); // idle is indefinite; no re-pecking
+    driver.advance(3_000);
     expect(stageOf()).toBe("idle");
-
     markReady();
-    d.advance(16);
-    expect(stageOf()).toBe("resolve");
-    d.advance(600);
-    expect(stageOf()).toBe("reveal");
-    d.advance(300);
-    expect(overlayRoot()).toBeNull();
-  });
-});
-
-describe("reduced-motion variant", () => {
-  it("shows the static variant and crossfades on ready (no choreography)", () => {
-    const d = setup({ reducedMotion: true });
-    d.advance(32);
-    const root = overlayRoot()!;
-    expect(root.getAttribute("data-variant")).toBe("reduced-motion");
-    expect(stageOf()).not.toBe("choreography");
-
-    markReady();
-    d.advance(16);
-    expect(root.getAttribute("data-fading")).toBe("true");
-    d.advance(300);
     expect(overlayRoot()).toBeNull();
   });
 });
@@ -321,37 +215,11 @@ describe("e-ink variant", () => {
     expect(document.querySelector(".kp-wordmark")).not.toBeNull();
 
     markReady();
-    d.advance(500);
     expect(overlayRoot()).toBeNull();
   });
 });
 
 describe("failure paths", () => {
-  it("a failed startup request aborts into a fast fade and unmounts", async () => {
-    const d = setup();
-    d.advance(64);
-    await act(async () => {
-      await Promise.resolve();
-    });
-    expect(stageOf()).toBe("aborted");
-    expect(overlayRoot()!.getAttribute("data-aborting")).toBe("true");
-    d.advance(200);
-    expect(overlayRoot()).toBeNull();
-  });
-
-  it("does not abort when another startup surface fails while this request is pending", () => {
-    mocks.ensureStartup.mockImplementation(() => new Promise(() => {}));
-    const d = setup();
-    d.advance(64);
-
-    act(() => mocks.setStartupStatus("error"));
-
-    expect(stageOf()).not.toBe("aborted");
-    expect(overlayRoot()).not.toBeNull();
-    d.advance(15_000);
-    expect(stageOf()).toBe("aborted");
-  });
-
   it("watchdog force-exits at 15 s even with no signal at all", () => {
     const d = setup();
     d.advance(16);
