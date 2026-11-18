@@ -9,6 +9,7 @@
 
 import {
   DECISION_SPINE_ID,
+  GEMINI_DECISIONS_PROVIDER_ID,
   JEV_PROVIDER_ID,
   NO_DECISION_MODEL_ID,
   OPENAI_DECISIONS_PROVIDER_ID,
@@ -34,6 +35,8 @@ export function decisionKeyProviderFor(providerId: string): DecisionKeyProvider 
       return "openrouter";
     case OPENAI_DECISIONS_PROVIDER_ID:
       return "openai";
+    case GEMINI_DECISIONS_PROVIDER_ID:
+      return "gemini";
     default:
       return null;
   }
@@ -104,6 +107,7 @@ export function selectionFromSettings(daqe: {
   openrouterDecisionModelId: string | null;
   clefDecisionModelId?: string | null;
   openaiDecisionModelId?: string | null;
+  geminiDecisionModelId?: string | null;
   cloudflareAccountId: string | null;
   allowRemoteDecisionModel: boolean;
 }): DecisionModelSelection {
@@ -114,6 +118,8 @@ export function selectionFromSettings(daqe: {
       baseUrl: daqe.decisionEngine?.baseUrl,
       openrouterModelId: daqe.openrouterDecisionModelId ?? undefined,
       clefModelId: daqe.clefDecisionModelId ?? undefined,
+      openaiModelId: daqe.openaiDecisionModelId ?? undefined,
+      geminiModelId: daqe.geminiDecisionModelId ?? undefined,
       cloudflareAccountId: daqe.cloudflareAccountId ?? undefined,
       allowRemote: daqe.allowRemoteDecisionModel,
     },

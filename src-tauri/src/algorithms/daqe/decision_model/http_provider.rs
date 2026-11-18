@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use serde_json::{json, Value};
 
-use crate::commands::daqe_probe::{unwrap_envelope, DecisionProvider};
+use crate::commands::daqe_probe::{body_model_for, unwrap_envelope, DecisionProvider};
 use crate::models::daqe::DecisionModelTier;
 
 use super::{
@@ -66,6 +66,7 @@ impl ItemDecision {
 /// Constructed per ranking pass and dropped at the end of it, which is what keeps
 /// the per-item memo honest: it cannot outlive the pass it belongs to.
 pub struct HttpDecisionProvider {
+    provider: DecisionProvider,
     record: ProviderRecord,
     url: String,
     /// The configured model id, in the body form each provider expects. `None` for a
@@ -112,6 +113,7 @@ impl HttpDecisionProvider {
             DecisionProvider::Jev => (ProviderKind::Remote, "Jev"),
             DecisionProvider::OpenRouterDecisions => (ProviderKind::Remote, "OpenRouter Decisions"),
             DecisionProvider::OpenAiDecisions => (ProviderKind::Remote, "OpenAI Decisions"),
+            DecisionProvider::GeminiDecisions => (ProviderKind::Remote, "Gemini Decisions"),
             DecisionProvider::SystemOne => (ProviderKind::Local, "System One"),
         };
         let client = reqwest::Client::builder()
@@ -120,13 +122,14 @@ impl HttpDecisionProvider {
             .build()
             .map_err(|error| ProviderFailure::Unreachable(format!("http client: {error}")))?;
         Ok(Self {
+            provider,
             record: ProviderRecord {
                 id: provider.id().to_string(),
                 kind,
                 display_name: display_name.to_string(),
             },
             url,
-            model,
+            model: body_model_for(provider, model.as_deref()),
             api_key,
             client,
             timeout_ms,
@@ -151,6 +154,19 @@ impl HttpDecisionProvider {
         goal: Option<&GoalContext<'_>>,
         model: Option<&str>,
     ) -> Value {
+        Self::request_body_for(DecisionProvider::SystemOne, request, goal, model)
+    }
+
+    /// The request body for one item, shaped for the target provider.
+    ///
+    /// System One / Workers AI / OpenAI Decisions use `"state"` (JSON), while
+    /// Gemini Decisions API uses `"input"` (text).
+    pub fn request_body_for(
+        provider: DecisionProvider,
+        request: &DecisionRequest,
+        goal: Option<&GoalContext<'_>>,
+        model: Option<&str>,
+    ) -> Value {
         let goal_clause = goal
             .map(|context| context.statement.trim())
             .filter(|statement| !statement.is_empty())
@@ -168,37 +184,46 @@ impl HttpDecisionProvider {
             state["outline"] = json!(outline);
         }
 
-        let mut body = json!({
-            "state": state,
-            "questions": {
-                "load_tier": {
-                    "type": "choice",
-                    "instructions": format!(
-                        "How much reading does this item demand?{goal_clause}"
-                    ),
-                    "criteria": {
-                        "surface-skim": "A light skim: headlines, abstracts, or a short bulleted list.",
-                        "medium-analysis": "A considered read of a single section.",
-                        "deep-foundational": "Sustained close reading of a primary source.",
-                    },
+        let questions = json!({
+            "load_tier": {
+                "type": "choice",
+                "instructions": format!(
+                    "How much reading does this item demand?{goal_clause}"
+                ),
+                "criteria": {
+                    "surface-skim": "A light skim: headlines, abstracts, or a short bulleted list.",
+                    "medium-analysis": "A considered read of a single section.",
+                    "deep-foundational": "Sustained close reading of a primary source.",
                 },
-                "goal_alignment": {
-                    "type": "score",
-                    "instructions": format!(
-                        "How well does this item serve the learner's stated goal?{goal_clause}"
-                    ),
-                    "criteria": ["irrelevant to the goal", "tangential", "related", "on topic", "directly serves the goal"],
+            },
+            "goal_alignment": {
+                "type": "score",
+                "instructions": format!(
+                    "How well does this item serve the learner's stated goal?{goal_clause}"
+                ),
+                "criteria": ["irrelevant to the goal", "tangential", "related", "on topic", "directly serves the goal"],
+            },
+            "ready_to_review": {
+                "type": "noul",
+                "instructions": "Is this item self-contained enough to study on its own, with no prior reading required?",
+                "criteria": {
+                    "true": "Self-contained, or its prerequisites appear met.",
+                    "false": "Appears to depend on material the learner has not covered.",
                 },
-                "ready_to_review": {
-                    "type": "noul",
-                    "instructions": "Is this item self-contained enough to study on its own, with no prior reading required?",
-                    "criteria": {
-                        "true": "Self-contained, or its prerequisites appear met.",
-                        "false": "Appears to depend on material the learner has not covered.",
-                    },
-                },
-            }
+            },
         });
+
+        let mut body = if provider == DecisionProvider::GeminiDecisions {
+            json!({
+                "input": state.to_string(),
+                "questions": questions,
+            })
+        } else {
+            json!({
+                "state": state,
+                "questions": questions,
+            })
+        };
         if let Some(model) = model {
             body["model"] = Value::String(model.to_string());
         }
@@ -282,10 +307,14 @@ impl HttpDecisionProvider {
         request: &DecisionRequest,
         goal: Option<&GoalContext<'_>>,
     ) -> Result<ItemDecision, ProviderFailure> {
-        let body = Self::request_body(request, goal, self.model.as_deref());
+        let body = Self::request_body_for(self.provider, request, goal, self.model.as_deref());
         let mut builder = self.client.post(&self.url).json(&body);
         if let Some(key) = &self.api_key {
-            builder = builder.bearer_auth(key);
+            if self.provider == DecisionProvider::GeminiDecisions {
+                builder = builder.header("x-goog-api-key", key);
+            } else {
+                builder = builder.bearer_auth(key);
+            }
         }
 
         let response = builder
@@ -538,6 +567,7 @@ mod tests {
 
     fn provider_with(record: ProviderRecord) -> HttpDecisionProvider {
         HttpDecisionProvider {
+            provider: DecisionProvider::Jev,
             record,
             url: "http://127.0.0.1:1/never-answers".to_string(),
             model: None,
@@ -616,5 +646,41 @@ mod tests {
             "never contacted"
         );
         assert!(registry.is_contactable("jev", true).is_ok());
+    }
+
+    #[test]
+    fn clef_strips_workers_ai_namespace_for_the_json_body() {
+        let provider = HttpDecisionProvider::new(
+            DecisionProvider::Clef,
+            "https://api.cloudflare.com/client/v4/accounts/acct-1/ai/run/@cf/cloudflare/clef-flash".into(),
+            Some("@cf/cloudflare/clef-flash".into()),
+            Some("tok".into()),
+            5_000,
+        )
+        .expect("builds");
+        assert_eq!(provider.model.as_deref(), Some("clef-flash"));
+
+        let default_clef = HttpDecisionProvider::new(
+            DecisionProvider::Clef,
+            "https://api.cloudflare.com/client/v4/accounts/acct-1/ai/run/@cf/cloudflare/clef".into(),
+            None,
+            Some("tok".into()),
+            5_000,
+        )
+        .expect("builds");
+        assert_eq!(default_clef.model.as_deref(), Some("clef"));
+    }
+
+    #[test]
+    fn gemini_request_body_uses_input_instead_of_state() {
+        let body = HttpDecisionProvider::request_body_for(
+            DecisionProvider::GeminiDecisions,
+            &request(),
+            Some(&goal()),
+            Some("gemini-decision-1"),
+        );
+        assert!(body.get("input").and_then(Value::as_str).is_some());
+        assert!(body.get("state").is_none());
+        assert_eq!(body.get("model").and_then(Value::as_str), Some("gemini-decision-1"));
     }
 }

@@ -181,6 +181,9 @@ import { projectSnapshot, type TermBreakdown } from "../lib/daqe/snapshot";
 import type { DaqeKnobs } from "../lib/daqe/knobs";
 import { coerceDaqeKnobs } from "../lib/daqe/knobs";
 import { coerceSessionGoal } from "../lib/daqe/sessionGoal";
+import { daqueHttpProviderFor } from "../api/ai";
+import { LAYA_DEFAULT_BASE_URL } from "../lib/daqe/decisionModelOptions";
+import { recordDecisionObservation } from "../lib/daqe/decisionModelProbe";
 import {
   DECISION_RERANK_DEBOUNCE_MS,
   decisionModelAvailability,
@@ -608,6 +611,20 @@ export const useQueueStore = create<QueueState>((set, get) => ({
           undefined,
           getQueueOrderingMode(),
         );
+        if (daqe.decisionModelProviderId) {
+          if (snapshot) {
+            recordDecisionObservation(daqe.decisionModelProviderId, {
+              outcome: "ok",
+              latencyMs: 0,
+            });
+          } else {
+            recordDecisionObservation(daqe.decisionModelProviderId, {
+              outcome: "failed",
+              latencyMs: 0,
+              error: { reason: "unreachable", message: "" },
+            });
+          }
+        }
         // The knobs may have moved again while the model was thinking; a snapshot
         // that describes an ordering the current settings do not imply is discarded.
         if (!snapshot || getQueueOrderingMode() === "strict_manual" ||
@@ -1399,26 +1416,31 @@ export const useQueueStore = create<QueueState>((set, get) => ({
 function decisionConfigFrom(
   daqe: ReturnType<typeof useSettingsStore.getState>["settings"]["daqe"],
 ): DecisionProviderConfig | null {
-  const provider = daqe.decisionModelProviderId as DecisionProviderConfig["provider"] | null;
+  const providerId = daqe.decisionModelProviderId;
+  if (!providerId) return null;
+  const provider = daqueHttpProviderFor(providerId);
   if (!provider) return null;
 
   // Each provider keeps its model in its own setting, so picking one up is a matter
   // of naming it rather than of a shared `model` field.
   const model =
-    provider === "clef"
+    providerId === "clef"
       ? daqe.clefDecisionModelId
-      : provider === "openai-decisions"
+      : providerId === "openai-decisions"
         ? daqe.openaiDecisionModelId
-        : provider === "openrouter-decisions"
-          ? daqe.openrouterDecisionModelId
-          : undefined;
+        : providerId === "gemini-decisions"
+          ? daqe.geminiDecisionModelId
+          : providerId === "openrouter-decisions"
+            ? daqe.openrouterDecisionModelId
+            : undefined;
 
-  // A local engine is configured by address rather than by a provider id.
-  if (provider === "system-one" && !daqe.decisionEngine?.baseUrl) return null;
+  const baseUrl =
+    daqe.decisionEngine?.baseUrl?.trim() ||
+    (provider === "system-one" ? LAYA_DEFAULT_BASE_URL : undefined);
 
   return {
     provider,
-    baseUrl: daqe.decisionEngine?.baseUrl,
+    baseUrl,
     model: model ?? daqe.decisionEngine?.model ?? undefined,
     cloudflareAccountId: daqe.cloudflareAccountId,
     allowRemote: daqe.allowRemoteDecisionModel,

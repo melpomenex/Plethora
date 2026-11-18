@@ -7,6 +7,7 @@ import {
   CLEF_MODELS,
   CLEF_PROVIDER_ID,
   DECISION_MODEL_OPTIONS,
+  GEMINI_DECISIONS_PROVIDER_ID,
   JEV_PROVIDER_ID,
   LAYA_PROVIDER_ID,
   OPENAI_DECISIONS_PROVIDER_ID,
@@ -22,8 +23,10 @@ import {
 import { clearDecisionApiKey, getMaskedApiKey, setDecisionApiKey } from "../../api/ai";
 import { buildDecisionClient, decisionKeyProviderFor, selectionFromSettings } from "./daqeDecisionClient";
 import {
+  clearDecisionObservation,
   probeDecisionModel,
   probeSelectedModel,
+  recordDecisionObservation,
   type ProbeResult,
 } from "../../lib/daqe/decisionModelProbe";
 import { DaqueDecisionModelDownload } from "../settings/DaqueDecisionModelDownload";
@@ -83,6 +86,8 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
       baseUrl: daqe.decisionEngine?.baseUrl,
       openrouterModelId: daqe.openrouterDecisionModelId ?? undefined,
       clefModelId: daqe.clefDecisionModelId ?? undefined,
+      openaiModelId: daqe.openaiDecisionModelId ?? undefined,
+      geminiModelId: daqe.geminiDecisionModelId ?? undefined,
       cloudflareAccountId: daqe.cloudflareAccountId ?? undefined,
       allowRemote: daqe.allowRemoteDecisionModel,
     }),
@@ -91,6 +96,8 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
       daqe.decisionEngine?.baseUrl,
       daqe.openrouterDecisionModelId,
       daqe.clefDecisionModelId,
+      daqe.openaiDecisionModelId,
+      daqe.geminiDecisionModelId,
       daqe.cloudflareAccountId,
       daqe.allowRemoteDecisionModel,
     ],
@@ -137,6 +144,7 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
       const masked = await setDecisionApiKey(keyProvider, draftKey.trim());
       setMaskedKey(masked);
       updateSettingsCategory("daqe", { decisionApiKeySet: masked !== null });
+      onProviderChange?.();
     } catch {
       setMaskedKey(null);
     } finally {
@@ -144,14 +152,16 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
       setDraftKey("");
       setSavingKey(false);
     }
-  }, [keyProvider, draftKey, updateSettingsCategory]);
+  }, [keyProvider, draftKey, updateSettingsCategory, onProviderChange]);
 
   const onClearKey = React.useCallback(async () => {
     if (!keyProvider) return;
     await clearDecisionApiKey(keyProvider).catch(() => {});
     setMaskedKey(null);
     updateSettingsCategory("daqe", { decisionApiKeySet: false });
-  }, [keyProvider, updateSettingsCategory]);
+    clearDecisionObservation();
+    onProviderChange?.();
+  }, [keyProvider, updateSettingsCategory, onProviderChange]);
 
   // ── Connection test ──────────────────────────────────────────────────
   //
@@ -185,6 +195,7 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
       const viaBackend = await probeSelectedModel(providerId, selection.config);
       if (viaBackend) {
         setProbeResult(viaBackend);
+        recordDecisionObservation(providerId, viaBackend);
         return;
       }
 
@@ -192,20 +203,27 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
       // reporting a connection failure that is really an environment limit.
       const client = await buildDecisionClient(selection);
       if (!client) {
-        setProbeResult({
+        const failed: ProbeResult = {
           outcome: "failed",
           latencyMs: 0,
           error: { reason: "unconfigured", message: "" },
-        });
+        };
+        setProbeResult(failed);
+        recordDecisionObservation(providerId, failed);
         return;
       }
-      setProbeResult(await probeDecisionModel(client));
+      const result = await probeDecisionModel(client);
+      setProbeResult(result);
+      recordDecisionObservation(providerId, result);
     } catch (error) {
-      setProbeResult({
+      const failed: ProbeResult = {
         outcome: "failed",
         latencyMs: 0,
         error: { reason: "unreachable", message: String(error) },
-      });
+      };
+      setProbeResult(failed);
+      const pid = useSettingsStore.getState().settings.daqe.decisionModelProviderId;
+      if (pid) recordDecisionObservation(pid, failed);
     } finally {
       setProbing(false);
     }
@@ -223,6 +241,7 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
     // A new provider is a new endpoint: any previous result describes something
     // else and would be misleading.
     setProbeResult(null);
+    clearDecisionObservation();
     onProviderChange?.();
   };
 
@@ -264,7 +283,9 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
                   ? t("daqeModel.cloudflareKey")
                   : selected === OPENAI_DECISIONS_PROVIDER_ID
                     ? t("daqeModel.openaiKey")
-                    : t("daqeModel.apiKey")}
+                    : selected === GEMINI_DECISIONS_PROVIDER_ID
+                      ? t("daqeModel.geminiKey")
+                      : t("daqeModel.apiKey")}
             </span>
             <input
               type="password"
@@ -280,7 +301,9 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
                     ? "openrouterApiKey"
                     : selected === OPENAI_DECISIONS_PROVIDER_ID
                       ? "openaiApiKey"
-                      : "apiKey",
+                      : selected === GEMINI_DECISIONS_PROVIDER_ID
+                        ? "geminiApiKey"
+                        : "apiKey",
                 ) && "border-amber-500/70",
               )}
             />
@@ -347,13 +370,14 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
             <span className="opacity-70">{t("daqeModel.clefModel")}</span>
             <select
               value={daqe.clefDecisionModelId ?? CLEF_MODELS[0].id}
-              onChange={(e) =>
+              onChange={(e) => {
                 updateSettingsCategory("daqe", {
                   clefDecisionModelId: isClefModel(e.target.value)
                     ? e.target.value
                     : CLEF_MODELS[0].id,
-                })
-              }
+                });
+                onProviderChange?.();
+              }}
               className="mt-0.5 w-full rounded border border-border bg-background px-2 py-1 text-[11px]"
             >
               {CLEF_MODELS.map((model) => (
@@ -368,9 +392,10 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
             <input
               type="text"
               value={daqe.cloudflareAccountId ?? ""}
-              onChange={(e) =>
-                updateSettingsCategory("daqe", { cloudflareAccountId: e.target.value.trim() })
-              }
+              onChange={(e) => {
+                updateSettingsCategory("daqe", { cloudflareAccountId: e.target.value.trim() });
+                onProviderChange?.();
+              }}
               className={cn(
                 "mt-0.5 w-full rounded border border-border bg-background px-2 py-1 font-mono text-[11px]",
                 invalid("cloudflareAccountId") && "border-amber-500/70",

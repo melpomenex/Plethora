@@ -273,8 +273,12 @@ export function readBackendProbe(response: DaqeHttpResponse, latencyMs: number):
     | undefined;
 
   const inputTokens =
-    (payload?.usage as { input_tokens?: number } | undefined)?.input_tokens ??
-    (raw?.usage as { input_tokens?: number } | undefined)?.input_tokens;
+    (payload?.usage as { input_tokens?: number; total_input_tokens?: number } | undefined)
+      ?.input_tokens ??
+    (payload?.usage as { total_input_tokens?: number } | undefined)?.total_input_tokens ??
+    (raw?.usage as { input_tokens?: number; total_input_tokens?: number } | undefined)
+      ?.input_tokens ??
+    (raw?.usage as { total_input_tokens?: number } | undefined)?.total_input_tokens;
   const resolvedModel = (payload?.model as string | undefined) ?? (raw?.model as string | undefined);
 
   if (!response.ok) {
@@ -324,4 +328,40 @@ export async function probeSelectedModel(
   config: DecisionModelConfig,
 ): Promise<ProbeResult | null> {
   return probeViaBackend(providerId, config);
+}
+
+interface ObservedDecisionState {
+  providerId: string | null;
+  lastResult?: ProbeResult;
+  observedAt?: number;
+}
+
+let observedState: ObservedDecisionState = { providerId: null };
+const observationListeners = new Set<() => void>();
+
+function notifyObservationListeners(): void {
+  for (const listener of observationListeners) listener();
+}
+
+/** Record the latest probe or ranking outcome so `DecisionModelStatusLine` reflects reality. */
+export function recordDecisionObservation(providerId: string, result: ProbeResult): void {
+  observedState = { providerId, lastResult: result, observedAt: Date.now() };
+  notifyObservationListeners();
+}
+
+/** Clear any recorded outcome (e.g. when switching providers). */
+export function clearDecisionObservation(): void {
+  observedState = { providerId: null };
+  notifyObservationListeners();
+}
+
+export function subscribeDecisionObservation(listener: () => void): () => void {
+  observationListeners.add(listener);
+  return () => {
+    observationListeners.delete(listener);
+  };
+}
+
+export function getDecisionObservationSnapshot(): ObservedDecisionState {
+  return observedState;
 }

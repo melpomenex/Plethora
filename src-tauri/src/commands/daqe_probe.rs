@@ -50,6 +50,9 @@ pub enum DecisionProvider {
     /// OpenAI's Decisions API. `POST {base}/v1/decisions`.
     #[serde(rename = "openai-decisions")]
     OpenAiDecisions,
+    /// Google Gemini's Decisions API. `POST {base}/v1beta/decisions`.
+    #[serde(rename = "gemini-decisions")]
+    GeminiDecisions,
     /// A `laya-serve` instance, or anything else speaking System One.
     #[serde(rename = "system-one")]
     SystemOne,
@@ -102,6 +105,7 @@ impl DecisionProvider {
             DecisionProvider::Clef => "clef",
             DecisionProvider::OpenRouterDecisions => "openrouter-decisions",
             DecisionProvider::OpenAiDecisions => "openai-decisions",
+            DecisionProvider::GeminiDecisions => "gemini-decisions",
             DecisionProvider::SystemOne => "system-one",
         }
     }
@@ -114,6 +118,7 @@ pub(crate) fn key_slot(provider: DecisionProvider) -> Option<&'static str> {
         DecisionProvider::Clef => Some("clef"),
         DecisionProvider::OpenRouterDecisions => Some("openrouter"),
         DecisionProvider::OpenAiDecisions => Some("openai"),
+        DecisionProvider::GeminiDecisions => Some("gemini"),
         DecisionProvider::SystemOne => None,
     }
 }
@@ -259,6 +264,19 @@ fn resolve_endpoint(endpoint: &ProviderEndpoint<'_>) -> Result<String> {
                 Ok(format!("{base}/v1/decisions"))
             }
         }
+        DecisionProvider::GeminiDecisions => {
+            let base = endpoint
+                .base_url
+                .unwrap_or("https://generativelanguage.googleapis.com/v1beta")
+                .trim_end_matches('/');
+            if base.ends_with("/decisions") {
+                Ok(base.to_string())
+            } else if base.ends_with("/v1beta") || base.ends_with("/v1") {
+                Ok(format!("{base}/decisions"))
+            } else {
+                Ok(format!("{base}/v1beta/decisions"))
+            }
+        }
         DecisionProvider::SystemOne => {
             let base = endpoint.base_url.ok_or_else(|| {
                 crate::error::PlethoraError::InvalidInput(
@@ -285,34 +303,54 @@ pub(crate) fn unwrap_envelope(value: serde_json::Value) -> serde_json::Value {
     value
 }
 
-/// Build the request body.
+/// Normalize the `model` field sent in the JSON request body for a provider.
 ///
-/// System One puts the model in a `model` field. Workers AI puts it in the path
-/// *and* wants the bare name in the body — `@cf/cloudflare/clef-flash` there is
-/// a schema violation, not a model name.
-pub(crate) fn build_body(request: &DaqeHttpRequest) -> serde_json::Value {
-    let model = match request.provider {
+/// Shared between the probe and `HttpDecisionProvider` so both paths send the
+/// exact same model shape. Workers AI puts `@cf/cloudflare/…` in the URL path
+/// *and* requires the bare name (`clef` / `clef-flash`) in the body — sending
+/// the namespaced path there is a schema violation.
+pub(crate) fn body_model_for(provider: DecisionProvider, model: Option<&str>) -> Option<String> {
+    let trimmed = model.map(str::trim).filter(|m| !m.is_empty());
+    match provider {
         // The body field matches `^(clef|clef-flash)$`, so strip the namespace.
-        DecisionProvider::Clef => request
-            .model
-            .as_deref()
+        DecisionProvider::Clef => trimmed
             .map(|m| m.rsplit('/').next().unwrap_or(m).to_string())
             .or_else(|| Some("clef".to_string())),
-        DecisionProvider::OpenAiDecisions => request
-            .model
-            .clone()
+        DecisionProvider::OpenAiDecisions => trimmed
+            .map(str::to_string)
             .or_else(|| Some("gpt-6-luna".to_string())),
+        DecisionProvider::GeminiDecisions => trimmed
+            .map(str::to_string)
+            .or_else(|| Some("gemini-decision-1".to_string())),
         DecisionProvider::SystemOne => None,
-        _ => request
-            .model
-            .clone()
+        _ => trimmed
+            .map(str::to_string)
             .or_else(|| Some("jev-latest".to_string())),
-    };
+    }
+}
 
-    let mut body = serde_json::json!({
-        "state": request.state,
-        "questions": request.questions,
-    });
+/// Build the request body.
+///
+/// System One puts the model in a `model` field and the context in `state`.
+/// Gemini Decisions API puts the context in `input` instead of `state`.
+pub(crate) fn build_body(request: &DaqeHttpRequest) -> serde_json::Value {
+    let model = body_model_for(request.provider, request.model.as_deref());
+
+    let mut body = if request.provider == DecisionProvider::GeminiDecisions {
+        let input = match &request.state {
+            serde_json::Value::String(s) => serde_json::Value::String(s.clone()),
+            other => serde_json::Value::String(other.to_string()),
+        };
+        serde_json::json!({
+            "input": input,
+            "questions": request.questions,
+        })
+    } else {
+        serde_json::json!({
+            "state": request.state,
+            "questions": request.questions,
+        })
+    };
     if let Some(model) = model {
         body["model"] = serde_json::Value::String(model);
     }
@@ -350,7 +388,11 @@ pub async fn daqe_decision_request(
 
     let mut builder = client.post(&url).json(&build_body(&request));
     if let Some(key) = api_key {
-        builder = builder.bearer_auth(key);
+        if request.provider == DecisionProvider::GeminiDecisions {
+            builder = builder.header("x-goog-api-key", key);
+        } else {
+            builder = builder.bearer_auth(key);
+        }
     }
 
     let response = match builder.send().await {
@@ -719,6 +761,7 @@ pub(crate) mod tests {
             Some("openrouter")
         );
         assert_eq!(key_slot(DecisionProvider::OpenAiDecisions), Some("openai"));
+        assert_eq!(key_slot(DecisionProvider::GeminiDecisions), Some("gemini"));
         // A local server needs no credential.
         assert_eq!(key_slot(DecisionProvider::SystemOne), None);
     }
@@ -733,6 +776,7 @@ pub(crate) mod tests {
                 "openrouter-decisions",
             ),
             (DecisionProvider::OpenAiDecisions, "openai-decisions"),
+            (DecisionProvider::GeminiDecisions, "gemini-decisions"),
             (DecisionProvider::SystemOne, "system-one"),
         ] {
             let json = serde_json::to_string(&provider).expect("serialise");
@@ -802,6 +846,7 @@ mod ranking_transport_tests {
             ),
             (DecisionProvider::OpenRouterDecisions, vec![]),
             (DecisionProvider::OpenAiDecisions, vec![]),
+            (DecisionProvider::GeminiDecisions, vec![]),
         ] {
             let mut probe = base(provider);
             let mut cfg = config(provider);

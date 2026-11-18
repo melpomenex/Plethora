@@ -634,6 +634,8 @@ interface DaqeSettings {
   clefDecisionModelId?: string | null;
   /** Which OpenAI decision model to call. */
   openaiDecisionModelId?: string | null;
+  /** Which Gemini decision model to call. */
+  geminiDecisionModelId?: string | null;
   /** Cloudflare account id, required by Clef. */
   cloudflareAccountId: string | null;
   /**
@@ -1519,6 +1521,7 @@ export const defaultSettings: Settings = {
     openrouterDecisionModelId: null,
     clefDecisionModelId: null,
     openaiDecisionModelId: null,
+    geminiDecisionModelId: null,
     cloudflareAccountId: null,
     allowRemoteDecisionModel: false,
     // Off until the user opts in: see DaqeSettings.rankingEnabled.

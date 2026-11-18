@@ -4,6 +4,8 @@ import {
   CLEF_PROVIDER_ID,
   DECISION_MODEL_OPTIONS,
   DECISION_SPINE_ID,
+  GEMINI_DECISIONS_BASE_URL,
+  GEMINI_DECISIONS_PROVIDER_ID,
   JEV_BASE_URL,
   JEV_PROVIDER_ID,
   LAYA_DEFAULT_BASE_URL,
@@ -270,6 +272,12 @@ describe("endpoints and model names", () => {
     expect(
       modelFor(OPENAI_DECISIONS_PROVIDER_ID, { ...ready, openaiModelId: "gpt-6-custom" }),
     ).toBe("gpt-6-custom");
+    expect(modelFor(GEMINI_DECISIONS_PROVIDER_ID, ready)).toBe("gemini-decision-1");
+    expect(baseUrlFor(GEMINI_DECISIONS_PROVIDER_ID, ready)).toBe(GEMINI_DECISIONS_BASE_URL);
+    expect(setupGaps(GEMINI_DECISIONS_PROVIDER_ID, { allowRemote: true })).toContain(
+      "geminiApiKey",
+    );
+    expect(setupGaps(GEMINI_DECISIONS_PROVIDER_ID, { allowRemote: true, apiKey: "k" })).toEqual([]);
     // Laya serves one model and rejects the field.
     expect(modelFor(LAYA_PROVIDER_ID, ready)).toBeUndefined();
     expect(modelFor(LOCAL_DECISION_ENGINE_PROVIDER_ID, ready)).toBeUndefined();

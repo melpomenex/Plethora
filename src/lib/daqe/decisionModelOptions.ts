@@ -50,7 +50,8 @@ export type DecisionModelSetup =
   | "endpoint-and-key"
   | "cloudflare-credentials"
   | "openrouter-key"
-  | "openai-key";
+  | "openai-key"
+  | "gemini-key";
 
 export interface DecisionModelOption {
   id: string;
@@ -109,6 +110,9 @@ export function isClefModel(id: string): id is ClefModelId {
 
 export const OPENAI_DECISIONS_PROVIDER_ID = "openai-decisions";
 export const OPENAI_DECISIONS_BASE_URL = "https://api.openai.com/v1";
+
+export const GEMINI_DECISIONS_PROVIDER_ID = "gemini-decisions";
+export const GEMINI_DECISIONS_BASE_URL = "https://generativelanguage.googleapis.com/v1beta";
 
 export const OPENROUTER_DECISIONS_PROVIDER_ID = "openrouter-decisions";
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
@@ -221,6 +225,14 @@ export const DECISION_MODEL_OPTIONS: readonly DecisionModelOption[] = [
     docsUrl: "https://platform.openai.com/docs/api-reference/decisions",
   },
   {
+    id: GEMINI_DECISIONS_PROVIDER_ID,
+    labelKey: "daqeModel.gemini",
+    descriptionKey: "daqeModel.geminiDesc",
+    privacy: "remote",
+    setup: "gemini-key",
+    docsUrl: "https://ai.google.dev/gemini-api/docs/decisions",
+  },
+  {
     id: LAYA_PROVIDER_ID,
     labelKey: "daqeModel.laya",
     descriptionKey: "daqeModel.layaDesc",
@@ -262,6 +274,8 @@ export interface DecisionModelConfig {
   clefModelId?: string;
   /** OpenAI decision model id override (defaults to gpt-6-luna). */
   openaiModelId?: string;
+  /** Gemini decision model id override (defaults to gemini-decision-1). */
+  geminiModelId?: string;
   /** Cloudflare account id, for Clef. */
   cloudflareAccountId?: string;
   /** Whether a remote option may contact the network at all. */
@@ -312,6 +326,9 @@ export function setupGaps(
     case "openai-key":
       if (!config.apiKey?.trim()) gaps.push("openaiApiKey");
       break;
+    case "gemini-key":
+      if (!config.apiKey?.trim()) gaps.push("geminiApiKey");
+      break;
   }
   return gaps;
 }
@@ -343,6 +360,8 @@ export function baseUrlFor(id: string, config: DecisionModelConfig): string {
       return override || `${CLEF_BASE_URL}/${config.cloudflareAccountId ?? ""}`;
     case OPENAI_DECISIONS_PROVIDER_ID:
       return override || OPENAI_DECISIONS_BASE_URL;
+    case GEMINI_DECISIONS_PROVIDER_ID:
+      return override || GEMINI_DECISIONS_BASE_URL;
     case LOCAL_DECISION_ENGINE_PROVIDER_ID:
       return override || LAYA_DEFAULT_BASE_URL;
     default:
@@ -361,6 +380,8 @@ export function modelFor(id: string, config: DecisionModelConfig): string | unde
       return config.clefModelId || CLEF_MODELS[0].id;
     case OPENAI_DECISIONS_PROVIDER_ID:
       return config.openaiModelId || "gpt-6-luna";
+    case GEMINI_DECISIONS_PROVIDER_ID:
+      return config.geminiModelId || "gemini-decision-1";
     default:
       // Laya and a generic `laya-serve` serve one model and reject the field.
       return undefined;

@@ -91,14 +91,10 @@ pub async fn rank_queue_with_decision(
 
     // The credential comes from the OS keychain here, at the start of the pass, and
     // is never read from settings — which hold only `decisionApiKeySet`.
-    let api_key = key_slot(*provider_id)
-        .and_then(|_| {
-            futures::executor::block_on(
-                key_store.get_key(key_slot(*provider_id).unwrap_or_default()),
-            )
-            .ok()
-        })
-        .flatten();
+    let api_key = match key_slot(*provider_id) {
+        Some(slot) => key_store.get_key(slot).await.ok().flatten(),
+        None => None,
+    };
     let provider = HttpDecisionProvider::new(
         *provider_id,
         url,
@@ -163,6 +159,7 @@ pub async fn rank_queue_with_decision(
     // `evaluate_item`, so a single timeout ends the pass instead of costing one
     // timeout per candidate.
     let mut asked = 0usize;
+    let mut evaluated = 0usize;
     for signal in signals.iter_mut() {
         if !target_ids.iter().any(|id| id == &signal.item_id) {
             continue;
@@ -179,7 +176,9 @@ pub async fn rank_queue_with_decision(
             rubric_version: RANKER_RUBRIC_VERSION,
         };
 
-        // Content-derived first: a hit costs no inference at all.
+        // Content-derived first: a hit costs no inference at all when there is
+        // no session goal. When a goal is active, `goal_alignment` still needs
+        // a fresh judgement because it is never cached.
         let content_hash = content_hash_for(&item.item_type, &[], estimate_length(item));
         let cached = cache
             .get(&content_hash, RANKER_RUBRIC_VERSION)
@@ -193,10 +192,12 @@ pub async fn rank_queue_with_decision(
                 .map(|tier| tier.complexity())
                 .or(signal.complexity);
         }
-        if cached
-            .as_ref()
-            .is_some_and(|hit| hit.tier.is_some() && hit.gate.is_some())
+        if goal_context.is_none()
+            && cached
+                .as_ref()
+                .is_some_and(|hit| hit.tier.is_some() && hit.gate.is_some())
         {
+            evaluated += 1;
             continue;
         }
 
@@ -205,6 +206,7 @@ pub async fn rank_queue_with_decision(
             .await
         {
             Ok(decision_for_item) => {
+                evaluated += 1;
                 // Goal alignment is read every time and never written to the cache:
                 // the same item under a different goal deserves a different answer.
                 signal.goal_alignment = decision_for_item.goal_alignment;
@@ -230,7 +232,7 @@ pub async fn rank_queue_with_decision(
             }
         }
     }
-    if asked == 0 {
+    if asked == 0 || (evaluated == 0 && provider.has_failed()) {
         return Ok(None);
     }
 

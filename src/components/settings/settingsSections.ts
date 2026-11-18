@@ -102,6 +102,8 @@ export const SETTINGS_SECTION_METADATA: SettingsSectionMetadata[] = [
       "laya",
       "clef",
       "openrouter",
+      "openai",
+      "gemini",
       "download model",
       "priority",
       "interleaving",

@@ -35,7 +35,12 @@ import { useQueueStore } from "../../stores/queueStore";
 import { DaqeKnobPanel } from "../queue/DaqeKnobPanel";
 import { DaqeDecisionModelSettings } from "../queue/DaqeDecisionModelSettings";
 import { DecisionModelStatusLine } from "../queue/DecisionModelStatusLine";
-import type { DecisionModelStatus } from "../../lib/daqe/decisionModelProbe";
+import {
+  getDecisionObservationSnapshot,
+  subscribeDecisionObservation,
+  type DecisionModelStatus,
+} from "../../lib/daqe/decisionModelProbe";
+import { NO_DECISION_MODEL_ID } from "../../lib/daqe/decisionModelOptions";
 import { ReviewSettings } from "./ReviewSettings";
 import { applyPreset, type DaqePresetId } from "../../lib/daqe/presets";
 import type { DaqeKnobs } from "../../lib/daqe/knobs";
@@ -60,13 +65,31 @@ interface SmartQueuesSettingsProps {
 export function SmartQueuesSettings({
   settings: propSettings,
   onUpdateSettings: propOnUpdate,
-  decisionStatus = { configured: false },
+  decisionStatus: propDecisionStatus,
 }: SmartQueuesSettingsProps = {}) {
   const { t } = useI18n();
   const storeSmartQueue = useSettingsStore((s) => s.settings.smartQueue);
   const daqe = useSettingsStore((s) => s.settings.daqe);
   const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
   const applyRankSnapshot = useQueueStore((s) => s.applyRankSnapshot);
+  const observation = React.useSyncExternalStore(
+    subscribeDecisionObservation,
+    getDecisionObservationSnapshot,
+    getDecisionObservationSnapshot,
+  );
+  const decisionStatus: DecisionModelStatus = React.useMemo(() => {
+    if (propDecisionStatus) return propDecisionStatus;
+    const providerId = daqe.decisionModelProviderId;
+    const configured = Boolean(providerId && providerId !== NO_DECISION_MODEL_ID);
+    if (!configured) return { configured: false };
+    return observation.providerId === providerId
+      ? {
+          configured: true,
+          lastResult: observation.lastResult,
+          observedAt: observation.observedAt,
+        }
+      : { configured: true };
+  }, [propDecisionStatus, daqe.decisionModelProviderId, observation]);
 
   const autoRefresh = propSettings ? propSettings.autoRefresh : storeSmartQueue.autoRefresh;
   const refreshInterval = propSettings

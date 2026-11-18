@@ -265,6 +265,8 @@ export const DECISION_KEY_PROVIDERS = {
   openrouter: "openrouter",
   /** Shared with the chat provider, on purpose. */
   openai: "openai",
+  /** Shared with the chat provider, on purpose. */
+  gemini: "gemini",
 } as const;
 
 export type DecisionKeyProvider =
@@ -317,6 +319,7 @@ export type DaqeHttpProvider =
   | "clef"
   | "openrouter-decisions"
   | "openai-decisions"
+  | "gemini-decisions"
   | "system-one";
 
 export interface DaqeHttpRequest {
@@ -356,6 +359,8 @@ export function daqueHttpProviderFor(providerId: string): DaqeHttpProvider | nul
       return "openrouter-decisions";
     case "openai-decisions":
       return "openai-decisions";
+    case "gemini-decisions":
+      return "gemini-decisions";
     case "laya":
     case "local-decision-engine":
       return "system-one";

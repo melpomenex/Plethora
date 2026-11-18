@@ -220,6 +220,7 @@ const API_KEY_PROVIDERS: &[&str] = &[
     "openai",
     "anthropic",
     "openrouter",
+    "gemini",
     "brave",
     "deepseek",
     "jev",
