@@ -4,19 +4,22 @@ import { PaperMaterialPreview } from './PaperMaterialPreview';
  * Shows visual previews of themes with mini UI mockups
  */
 
-import React from "react";
+import React, { useMemo, useRef, useState } from "react";
 import { useTheme } from "../../contexts/ThemeContext";
 import { Theme, ThemeId } from "../../types/theme";
 import {
   ArrowsOutSimple,
   Check,
   DeviceMobile,
+  MagnifyingGlass,
   Sparkle,
+  X,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
 import { builtInThemes as registeredBuiltInThemes } from "../../themes/builtin";
 import { useI18n } from "../../lib/i18n";
 import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
+import { filterAndRankThemes } from "./themeSearch";
 
 interface ThemeGalleryProps {
   onClose?: () => void;
@@ -218,35 +221,46 @@ function ThemeGalleryCard({
 export function ThemeGallery({ onClose, onThemeSelect }: ThemeGalleryProps) {
   const { t } = useI18n();
   const { theme, themes, setTheme } = useTheme();
+  const [search, setSearch] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const handleSelectTheme = (themeId: ThemeId) => {
     setTheme(themeId);
     onThemeSelect?.(themeId);
   };
 
-  const allThemeIds: ThemeId[] = registeredBuiltInThemes.map((builtinTheme) => builtinTheme.id);
-  const builtinOrder = new Map(allThemeIds.map((id, index) => [id, index]));
-  const themeSort = (a: Theme, b: Theme) => {
-    const aIndex = builtinOrder.get(a.id as ThemeId);
-    const bIndex = builtinOrder.get(b.id as ThemeId);
-    const aRank = aIndex ?? Number.MAX_SAFE_INTEGER;
-    const bRank = bIndex ?? Number.MAX_SAFE_INTEGER;
-    if (aRank !== bRank) return aRank - bRank;
-    return a.name.localeCompare(b.name);
-  };
+  const orderedThemes = useMemo(() => {
+    const allThemeIds: ThemeId[] = registeredBuiltInThemes.map((builtinTheme) => builtinTheme.id);
+    const builtinOrder = new Map(allThemeIds.map((id, index) => [id, index]));
+    const themeSort = (a: Theme, b: Theme) => {
+      const aIndex = builtinOrder.get(a.id as ThemeId);
+      const bIndex = builtinOrder.get(b.id as ThemeId);
+      const aRank = aIndex ?? Number.MAX_SAFE_INTEGER;
+      const bRank = bIndex ?? Number.MAX_SAFE_INTEGER;
+      if (aRank !== bRank) return aRank - bRank;
+      return a.name.localeCompare(b.name);
+    };
+    return [...themes].sort(themeSort);
+  }, [themes]);
 
-  // Group themes by variant
-  const jellyfishThemes = themes
-    .filter((t) =>
-      t.effects?.backgroundAnimation === 'jellyfish' &&
-      (t.id === 'deep-ocean-glow' ||
-        t.id === 'bioluminescent-flow' ||
-        t.id === 'deep-sea-neon' ||
-        t.id === 'abyssal-dream'),
-    )
-    .sort(themeSort);
-  const darkThemes = themes.filter((t) => t.variant === "dark").sort(themeSort);
-  const lightThemes = themes.filter((t) => t.variant === "light").sort(themeSort);
+  const isSearching = search.trim().length > 0;
+  const matchedThemes = useMemo(
+    () => (isSearching ? filterAndRankThemes(orderedThemes, search) : orderedThemes),
+    [isSearching, orderedThemes, search],
+  );
+
+  // Group themes by variant when browsing without a search query
+  const jellyfishThemes = orderedThemes.filter((th) =>
+    th.effects?.backgroundAnimation === 'jellyfish' &&
+    (th.id === 'deep-ocean-glow' ||
+      th.id === 'bioluminescent-flow' ||
+      th.id === 'deep-sea-neon' ||
+      th.id === 'abyssal-dream'),
+  );
+  const darkThemes = orderedThemes.filter((th) => th.variant === "dark");
+  const lightThemes = orderedThemes.filter((th) => th.variant === "light");
+
+  const visibleCount = isSearching ? matchedThemes.length : themes.length;
 
   return (
     <ResponsiveDialogSheet
@@ -254,11 +268,60 @@ export function ThemeGallery({ onClose, onThemeSelect }: ThemeGalleryProps) {
       onClose={() => onClose?.()}
       title={t("settings.themeGalleryTitle")}
       description={t("settings.themeGalleryDesc")}
+      initialFocusRef={searchInputRef}
       desktopMaxWidth="72rem"
+      subHeader={
+        <div
+          className="shrink-0 px-6 py-3 border-b"
+          style={{ borderColor: theme.colors.outlineVariant ?? theme.colors.outline }}
+        >
+          <div className="relative">
+            <MagnifyingGlass
+              className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+              style={{ color: theme.colors.textSecondary }}
+              aria-hidden="true"
+            />
+            <input
+              ref={searchInputRef}
+              type="text"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape" && search) {
+                  e.stopPropagation();
+                  setSearch("");
+                }
+              }}
+              placeholder={t("theme.searchThemes")}
+              aria-label={t("theme.searchThemes")}
+              className="w-full rounded-lg border py-2 pl-9 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-primary"
+              style={{
+                backgroundColor: theme.colors.background,
+                borderColor: theme.colors.outline,
+                color: theme.colors.onSurface,
+              }}
+            />
+            {search && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  searchInputRef.current?.focus();
+                }}
+                aria-label={t("common.clear")}
+                className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 transition-colors hover:opacity-80"
+                style={{ color: theme.colors.textSecondary }}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+        </div>
+      }
       footer={
         <div className="flex w-full items-center justify-between gap-3">
           <div className="text-sm" style={{ color: theme.colors.textSecondary }}>
-            {t("settings.themeCount", { count: themes.length })}
+            {t("settings.themeCount", { count: visibleCount })}
           </div>
           <button
             type="button"
@@ -274,7 +337,46 @@ export function ThemeGallery({ onClose, onThemeSelect }: ThemeGalleryProps) {
         </div>
       }
     >
-      <div className="space-y-6">
+      {isSearching ? (
+        matchedThemes.length > 0 ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4">
+            {matchedThemes.map((th) => (
+              <ThemeGalleryCard
+                key={th.id}
+                theme={th}
+                isSelected={theme.id === th.id}
+                onClick={() => handleSelectTheme(th.id)}
+              />
+            ))}
+          </div>
+        ) : (
+          <div className="py-12 text-center space-y-3">
+            <MagnifyingGlass
+              className="w-8 h-8 mx-auto opacity-50"
+              style={{ color: theme.colors.textSecondary }}
+              aria-hidden="true"
+            />
+            <p className="text-sm" style={{ color: theme.colors.textSecondary }}>
+              {t("theme.filterResults", { count: 0 })}
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setSearch("");
+                searchInputRef.current?.focus();
+              }}
+              className="px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors"
+              style={{
+                borderColor: theme.colors.outline,
+                color: theme.colors.onSurface,
+              }}
+            >
+              {t("common.clear")}
+            </button>
+          </div>
+        )
+      ) : (
+        <div className="space-y-6">
           {/* Jellyfish animated family */}
           {jellyfishThemes.length > 0 && (
             <section>
@@ -341,7 +443,8 @@ export function ThemeGallery({ onClose, onThemeSelect }: ThemeGalleryProps) {
               </div>
             </section>
           )}
-      </div>
+        </div>
+      )}
     </ResponsiveDialogSheet>
   );
 }

@@ -63,4 +63,62 @@ describe("ThemeGallery", () => {
     );
     expect(offenders).toEqual([]);
   });
+
+  it("fuzzy searches themes by substring, subsequence, typo, and multi-token query", async () => {
+    const onClose = vi.fn();
+    render(
+      <PresentationProvider>
+        <ThemeProvider>
+          <ThemeGallery onClose={onClose} />
+        </ThemeProvider>
+      </PresentationProvider>,
+    );
+
+    // Wait for lazy-loaded built-in theme catalog
+    await screen.findAllByText("Deep Ocean Glow");
+
+    const searchInput = screen.getByRole("textbox", { name: /Search themes/i });
+
+    // Subsequence match: "dog" -> Deep Ocean Glow
+    fireEvent.change(searchInput, { target: { value: "dog" } });
+    expect(screen.getByText("Deep Ocean Glow")).toBeInTheDocument();
+    expect(screen.queryByText("Light Themes")).not.toBeInTheDocument();
+
+    // Typo tolerance: "macha" -> Milky Matcha
+    fireEvent.change(searchInput, { target: { value: "macha" } });
+    expect(screen.getByText("Milky Matcha")).toBeInTheDocument();
+    expect(screen.queryByText("Deep Ocean Glow")).not.toBeInTheDocument();
+
+    // Multi-token match: "dark neon" -> Deep Sea Neon (dark variant + neon)
+    fireEvent.change(searchInput, { target: { value: "dark neon" } });
+    expect(screen.getByText("Deep Sea Neon")).toBeInTheDocument();
+
+    // First Escape clears the search without closing the gallery
+    fireEvent.keyDown(searchInput, { key: "Escape" });
+    expect(searchInput).toHaveValue("");
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByText("Light Themes")).toBeInTheDocument();
+  });
+
+  it("shows an empty state and clear action when no themes match", async () => {
+    render(
+      <PresentationProvider>
+        <ThemeProvider>
+          <ThemeGallery onClose={vi.fn()} />
+        </ThemeProvider>
+      </PresentationProvider>,
+    );
+
+    await screen.findAllByText("Deep Ocean Glow");
+
+    const searchInput = screen.getByRole("textbox", { name: /Search themes/i });
+    fireEvent.change(searchInput, { target: { value: "zzzznotatheme" } });
+
+    expect(screen.getByText("0 themes")).toBeInTheDocument();
+    const clearButtons = screen.getAllByRole("button", { name: "Clear" });
+    fireEvent.click(clearButtons[clearButtons.length - 1]);
+
+    expect(searchInput).toHaveValue("");
+    expect(screen.getByText("Light Themes")).toBeInTheDocument();
+  });
 });

@@ -14,6 +14,7 @@ export function ResponsiveDialogSheet({
   onClose,
   title,
   description,
+  subHeader,
   children,
   footer,
   initialFocusRef,
@@ -27,6 +28,7 @@ export function ResponsiveDialogSheet({
   onClose: () => void;
   title: ReactNode;
   description?: ReactNode;
+  subHeader?: ReactNode;
   children: ReactNode;
   footer?: ReactNode;
   initialFocusRef?: RefObject<HTMLElement | null>;
@@ -89,6 +91,7 @@ export function ResponsiveDialogSheet({
             <X size={20} />
           </button>
         </header>
+        {subHeader}
         <div className="adaptive-dialog-body">{children}</div>
         {footer && <footer className="adaptive-dialog-footer">{footer}</footer>}
       </div>
