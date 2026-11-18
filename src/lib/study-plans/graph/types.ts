@@ -195,7 +195,7 @@ export interface StudyPlanGraphLayout {
 }
 
 export interface StudyPlanGraphPrefs {
-  outlineMode: 'list' | 'graph';
+  outlineMode: 'queue' | 'list' | 'graph';
   orientation: GraphOrientation;
   showMinimap: boolean;
   showLegend: boolean;

@@ -1062,7 +1062,7 @@ export function EPUBViewer({
         display: block !important;
         flex-shrink: 1 !important;
       }
-      ${themeRef.current?.material?.kind === 'paper' ? '' : `body *:not(.epub-persisted-highlight):not(.epub-search-highlight):not(.epub-search-highlight-active):not(.epub-sync-highlight) {
+      ${themeRef.current?.material?.kind === 'paper' ? '' : `body *:not(.epub-persisted-highlight):not(.epub-search-highlight):not(.epub-search-highlight-active):not(.epub-sync-highlight):not([data-study-decoration]):not([data-study-decoration] *) {
         color: ${textColor} !important;
         background-color: transparent !important;
       }` }
@@ -1784,10 +1784,15 @@ export function EPUBViewer({
               try { return await epubBook.getRange(cfi); } catch { return null; }
             },
             renderedSections: () => (rendition.getContents() as unknown as Array<{
-              sectionIndex: number;
+              sectionIndex?: number;
+              section?: { index?: number };
               document: globalThis.Document;
-            }>).flatMap((contents) => contents.document.body
-              ? [{ spineIndex: contents.sectionIndex, root: contents.document.body }] : []),
+            }>).flatMap((contents) => {
+              const idx = Number(contents.section?.index ?? contents.sectionIndex ?? -1);
+              return contents.document?.body && idx >= 0
+                ? [{ spineIndex: idx, root: contents.document.body }]
+                : [];
+            }),
             rangeFromCfi: (cfi: string) => {
               try { return rendition.getRange?.(cfi) ?? null; } catch { return null; }
             },
@@ -1807,8 +1812,6 @@ export function EPUBViewer({
 
           // Inject global styles to override EPUB internal styles
           rendition.hooks.content.register((contents: any) => {
-            vimRuntimeListeners.forEach((listener) => listener({ kind: "content", spineIndex: contents.section?.index }));
-
             // Ensure epub.js's insertRule-based theming cannot crash on this
             // Contents instance (Android WebView sheet race) — see
             // patchContentsInsertRuleGuard. Installed before any destructive
@@ -1845,7 +1848,7 @@ export function EPUBViewer({
               link.remove(); // Completely remove the stylesheet element
             });
 
-            const styleTags = contents.document.querySelectorAll('style:not(#epub-override-styles):not([id^="epubjs-inserted-css-"])');
+            const styleTags = contents.document.querySelectorAll('style:not(#epub-override-styles):not([id^="epubjs-inserted-css-"]):not([data-study-decoration])');
             styleTags.forEach((tag: any) => {
               tag.remove();
             });
@@ -1868,6 +1871,9 @@ export function EPUBViewer({
             // TEMPORARY diagnostics (fix-mobile-epub-theme-regression task 1.2).
             }
             wrapEpubTables(contents?.document);
+            vimRuntimeListeners.forEach((listener) =>
+              listener({ kind: "content", spineIndex: spineIndex >= 0 ? spineIndex : contents.section?.index }),
+            );
             epubDiag("content hook", {
               spineIndex: contents.section?.index,
               override: !!contents.document.getElementById("epub-override-styles"),
@@ -2265,6 +2271,9 @@ export function EPUBViewer({
             // reader is allowed to become visible. Fallback release for the
             // readiness gate — never a timeout.
             if (mounted) setInitialContentThemed(true);
+            vimRuntimeListeners.forEach((listener) =>
+              listener({ kind: "geometry", spineIndex: _section?.index }),
+            );
             epubDiag("rendered", { spineIndex: _section?.index });
           });
 

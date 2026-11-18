@@ -65,4 +65,25 @@ describe('reading quote resolution', () => {
       expect(result.range.endOffset).toBe(6);
     }
   });
+
+  it('ignores head/title, decodes entities, and resolves word-aligned windows for clipped quotes', () => {
+    const doc = document.implementation.createHTMLDocument('Test');
+    doc.head.innerHTML = '<title>Book Title That Should Be Ignored</title>';
+    doc.body.innerHTML = '<article><p><span class="stickup">A</span>t the risk of overdramatizing the human condition, Simon &amp; Schuster examines perception and illusion in everyday thought.</p></article>';
+    const root = doc.body;
+    const resolve = createReadingRangeResolver(root);
+
+    // Book title in <head><title> must not leak into indexed text
+    expect(resolve({ exact: 'Book Title That Should Be Ignored' }).status).toBe('missing');
+
+    // Entity-encoded quote matches decoded DOM text and drop-cap span
+    const entityMatch = resolve({ exact: 'At the risk of overdramatizing the human condition, Simon &amp; Schuster' });
+    expect(entityMatch.status).toBe('exact');
+
+    // Legacy mid-word clipped quote falls back cleanly via word-aligned anchor window
+    const clippedMatch = resolve({
+      exact: 'the risk of overdramatizing the human condition, Simon & Schuster examines percepti',
+    });
+    expect(clippedMatch.status).toBe('exact');
+  });
 });

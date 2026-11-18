@@ -150,6 +150,7 @@ import { useIsActiveTab, usePaneId, useTabId } from "../common/Tabs/TabContent";
 import { useStudyTrail } from "../../lib/study-plans/reading/trailController";
 import { useStudyTrailReader } from "../../lib/study-plans/reading/useStudyTrailReader";
 import { StudyTrailControls } from "./StudyTrailControls";
+import { GuidedReadingPanel } from "./GuidedReadingPanel";
 import { useTabReactivation } from "../../hooks/useTabReactivation";
 import { generateShareUrl, copyShareLink, DocumentState, parseStateFromUrl } from "../../lib/shareLink";
 import { usePdfUrlState } from "../../hooks/usePdfUrlState";
@@ -8240,6 +8241,7 @@ export function DocumentViewer({
       )}
 
       {/* Content Area */}
+      <div className="flex-1 min-h-0 flex relative">
       <div 
         data-document-content="true"
         className={cn(
@@ -9317,6 +9319,14 @@ export function DocumentViewer({
             )}
           />
         )}
+      </div>
+      {!embedded && isTabActive && tabId && hasStudyTrailControls && (
+        <GuidedReadingPanel
+          tabId={tabId}
+          isMobile={isMobileTouch}
+          onOpenNotes={() => setViewMode("extracts")}
+        />
+      )}
       </div>
 
       {/* Floating Action Button for Extract Creation. On mobile the actions

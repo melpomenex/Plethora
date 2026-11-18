@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, BookOpen, Check, WarningCircle } from '@phosphor
 import { useI18n } from '../../lib/i18n';
 import {
   coarseStudyJump, exitStudyTrail, finishStudyPassage, moveStudyPassage, nextStudyPassage,
-  readingTopicComplete, retryStudyPassage, useStudyTrail,
+  readingTopicComplete, retryStudyPassage, setGuidedPanelOpen, useStudyTrail,
 } from '../../lib/study-plans/reading/trailController';
 import { Button } from '../md3/Button';
 import { Menu, type MenuItemSpec } from '../md3/Menu';
@@ -15,6 +15,7 @@ export function StudyTrailControls({ tabId, showStatus = false }: { tabId: strin
   const [open, setOpen] = useState(false);
   const request = useStudyTrail((state) => state.tabId === tabId ? state.request : null);
   const active = useStudyTrail((state) => state.active);
+  const guided = useStudyTrail((state) => state.guidedSegment);
   const status = useStudyTrail((state) => state.status);
   const saving = useStudyTrail((state) => state.saving);
   const saveError = useStudyTrail((state) => state.saveError);
@@ -57,8 +58,16 @@ export function StudyTrailControls({ tabId, showStatus = false }: { tabId: strin
       key: 'skip', label: t('studyPlans.reading.skip'), disabled: saving, onSelect: () => void finishStudyPassage(true),
     });
   }
+  if (guided && !guided.panelOpen) {
+    items.push({
+      key: 'open-guided-panel',
+      label: 'Show Guided Reading Panel',
+      icon: BookOpen,
+      onSelect: () => setGuidedPanelOpen(true),
+    });
+  }
   items.push(
-    { key: 'return', label: t(active ? 'studyPlans.reading.returnPlan' : 'studyPlans.reading.returnResults'),
+    { key: 'return', label: t(active || guided ? 'studyPlans.reading.returnPlan' : 'studyPlans.reading.returnResults'),
       onSelect: () => exitStudyTrail(true) },
     { key: 'exit', label: t('studyPlans.reading.exit'), onSelect: () => exitStudyTrail() },
   );

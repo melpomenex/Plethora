@@ -1,14 +1,43 @@
 import type { StudyReadingQuote, StudyReadingSegment } from '../../../types/studyReading';
 
 const blocks = 'article,aside,blockquote,dd,div,dl,dt,figcaption,figure,h1,h2,h3,h4,h5,h6,li,main,ol,p,pre,section,table,td,th,tr,ul';
-const ignored = 'script,style,noscript,template,rt,[hidden],[aria-hidden="true"],[data-study-decoration]';
+const ignored = 'head,title,script,style,noscript,template,rt,[hidden],[aria-hidden="true"],[data-study-decoration]';
 const MAX_INDEX_LENGTH = 350_000;
 
 type Match = { status: 'exact'; range: Range } | { status: 'ambiguous' | 'missing' | 'unsupported' };
 interface Point { node: Text; start: number; end: number }
 
+const HTML_ENTITIES: Record<string, string> = {
+  amp: '&',
+  lt: '<',
+  gt: '>',
+  quot: '"',
+  apos: "'",
+  nbsp: ' ',
+  mdash: '-',
+  ndash: '-',
+  hellip: '...',
+  rsquo: "'",
+  lsquo: "'",
+  rdquo: '"',
+  ldquo: '"',
+};
+
+function decodeBasicEntities(value: string) {
+  if (!value.includes('&')) return value;
+  return value.replace(/&(#x?[0-9a-fA-F]+|[a-zA-Z]+);/g, (full, entity: string) => {
+    if (entity.startsWith('#')) {
+      const code = entity[1]?.toLowerCase() === 'x'
+        ? Number.parseInt(entity.slice(2), 16)
+        : Number.parseInt(entity.slice(1), 10);
+      return Number.isFinite(code) && code > 0 ? String.fromCodePoint(code) : full;
+    }
+    return HTML_ENTITIES[entity.toLowerCase()] ?? full;
+  });
+}
+
 function normalizeCharacters(value: string) {
-  return value.normalize('NFKC').toLowerCase()
+  return decodeBasicEntities(value).normalize('NFKC').toLowerCase()
     .replace(/[‘’‚‛′]/gu, "'")
     .replace(/[“”„‟″]/gu, '"')
     .replace(/[–—―−]/gu, '-')
@@ -27,19 +56,15 @@ function normalizePiece(value: string) {
   return normalizeCharacters(value);
 }
 
-export function uniqueQuote(text: string, quote: StudyReadingQuote) {
-  const exact = normalizeReadingQuote(quote.exact);
-  if (!exact) return { status: 'missing' } as const;
-  const prefix = normalizeReadingQuote(quote.prefix ?? '');
-  const suffix = normalizeReadingQuote(quote.suffix ?? '');
+function matchCandidate(text: string, needle: string, prefix: string, suffix: string) {
   let bare = -1;
   let confirmed = -1;
   let count = 0;
   let confirmations = 0;
-  for (let index = text.indexOf(exact); index >= 0; index = text.indexOf(exact, index + 1)) {
+  for (let index = text.indexOf(needle); index >= 0; index = text.indexOf(needle, index + 1)) {
     bare = index;
     count += 1;
-    const end = index + exact.length;
+    const end = index + needle.length;
     const prefixEnd = index - Number(text[index - 1] === ' ');
     const suffixStart = end + Number(text[end] === ' ');
     const prefixMatches = prefixEnd >= prefix.length && text.startsWith(prefix, prefixEnd - prefix.length);
@@ -52,8 +77,57 @@ export function uniqueQuote(text: string, quote: StudyReadingQuote) {
   if (count === 0) return { status: 'missing' } as const;
   const start = confirmations === 1 ? confirmed : count === 1 ? bare : -1;
   return start >= 0
-    ? { status: 'exact', start, end: start + exact.length } as const
+    ? { status: 'exact', start, end: start + needle.length } as const
     : { status: 'ambiguous' } as const;
+}
+
+function anchorWindows(exact: string): string[] {
+  const words = exact.split(' ').filter(Boolean);
+  if (words.length < 6) return [];
+  const candidates: string[] = [];
+  const pushWindow = (slice: string[]) => {
+    if (slice.length < 5) return;
+    const joined = slice.join(' ');
+    if (joined.length >= 28 && !candidates.includes(joined)) candidates.push(joined);
+  };
+  // Trim clipped edge words from legacy fixed-char locators
+  pushWindow(words.slice(0, -1));
+  pushWindow(words.slice(1));
+  pushWindow(words.slice(1, -1));
+  // Word-aligned ~65-char windows from start, middle, and end (also tolerating minor prefix drift)
+  const buildFrom = (startWord: number) => {
+    let acc = '';
+    const slice: string[] = [];
+    for (let i = startWord; i < words.length; i += 1) {
+      const next = acc ? `${acc} ${words[i]}` : words[i];
+      if (next.length > 72 && slice.length >= 5) break;
+      acc = next;
+      slice.push(words[i]);
+    }
+    pushWindow(slice);
+  };
+  buildFrom(0);
+  buildFrom(Math.min(3, words.length - 5));
+  buildFrom(Math.max(0, Math.floor(words.length / 2) - 3));
+  buildFrom(Math.max(0, words.length - 8));
+  return candidates;
+}
+
+export function uniqueQuote(text: string, quote: StudyReadingQuote) {
+  const exact = normalizeReadingQuote(quote.exact);
+  if (!exact) return { status: 'missing' } as const;
+  const prefix = normalizeReadingQuote(quote.prefix ?? '');
+  const suffix = normalizeReadingQuote(quote.suffix ?? '');
+  const direct = matchCandidate(text, exact, prefix, suffix);
+  if (direct.status !== 'missing' || exact.length < 45) return direct;
+
+  let anyAmbiguous = false;
+  for (const anchor of anchorWindows(exact)) {
+    const hit = matchCandidate(text, anchor, '', '');
+    if (hit.status === 'exact') return hit;
+    if (hit.status === 'ambiguous') anyAmbiguous = true;
+  }
+  return anyAmbiguous ? ({ status: 'ambiguous' } as const) : ({ status: 'missing' } as const);
 }
 
 /**

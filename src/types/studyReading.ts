@@ -20,7 +20,7 @@ export interface StudyReadingAssignment {
   documentId: string;
   documentTitle: string;
   documentRevision: string;
-  format: 'epub' | 'pdf' | 'html' | 'markdown';
+  format: 'epub' | 'pdf' | 'html' | 'markdown' | 'text' | 'youtube' | 'video' | 'audio';
   segments: StudyReadingSegment[];
   objectiveIndexes: number[];
   sourceRefIds: string[];

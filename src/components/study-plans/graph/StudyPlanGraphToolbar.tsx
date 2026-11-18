@@ -26,7 +26,7 @@ import type {
 import { t, useI18n } from '../../../lib/i18n';
 import { getGraphSurfaceTokens } from './theme';
 
-export type OutlineViewMode = 'list' | 'graph';
+export type OutlineViewMode = 'queue' | 'list' | 'graph';
 
 export interface StudyPlanOutlineModeSwitchProps {
   mode: OutlineViewMode;
@@ -50,6 +50,26 @@ export const StudyPlanOutlineModeSwitch: React.FC<StudyPlanOutlineModeSwitchProp
         borderColor: tokens.borderSubtle,
       }}
     >
+      <button
+        type="button"
+        data-testid="study-plan-outline-mode-queue"
+        aria-pressed={mode === 'queue'}
+        onClick={() => onChangeMode('queue')}
+        className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer"
+        style={
+          mode === 'queue'
+            ? {
+                backgroundColor: tokens.primaryContainer,
+                color: tokens.onPrimaryContainer,
+              }
+            : {
+                color: tokens.textMuted,
+              }
+        }
+      >
+        <Sparkle size={14} aria-hidden="true" />
+        <span>Queue</span>
+      </button>
       <button
         type="button"
         data-testid="study-plan-outline-mode-list"

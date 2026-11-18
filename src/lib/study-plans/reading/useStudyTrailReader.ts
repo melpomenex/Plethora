@@ -57,9 +57,18 @@ export function useStudyTrailReader(surface: ReaderSurface) {
               if (result.status === 'exact' && result.ranges.length) {
                 const revealed = !initial || revealReadingRange(result.ranges[0]);
                 if (revealed) {
-                  remove = paintReadingPassage(root, result.ranges.map((range, index) => ({
+                  let paintItems = result.ranges.map((range, index) => ({
                     range, start: index === 0, end: index === result.ranges.length - 1,
-                  })), request.id);
+                  }));
+                  if (result.ranges.length === 2) {
+                    try {
+                      const spanned = root.ownerDocument.createRange();
+                      spanned.setStart(result.ranges[0].startContainer, result.ranges[0].startOffset);
+                      spanned.setEnd(result.ranges[1].endContainer, result.ranges[1].endOffset);
+                      paintItems = [{ range: spanned, start: true, end: true }];
+                    } catch { /* fallback to endpoints */ }
+                  }
+                  remove = paintReadingPassage(root, paintItems, request.id);
                   if (initial) report('exact');
                 } else if (initial) report(coarseStudyJump(assignment) ? 'coarse' : 'unsupported');
               } else if (initial) {

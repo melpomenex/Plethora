@@ -3,7 +3,7 @@ import type { StudyPlanGraphPrefs } from './types';
 const STORAGE_KEY_PREFIX = 'plethora:study-plan-graph-prefs:';
 
 export const DEFAULT_STUDY_PLAN_GRAPH_PREFS: StudyPlanGraphPrefs = {
-  outlineMode: 'list',
+  outlineMode: 'queue',
   orientation: 'TB',
   showMinimap: true,
   showLegend: true,
@@ -18,7 +18,12 @@ export function loadStudyPlanGraphPrefs(planId: string): StudyPlanGraphPrefs {
     if (!raw) return { ...DEFAULT_STUDY_PLAN_GRAPH_PREFS };
     const parsed = JSON.parse(raw) as Partial<StudyPlanGraphPrefs>;
     return {
-      outlineMode: parsed.outlineMode === 'graph' ? 'graph' : 'list',
+      outlineMode:
+        parsed.outlineMode === 'graph'
+          ? 'graph'
+          : parsed.outlineMode === 'list'
+            ? 'list'
+            : 'queue',
       orientation: parsed.orientation === 'LR' ? 'LR' : 'TB',
       showMinimap: typeof parsed.showMinimap === 'boolean' ? parsed.showMinimap : true,
       showLegend: typeof parsed.showLegend === 'boolean' ? parsed.showLegend : true,

@@ -71,6 +71,8 @@ import { ConfirmDialog } from '../common/ConfirmDialog';
 import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
 import { AssessmentList } from './assessments/AssessmentList';
 import { StudyReadingControls, useStudyReading } from './reading/StudyReadingControls';
+import { StudyQueueView } from './queue/StudyQueueView';
+import { startGuidedSegment } from '../../lib/study-plans/reading/trailController';
 import { getAssessmentBlueprintRevision, listAssessmentBlueprints } from '../../api/assessment-blueprints';
 import { WebResearchPanel } from './WebResearchPanel';
 import type { AssessmentConfigV1 } from '../../types/assessmentQuestions';
@@ -933,7 +935,27 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
 
       {/* Main Tab Panels */}
       {activeTab === 'outline' && (
-        outlineMode === 'graph' ? (
+        outlineMode === 'queue' ? (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between gap-2">
+              <StudyPlanOutlineModeSwitch mode="queue" onChangeMode={handleOutlineModeChange} />
+            </div>
+            <StudyQueueView
+              planDetail={planDetail}
+              onStartGuidedReading={(entry, overview) => {
+                void startGuidedSegment(planDetail, entry, overview, originTabId, () => {
+                  void selectPlan(planDetail.plan.id, planDetail.version.id);
+                });
+              }}
+              onInspectNode={(nodeId) => {
+                setSelectedNodeId(nodeId);
+                handleOutlineModeChange('list');
+              }}
+              onOpenGraph={() => handleOutlineModeChange('graph')}
+              onOpenAssessments={() => setActiveTab('assessments')}
+            />
+          </div>
+        ) : outlineMode === 'graph' ? (
           <StudyPlanGraphView
             planDetail={planDetail}
             nodes={nodes}
