@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef, useState, type RefObject, type ReactNode } from "react";
-import { ChatCircleDots, Images, MagnifyingGlass, ShareNetwork } from "@phosphor-icons/react";
+import { ChatCircleDots, ClockCounterClockwise, Images, MagnifyingGlass, ShareNetwork } from "@phosphor-icons/react";
 import { useAssistantMenuDismissal } from "../useAssistantMenuDismissal";
 import { useI18n } from "../../../lib/i18n";
 import { matchAssistantSlashCommands } from "../assistantSlashCommands";
@@ -17,6 +17,7 @@ export interface MobileComposerMenuProps {
   onInsert: (command: string) => void;
   onAttach: () => void;
   onNewConversation: () => void;
+  onOpenHistory?: () => void;
   onShare?: () => void;
 }
 
@@ -34,7 +35,7 @@ export function MobileComposerMenu(props: MobileComposerMenuProps) {
   return <MobileComposerMenuBody {...props} />;
 }
 
-function MobileComposerMenuBody({ actions, actionsMatch, startAtActions, anchorRef, sourceTitle, onClose, onInsert, onAttach, onNewConversation, onShare }: MobileComposerMenuProps) {
+function MobileComposerMenuBody({ actions, actionsMatch, startAtActions, anchorRef, sourceTitle, onClose, onInsert, onAttach, onNewConversation, onOpenHistory, onShare }: MobileComposerMenuProps) {
   const { t } = useI18n();
   const [query, setQuery] = useState("");
   const containerRef = useRef<HTMLDivElement>(null);
@@ -112,6 +113,10 @@ function MobileComposerMenuBody({ actions, actionsMatch, startAtActions, anchorR
           <ChatCircleDots size={20} aria-hidden="true" />
           <span className="text-sm font-medium">{t("assistant.composer.newConversation")}</span>
         </button>
+        {onOpenHistory && <button type="button" className={ROW_CLASS} onClick={() => { onClose(); onOpenHistory(); }}>
+          <ClockCounterClockwise size={20} aria-hidden="true" />
+          <span className="text-sm font-medium">{t("assistant.history.title")}</span>
+        </button>}
         {onShare && <button type="button" className={ROW_CLASS} onClick={() => { onShare(); dismiss(); }}>
           <ShareNetwork size={20} aria-hidden="true" />
           <span className="text-sm font-medium">{t("assistant.shareConversation")}</span>

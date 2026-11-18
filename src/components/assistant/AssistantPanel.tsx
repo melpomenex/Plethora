@@ -15,6 +15,13 @@ import { useComposerDictation } from "../../hooks/useComposerDictation";
 import { ComposerDictationButton } from "./ComposerDictationControl";
 import { ASSISTANT_SLASH_COMMANDS } from "./assistantSlashCommands";
 import { MobileComposerMenu } from "./mobile/MobileComposerMenu";
+import { MobileChatHistory } from "./mobile/MobileChatHistory";
+import {
+  deleteMobileChatFromHistory,
+  readMobileChatHistory,
+  saveMobileChatToHistory,
+  type MobileChatHistoryEntry,
+} from "./mobile/chatHistory";
 import { AgentSourcePicker } from "./AgentSourcePicker";
 import { useAssistantModelMenuBounds } from "./useAssistantModelMenuBounds";
 import { AssistantModelPicker, type AssistantProviderOption, type AssistantProviderStatus } from "./AssistantModelPicker";
@@ -38,11 +45,13 @@ import {
   ChatCircle,
   Check,
   CircleNotch,
+  ClockCounterClockwise,
   Code,
   Copy,
   Gear,
   GraduationCap,
   Images,
+  NotePencil,
   PaperPlaneTilt,
   Plus,
   ShareNetwork,
@@ -359,6 +368,8 @@ interface StoredConversation {
   updatedAt: number;
   /** Optional versioned agent draft (no controllers/transcripts). */
   agentDraft?: AgentDraftArtifact;
+  /** Optional mobile history id when resuming an archived mobile chat. */
+  chatId?: string;
 }
 
 type StoredConversationMap = Record<string, StoredConversation>;
@@ -421,6 +432,9 @@ const parseStoredConversations = (raw: string | null | undefined): StoredConvers
         input: typeof candidate.input === "string" ? candidate.input : "",
         updatedAt: typeof candidate.updatedAt === "number" ? candidate.updatedAt : Date.now(),
         agentDraft: decodeAgentDraftArtifact(candidate.agentDraft) ?? undefined,
+        ...(typeof candidate.chatId === "string" && candidate.chatId.trim()
+          ? { chatId: candidate.chatId.trim() }
+          : {}),
       };
     });
     return normalized;
@@ -1016,12 +1030,17 @@ export function AssistantPanel({
   const historyDraftRef = useRef("");
   const publishConversationTimerRef = useRef<number | null>(null);
   const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  const [activeMobileChatId, setActiveMobileChatId] = useState<string | undefined>(undefined);
+  const [mobileHistoryOpen, setMobileHistoryOpen] = useState(false);
+  const [mobileHistoryEntries, setMobileHistoryEntries] = useState<MobileChatHistoryEntry[]>([]);
+  const historyTriggerRef = useRef<HTMLButtonElement>(null);
 
   // Transient menus belong to the presentation: close them with the sheet.
   useEffect(() => {
     if (mobilePresentation?.visible) return;
     setIsComposerMenuOpen(false);
     setIsModelDropdownOpen(false);
+    setMobileHistoryOpen(false);
   }, [mobilePresentation?.visible]);
 
   // Dictation status no longer occupies a composer row; errors surface as a
@@ -1278,6 +1297,8 @@ export function AssistantPanel({
     setAgentDraft(stored?.agentDraft);
     setScope(stored?.scope ?? "chat");
     setInput(stored?.input ?? "");
+    setActiveMobileChatId(isMobileSession ? stored?.chatId : undefined);
+    setMobileHistoryOpen(false);
     historyDraftRef.current = stored?.input ?? "";
     setHistoryIndex(null);
     lastContextSignatureRef.current = null;
@@ -1333,6 +1354,7 @@ export function AssistantPanel({
       input,
       updatedAt: Date.now(),
       agentDraft,
+      ...(isMobileSession && activeMobileChatId ? { chatId: activeMobileChatId } : {}),
     };
     writeStoredConversations(conversations);
 
@@ -1349,7 +1371,7 @@ export function AssistantPanel({
         publishConversationTimerRef.current = null;
       }, 500);
     }
-  }, [messages, input, scope, agentDraft, hydratedSessionKey, sessionKey, isMobileSession]);
+  }, [messages, input, scope, agentDraft, activeMobileChatId, hydratedSessionKey, sessionKey, isMobileSession]);
 
   // When a conversation arrives from another device, reload the active
   // conversation from localStorage (the entity already wrote it there) so the
@@ -3605,7 +3627,28 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     }
   };
 
+  const archiveActiveMobileChat = useCallback(() => {
+    if (!isMobileSession) return;
+    const savedId = saveMobileChatToHistory(
+      {
+        id: activeMobileChatId,
+        messages,
+        scope,
+        input,
+        agentDraft,
+      },
+      t("assistant.history.untitled")
+    );
+    if (savedId) {
+      setMobileHistoryEntries(readMobileChatHistory());
+    }
+  }, [isMobileSession, activeMobileChatId, messages, scope, input, agentDraft, t]);
+
   const handleClearChat = () => {
+    const hadVisibleMessages = isMobileSession && (messages.some((m) => m.role !== "system") || Boolean(agentDraft));
+    if (isMobileSession) {
+      archiveActiveMobileChat();
+    }
     dictation.cancel();
     actionFlightRef.current = null;
     requestEpochRef.current += 1;
@@ -3624,13 +3667,82 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       }
     }
     if (isMobileSession) {
+      setActiveMobileChatId(undefined);
+      setMobileHistoryOpen(false);
       setInput("");
       setScope("chat");
       setPinnedSelection(null);
       setSelectedSectionNodes([]);
       clearAttachedImages();
+      toast.success(
+        hadVisibleMessages
+          ? t("assistant.history.startedNew")
+          : translateRecentFeature("i18nAudit.ui.chat-history-cleared.2730c0af")
+      );
+      return;
     }
     toast.success(translateRecentFeature("i18nAudit.ui.chat-history-cleared.2730c0af"));
+  };
+
+  const openMobileHistory = () => {
+    if (!isMobilePresentation) return;
+    if (activeMobileChatId && (messages.some((m) => m.role !== "system") || Boolean(agentDraft))) {
+      saveMobileChatToHistory(
+        { id: activeMobileChatId, messages, scope, input, agentDraft },
+        t("assistant.history.untitled")
+      );
+    }
+    setMobileHistoryEntries(readMobileChatHistory());
+    setIsSourceMenuOpen(false);
+    setActionsMenuOpen(false);
+    setIsComposerMenuOpen(false);
+    setIsModelDropdownOpen(false);
+    setMobileHistoryOpen(true);
+    if (mobileSheet?.detent === "partial") mobileSheet.onToggleDetent();
+  };
+
+  const closeMobileHistory = () => setMobileHistoryOpen(false);
+
+  const toggleMobileHistory = () => {
+    if (mobileHistoryOpen) {
+      closeMobileHistory();
+    } else {
+      openMobileHistory();
+    }
+  };
+
+  const handleSelectMobileHistoryEntry = (entry: MobileChatHistoryEntry) => {
+    if (entry.id === activeMobileChatId) {
+      setMobileHistoryOpen(false);
+      return;
+    }
+    archiveActiveMobileChat();
+    dictation.cancel();
+    actionFlightRef.current = null;
+    requestEpochRef.current += 1;
+    agentAbortRef.current?.abort();
+    agentAbortRef.current = null;
+    setAgentProgress(null);
+    setIsLoading(false);
+    setPinnedSelection(null);
+    setSelectedSectionNodes([]);
+    clearAttachedImages();
+    setActiveMobileChatId(entry.id);
+    setMessages(entry.messages as Message[]);
+    setAgentDraft(entry.agentDraft);
+    setScope(entry.scope);
+    setInput(entry.input);
+    historyDraftRef.current = entry.input;
+    setHistoryIndex(null);
+    setMobileHistoryOpen(false);
+  };
+
+  const handleDeleteMobileHistoryEntry = (id: string) => {
+    const next = deleteMobileChatFromHistory(id);
+    setMobileHistoryEntries(next);
+    if (activeMobileChatId === id) {
+      setActiveMobileChatId(undefined);
+    }
   };
 
   const handleContextMenu = useCallback(
@@ -3857,7 +3969,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
   const canSend = (input.trim().length > 0 || attachedImages.length > 0) && !isLoading;
   const mobileSheet = mobilePresentation?.sheet;
   const openActionMenu = () => {
-    setIsSourceMenuOpen(false); setIsModelDropdownOpen(false); setMenuStartsAtActions(true);
+    setIsSourceMenuOpen(false); setIsModelDropdownOpen(false); setMobileHistoryOpen(false); setMenuStartsAtActions(true);
     if (mobilePresentation) setIsComposerMenuOpen(open => !open); else setActionsMenuOpen(open => !open);
   };
   const actionProps = { cardToolsReady: availableTools.some(tool => CARD_ACTION_TOOLS.has(tool.name)), resolution: actionResolution, scope, providerReady: actionProviderReady, busy: isLoading, onRun: runContextAction };
@@ -3876,6 +3988,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     }
     setIsSourceMenuOpen(false);
     setActionsMenuOpen(false);
+    setMobileHistoryOpen(false);
     setIsModelDropdownOpen(true);
     if (isMobilePresentation) {
       setIsComposerMenuOpen(false);
@@ -4091,6 +4204,29 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               </button>
             </div>
           </div>
+          {/* Mobile chat history & new chat controls */}
+          {mobilePresentation && (
+            <>
+              <button
+                ref={historyTriggerRef}
+                type="button"
+                onClick={toggleMobileHistory}
+                aria-expanded={mobileHistoryOpen}
+                aria-label={t("assistant.history.title")}
+                className={`md-state flex min-h-10 min-w-10 items-center justify-center rounded-full ${mobileHistoryOpen ? "bg-muted text-primary" : "text-foreground"}`}
+              >
+                <ClockCounterClockwise size={18} aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={handleClearChat}
+                aria-label={t("assistant.history.newChat")}
+                className="md-state flex min-h-10 min-w-10 items-center justify-center rounded-full text-foreground"
+              >
+                <NotePencil size={18} aria-hidden="true" />
+              </button>
+            </>
+          )}
           {/* Mobile expand/collapse — the handle also toggles, this keeps an explicit control. */}
           {mobileSheet?.hasPartial && <button
             type="button"
@@ -4153,8 +4289,22 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         />
       )}
 
+      {/* Mobile Chat History — an in-flow sheet body, never an overlay. */}
+      {isMobilePresentation && mobileHistoryOpen && !mobileModelPickerOpen && (
+        <MobileChatHistory
+          className="mx-2 mb-2"
+          entries={mobileHistoryEntries}
+          activeChatId={activeMobileChatId}
+          onSelect={handleSelectMobileHistoryEntry}
+          onDelete={handleDeleteMobileHistoryEntry}
+          onNewConversation={handleClearChat}
+          onClose={closeMobileHistory}
+          returnFocusRef={historyTriggerRef}
+        />
+      )}
+
       {/* Context Banner */}
-      {showContextBanner && !mobileModelPickerOpen && (
+      {showContextBanner && !mobileModelPickerOpen && !mobileHistoryOpen && (
         <div className="px-3 py-2 bg-muted/50 border-b border-border text-xs text-muted-foreground">
           <div className="flex items-center gap-2">
             {context.type === "document" && <TextT className="w-3 h-3" />}
@@ -4173,13 +4323,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         </div>
       )}
 
-      {!mobileModelPickerOpen && composerMode === "chat" && suggestSwitchToChat && scope !== "chat" && <button type="button" onClick={() => { setScope("chat"); setSuggestSwitchToChat(false); }} className="md-state min-h-10 px-3 text-sm text-primary underline focus-visible:ring-2 focus-visible:ring-primary">{t("assistant.answerFrom.useGeneralKnowledge")}</button>}
+      {!mobileModelPickerOpen && !mobileHistoryOpen && composerMode === "chat" && suggestSwitchToChat && scope !== "chat" && <button type="button" onClick={() => { setScope("chat"); setSuggestSwitchToChat(false); }} className="md-state min-h-10 px-3 text-sm text-primary underline focus-visible:ring-2 focus-visible:ring-primary">{t("assistant.answerFrom.useGeneralKnowledge")}</button>}
       {/* Messages */}
       <div
         data-assistant-messages
         ref={messagesContainerRef}
         onScroll={conversationScroll.onScroll}
-        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-4 ${mobileModelPickerOpen ? "hidden" : ""}`}
+        className={`flex-1 min-h-0 overflow-y-auto overflow-x-hidden p-3 space-y-4 ${mobileModelPickerOpen || mobileHistoryOpen ? "hidden" : ""}`}
       >
         {messages.filter((m) => m.role !== "system").length === 0 ? (
           <div className="text-center text-muted-foreground text-sm py-6 space-y-4">
@@ -4506,7 +4656,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
         )}
       </div>
 
-      {conversationScroll.showLatest && !mobileModelPickerOpen && (
+      {conversationScroll.showLatest && !mobileModelPickerOpen && !mobileHistoryOpen && (
         <div className="flex justify-center px-3 pb-2">
           <button type="button" onClick={conversationScroll.showNewest} className="rounded-full border border-border bg-card px-3 py-1.5 text-xs font-medium shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
             {t("assistant.scroll.latest")}
@@ -4517,7 +4667,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
       {/* Add menu — an in-flow row above the composer so it can never be clipped. */}
       {mobilePresentation && (
         <MobileComposerMenu
-          open={isComposerMenuOpen && !mobileModelPickerOpen}
+          open={isComposerMenuOpen && !mobileModelPickerOpen && !mobileHistoryOpen}
           anchorRef={composerAddRef}
           actions={composerMode === 'chat' ? renderActionMenu : undefined}
           actionsMatch={composerMode === 'chat' ? query => contextActionsMatch(query, t) : undefined}
@@ -4527,6 +4677,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           onInsert={(command) => { setInput(command); textareaRef.current?.focus(); }}
           onAttach={() => fileInputRef.current?.click()}
           onNewConversation={handleClearChat}
+          onOpenHistory={openMobileHistory}
           onShare={messages.length > 0 ? handleShareConversation : undefined}
         />
       )}
@@ -4537,7 +4688,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             </div>}
 
       {/* Input Area */}
-      <div data-paper-surface="inset" data-assistant-composer className={`min-h-0 max-h-[65%] flex-shrink-0 overflow-y-auto p-3 border-t border-border bg-card relative ${mobileModelPickerOpen ? "hidden" : ""}`}>
+      <div data-paper-surface="inset" data-assistant-composer className={`min-h-0 max-h-[65%] flex-shrink-0 overflow-y-auto p-3 border-t border-border bg-card relative ${mobileModelPickerOpen || mobileHistoryOpen ? "hidden" : ""}`}>
         <div className="flex flex-col gap-2">
           {/* Image Preview Strip */}
           {attachedImages.length > 0 && !(isMobilePresentation && isComposerMenuOpen) && (
