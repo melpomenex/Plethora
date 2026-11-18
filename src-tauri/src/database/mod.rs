@@ -37,6 +37,7 @@ pub mod study_plan_repository;
 pub mod study_plan_research_repository;
 pub mod study_source_repository;
 pub mod study_reading_repository;
+pub mod study_trail_repository;
 pub mod video_extract_repository;
 
 pub use assessment_blueprint_repository::AssessmentBlueprintRepository;
@@ -51,6 +52,7 @@ pub use study_plan_repository::StudyPlanRepository;
 pub use study_plan_research_repository::StudyPlanResearchRepository;
 pub use study_source_repository::StudySourceRepository;
 pub use study_reading_repository::StudyReadingRepository;
+pub use study_trail_repository::StudyTrailRepository;
 
 pub use ai_conversation_repository::{
     AiConversationRepository, ConversationSummary, ImportJournalEntry, ListOptions, StoredAttempt,

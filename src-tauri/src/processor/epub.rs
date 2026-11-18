@@ -15,6 +15,17 @@ pub struct EpubChapter {
     pub index: usize,
 }
 
+/// Raw XHTML/text content and TOC label for a single EPUB spine item, keyed by
+/// the 0-based `spine_index` matching `epub.js` `section.index`.
+#[derive(Debug, Clone)]
+pub struct EpubSpineContent {
+    pub spine_index: u32,
+    pub toc_title: Option<String>,
+    pub idref: String,
+    pub href: String,
+    pub content: String,
+}
+
 /// Extract text from HTML content while preserving document structure.
 ///
 /// Headings (`<h1>`–`<h6>`), paragraphs, list items, and other block elements
@@ -24,8 +35,8 @@ pub struct EpubChapter {
 /// makes every chapter heading invisible to resolution and the model receives
 /// no focused context.
 ///
-/// `<style>` and `<script>` content is dropped entirely; previously their raw
-/// CSS/JS text leaked into the body.
+/// `<head>`, `<title>`, `<style>`, and `<script>` content is dropped entirely;
+/// previously `<title>` or raw CSS/JS text could leak into the body.
 fn extract_text_from_html(html: &str) -> String {
     // Tags whose end forces a line break (block-level + headings). `<br>` is
     // handled separately since it self-opens a break.
@@ -52,9 +63,14 @@ fn extract_text_from_html(html: &str) -> String {
 
     let mut result = String::new();
     let mut chars = html.chars().peekable();
+    let mut in_head = false;
+    let mut in_title = false;
 
     while let Some(c) = chars.next() {
         if c != '<' {
+            if in_head || in_title {
+                continue;
+            }
             // Outside a tag: copy visible text, normalizing whitespace to a
             // single space (newlines inside a run of inline text collapse too).
             if c.is_whitespace() {
@@ -80,12 +96,35 @@ fn extract_text_from_html(html: &str) -> String {
         // chapter of Kobo/Adobe-converted EPUBs). The element has no separate
         // close tag, so the raw-text skip below must not run — scanning for a
         // `</script>` that never exists swallowed the rest of the chapter.
-        let self_closing = tag_body.ends_with('/');
+        let self_closing = tag_body.trim_end().ends_with('/');
+        let is_closing = tag_body.trim_start().starts_with('/');
 
         let name = tag_name(&tag_body);
 
+        if name == "head" {
+            if is_closing {
+                in_head = false;
+                in_title = false;
+            } else if !self_closing {
+                in_head = true;
+            }
+            continue;
+        }
+        if name == "title" {
+            if is_closing {
+                in_title = false;
+            } else if !self_closing {
+                in_title = true;
+            }
+            continue;
+        }
+        if name == "body" && !is_closing {
+            in_head = false;
+            in_title = false;
+        }
+
         // Skip raw text content of <style>/<script> entirely.
-        if !self_closing && (name == "style" || name == "script") {
+        if !self_closing && !is_closing && (name == "style" || name == "script") {
             let close_chars: Vec<char> = format!("</{}", name).chars().collect();
             // Match the close tag against a rolling window of the last
             // close_chars.len() consumed chars. Re-lowercasing the whole
@@ -112,18 +151,20 @@ fn extract_text_from_html(html: &str) -> String {
                     break;
                 }
             }
-            if !result.ends_with('\n') && !result.ends_with(' ') {
+            if !in_head && !in_title && !result.ends_with('\n') && !result.ends_with(' ') {
                 result.push('\n');
             }
+            continue;
+        }
+
+        if in_head || in_title {
             continue;
         }
 
         // <br> forces a single line break; block/heading end-tags force one too
         // (they close a block). Opening block tags also get a break so that the
         // heading text starts on a fresh line.
-        let is_break = name == "br"
-            || (tag_body.starts_with('/') && BLOCK_TAGS.contains(&name.as_str()))
-            || (!tag_body.starts_with('/') && BLOCK_TAGS.contains(&name.as_str()));
+        let is_break = name == "br" || BLOCK_TAGS.contains(&name.as_str());
         if is_break {
             if !result.ends_with('\n') {
                 while result.ends_with(' ') {
@@ -134,10 +175,12 @@ fn extract_text_from_html(html: &str) -> String {
         }
     }
 
+    let decoded = crate::threadreader::decode_html_entities(&result).replace('\u{00a0}', " ");
+
     // Normalize: collapse 3+ newlines to 2, and strip leading whitespace per line.
-    let mut normalized = String::with_capacity(result.len());
+    let mut normalized = String::with_capacity(decoded.len());
     let mut blank = false;
-    for line in result.split_inclusive('\n') {
+    for line in decoded.split_inclusive('\n') {
         let trimmed = line.trim_start();
         if trimmed.trim().is_empty() {
             if !blank && !normalized.is_empty() {
@@ -261,6 +304,98 @@ fn extract_epub_content_blocking(file_path: &str) -> Result<ExtractedContent> {
         },
         metadata,
     })
+}
+
+fn collect_nav_points(
+    doc: &EpubDoc<std::io::BufReader<std::fs::File>>,
+    points: &[epub::doc::NavPoint],
+    out: &mut HashMap<usize, String>,
+) {
+    for nav in points {
+        let raw_uri = nav.content.to_string_lossy();
+        let base_uri = raw_uri.split('#').next().unwrap_or(&raw_uri);
+        let chapter_opt = doc
+            .resource_uri_to_chapter(&nav.content)
+            .or_else(|| doc.resource_uri_to_chapter(&std::path::PathBuf::from(base_uri)))
+            .or_else(|| {
+                let clean = base_uri.trim_start_matches("./");
+                doc.resources.iter().find_map(|(id, res)| {
+                    let rp = res.path.to_string_lossy();
+                    if rp == clean
+                        || rp.ends_with(&format!("/{}", clean))
+                        || clean.ends_with(&format!("/{}", rp))
+                    {
+                        doc.resource_id_to_chapter(id)
+                    } else {
+                        None
+                    }
+                })
+            });
+        if let Some(ch) = chapter_opt {
+            let label = nav.label.trim();
+            if !label.is_empty() {
+                out.entry(ch).or_insert_with(|| label.to_string());
+            }
+        }
+        if !nav.children.is_empty() {
+            collect_nav_points(doc, &nav.children, out);
+        }
+    }
+}
+
+/// Extract per-spine XHTML/text content and TOC titles while preserving exact
+/// 0-based `spine_index` alignment with `epub.js` `section.index`.
+pub async fn extract_epub_spines(file_path: &str) -> Result<Vec<EpubSpineContent>> {
+    let owned_path = file_path.to_string();
+    tokio::task::spawn_blocking(move || extract_epub_spines_blocking(&owned_path))
+        .await
+        .map_err(|e| {
+            crate::error::PlethoraError::Internal(format!("EPUB spine task panicked: {}", e))
+        })?
+}
+
+fn extract_epub_spines_blocking(file_path: &str) -> Result<Vec<EpubSpineContent>> {
+    let mut doc = EpubDoc::new(file_path).map_err(|e| {
+        crate::error::PlethoraError::Import(crate::error::ImportError {
+            code: crate::error::ImportErrorCode::InvalidDocument,
+            message: format!("Failed to open EPUB: {}", e),
+            file_name: Some(file_path.to_string()),
+        })
+    })?;
+
+    let mut toc_by_spine: HashMap<usize, String> = HashMap::new();
+    let toc_clone = doc.toc.clone();
+    collect_nav_points(&doc, &toc_clone, &mut toc_by_spine);
+
+    let spine_items = doc.spine.clone();
+    let mut spines = Vec::with_capacity(spine_items.len());
+    for (spine_idx, item) in spine_items.into_iter().enumerate() {
+        if !item.linear {
+            continue;
+        }
+        let href = doc
+            .resources
+            .get(&item.idref)
+            .map(|r| r.path.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if let Some((content, mime)) = doc.get_resource_str(&item.idref) {
+            if !should_extract_text(&mime) {
+                continue;
+            }
+            if content.trim().is_empty() {
+                continue;
+            }
+            spines.push(EpubSpineContent {
+                spine_index: spine_idx as u32,
+                toc_title: toc_by_spine.get(&spine_idx).cloned(),
+                idref: item.idref,
+                href,
+                content,
+            });
+        }
+    }
+
+    Ok(spines)
 }
 
 /// Extract embedded cover image from an EPUB file as a data URL.

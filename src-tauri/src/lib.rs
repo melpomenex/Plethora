@@ -34,6 +34,7 @@ mod mcp;
 mod media_control;
 mod migrations;
 pub mod models;
+pub mod study_trail;
 mod notebooklm;
 mod notifications;
 mod ocr;
@@ -2670,6 +2671,14 @@ pub fn run() {
             commands::save_study_trail_session,
             commands::get_study_attempt_sources,
             commands::get_study_reading_chunks,
+            commands::generate_study_trail_segments,
+            commands::get_study_trail_overview,
+            commands::update_study_trail_item_progress,
+            commands::submit_formative_check,
+            commands::generate_formative_multiple_choice,
+            commands::override_study_trail_assignment,
+            commands::check_assessment_eligibility,
+            commands::get_remediation_trail_items,
             commands::save_study_plan_draft,
             commands::rename_study_plan,
             commands::get_study_plan_preferences,

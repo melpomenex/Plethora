@@ -72,7 +72,7 @@ impl AiLearningState {
         }
     }
 
-    fn backend(&self) -> EmbeddingBackend {
+    pub fn backend(&self) -> EmbeddingBackend {
         let guard = self.config.read().ok().and_then(|g| g.clone());
         EmbeddingBackend::from_config(guard.as_ref())
     }

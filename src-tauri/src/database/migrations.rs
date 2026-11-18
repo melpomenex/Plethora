@@ -5994,6 +5994,101 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
+    Migration::new(
+        "154_guided_study_trails",
+        r#"
+        CREATE TABLE learning_segments (
+            id TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            document_revision TEXT NOT NULL,
+            format TEXT NOT NULL,
+            title TEXT NOT NULL,
+            parent_section_label TEXT,
+            start_locator_json TEXT NOT NULL,
+            end_locator_json TEXT NOT NULL,
+            start_offset INTEGER,
+            end_offset INTEGER,
+            excerpt_preview TEXT NOT NULL,
+            word_count INTEGER NOT NULL DEFAULT 0,
+            estimated_duration_seconds INTEGER NOT NULL DEFAULT 0,
+            structural_class TEXT NOT NULL,
+            instructional_role TEXT NOT NULL,
+            quality_score REAL,
+            quality_rationale TEXT,
+            validation_status TEXT NOT NULL,
+            readiness_status TEXT NOT NULL,
+            generator_version TEXT NOT NULL,
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            provenance_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_learning_segments_doc_rev
+            ON learning_segments(document_id, document_revision);
+
+        CREATE TABLE learning_segment_objectives (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES study_plans(id) ON DELETE CASCADE,
+            version_id TEXT NOT NULL REFERENCES study_plan_versions(id) ON DELETE CASCADE,
+            node_id TEXT NOT NULL,
+            objective_index INTEGER NOT NULL,
+            segment_id TEXT NOT NULL REFERENCES learning_segments(id) ON DELETE CASCADE,
+            coverage_status TEXT NOT NULL,
+            alignment_score REAL,
+            selection_rationale TEXT NOT NULL,
+            is_primary INTEGER NOT NULL DEFAULT 1,
+            is_required INTEGER NOT NULL DEFAULT 1,
+            authored_override INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_lso_version_node_obj
+            ON learning_segment_objectives(version_id, node_id, objective_index);
+        CREATE INDEX idx_lso_segment
+            ON learning_segment_objectives(segment_id);
+
+        CREATE TABLE study_trail_items (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES study_plans(id) ON DELETE CASCADE,
+            version_id TEXT NOT NULL REFERENCES study_plan_versions(id) ON DELETE CASCADE,
+            node_id TEXT NOT NULL,
+            objective_index INTEGER NOT NULL,
+            segment_id TEXT REFERENCES learning_segments(id) ON DELETE SET NULL,
+            trail_order INTEGER NOT NULL,
+            session_group_id TEXT,
+            status TEXT NOT NULL,
+            reading_progress REAL NOT NULL DEFAULT 0.0,
+            last_locator_json TEXT,
+            is_required INTEGER NOT NULL DEFAULT 1,
+            is_remediation INTEGER NOT NULL DEFAULT 0,
+            remediation_gap_id TEXT,
+            manual_order_override INTEGER,
+            rejected_reason TEXT,
+            planner_rationale TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        CREATE INDEX idx_study_trail_items_version_order
+            ON study_trail_items(version_id, trail_order);
+
+        CREATE TABLE formative_check_results (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL REFERENCES study_plans(id) ON DELETE CASCADE,
+            version_id TEXT NOT NULL REFERENCES study_plan_versions(id) ON DELETE CASCADE,
+            trail_item_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            objective_index INTEGER NOT NULL,
+            prompt_format TEXT NOT NULL,
+            prompt_text TEXT NOT NULL,
+            learner_response TEXT NOT NULL,
+            outcome TEXT NOT NULL,
+            feedback TEXT NOT NULL,
+            recommended_segment_id TEXT,
+            created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+        );
+        CREATE INDEX idx_formative_checks_trail_item
+            ON formative_check_results(trail_item_id, created_at);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
