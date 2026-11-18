@@ -411,6 +411,9 @@ describe('Curriculum Generation UI Components (C2-T09)', () => {
       );
 
       expect(screen.getByText(/Interrupted Generation Jobs \(1\)/i)).toBeInTheDocument();
+      const jobCard = screen.getByText('curriculum').closest('div.rounded-lg');
+      expect(jobCard).toHaveClass('bg-surface-container-low');
+      expect(jobCard).not.toHaveClass('bg-white');
       const resumeBtn = screen.getByLabelText(/Resume interrupted job job_rec_1/i);
       const discardBtn = screen.getByLabelText(/Discard interrupted job job_rec_1/i);
 

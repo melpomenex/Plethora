@@ -62,18 +62,18 @@ export const StudyJobRecoveryList: React.FC<StudyJobRecoveryListProps> = ({
           return (
             <div
               key={job.id}
-              className="p-3 rounded-lg bg-white dark:bg-surface-800 border border-surface-200 dark:border-surface-700 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
+              className="p-3 rounded-lg bg-surface-container-low border border-outline-variant flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3"
             >
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
-                  <span className="font-bold text-surface-900 dark:text-surface-100 capitalize">
+                  <span className="font-bold text-on-surface capitalize">
                     {kindLabel}
                   </span>
-                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30">
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wider bg-amber-500/15 text-amber-500 border border-amber-500/30">
                     {job.status}
                   </span>
                 </div>
-                <div className="flex items-center gap-3 text-[11px] text-surface-500">
+                <div className="flex items-center gap-3 text-[11px] text-on-surface-variant">
                   <span className="flex items-center gap-1">
                     <Clock size={12} />
                     <span>{new Date(job.updatedAt).toLocaleTimeString()}</span>
