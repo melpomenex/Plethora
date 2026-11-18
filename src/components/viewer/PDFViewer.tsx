@@ -1,6 +1,7 @@
 import { usePaletteActionListener } from "../../commandPalette/paletteActionEvents";
 import { renderedAnnotationTargetsAtPoint, type ReaderContextMenuPayload } from "./annotationContextMenu";
 import { ReaderNavigationOwner, observeReaderInput, announceReaderNavigation } from "../../lib/readerNavigation";
+import { canElementScrollHorizontally, createHorizontalWheelPageTurner } from "../../lib/horizontalWheelNavigation";
 import { pdfDestinationPoint, pdfDestinationScale, pdfReflowDestinationBlock } from "./pdfTocDestination";
 import { useEffect, useRef, useState, useCallback, useMemo, useReducer, type CSSProperties } from "react";
 import * as pdfjsLib from "pdfjs-dist";
@@ -945,10 +946,18 @@ export function PDFViewer({
   }, [highlightQuery, highlightPageNumber, highlightTextQuote]);
 
   const zoomButtonRef = useRef<HTMLButtonElement>(null);
+  const handlePrevPageRef = useRef<() => void>(() => {});
+  const handleNextPageRef = useRef<() => void>(() => {});
 
   useEffect(() => {
     const container = scrollContainerRef.current;
     if (!container) return;
+
+    const handleHorizontalWheel = createHorizontalWheelPageTurner({
+      onPrev: () => handlePrevPageRef.current(),
+      onNext: () => handleNextPageRef.current(),
+      canConsumeNativeScroll: (event) => canElementScrollHorizontally(event.target, event.deltaX, container),
+    });
 
     const handleWheel = (e: WheelEvent) => {
       if (e.ctrlKey || e.metaKey) {
@@ -964,7 +973,10 @@ export function PDFViewer({
           setZoomMode("custom");
           onScaleChange?.(newScale);
         }
+        return;
       }
+
+      handleHorizontalWheel(e);
     };
 
     container.addEventListener("wheel", handleWheel, { passive: false });
@@ -3258,6 +3270,9 @@ export function PDFViewer({
       onPageChange?.(nextPageNumber);
     }
   };
+
+  handlePrevPageRef.current = handlePrevPage;
+  handleNextPageRef.current = handleNextPage;
 
   useReaderVolumeNavigation({
     onNextPage: handleNextPage,

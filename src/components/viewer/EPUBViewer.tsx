@@ -44,6 +44,8 @@ import { ReaderTapZones } from "./ReaderTapZones";
 import { loadSavedDisplayMode, loadSavedEinkSettings, resolveEffectiveEinkMode } from "../../lib/displayMode";
 import { attachIframePointerActivityForwarder } from "../../utils/iframePointerActivity";
 import { attachInterfaceZoomToWindow } from "../../lib/interfaceZoom/iframeForwarding";
+import { attachMouseNavigationToWindow } from "../../hooks/useMouseNavigation";
+import { canElementScrollHorizontally, createHorizontalWheelPageTurner } from "../../lib/horizontalWheelNavigation";
 import type { EpubVimRuntime } from "../../utils/vim/readerRuntimes";
 
 // Define outside component to keep a stable reference across renders
@@ -821,6 +823,8 @@ export function EPUBViewer({
   const activeLiveSearchCfiRef = useRef<string | null>(null);
   const activePersistedHighlightsRef = useRef<string[]>([]);
   const handleEPUBKeyDownRef = useRef<any>(null);
+  const handlePrevPageRef = useRef<() => void>(() => {});
+  const handleNextPageRef = useRef<() => void>(() => {});
 
   // Sync state
   const syncSegmentsRef = useRef<SyncSegment[]>([]);
@@ -2317,6 +2321,16 @@ export function EPUBViewer({
             // forwarders below. `rendered` can fire repeatedly for the same iframe
             // window, so the shared helper attaches at most once per window.
             attachInterfaceZoomToWindow(contents.window);
+            attachMouseNavigationToWindow(contents.window);
+            if (!(contents.window as Window & { __plethoraEpubWheelAttached?: boolean }).__plethoraEpubWheelAttached) {
+              (contents.window as Window & { __plethoraEpubWheelAttached?: boolean }).__plethoraEpubWheelAttached = true;
+              const handleIframeHorizontalWheel = createHorizontalWheelPageTurner({
+                onPrev: () => handlePrevPageRef.current(),
+                onNext: () => handleNextPageRef.current(),
+                canConsumeNativeScroll: (event) => canElementScrollHorizontally(event.target, event.deltaX, contents.document?.documentElement),
+              });
+              contents.window.addEventListener("wheel", handleIframeHorizontalWheel, { passive: false });
+            }
             contents.window.addEventListener("keydown", (e: KeyboardEvent) => {
               if (handleEPUBKeyDownRef.current) {
                 handleEPUBKeyDownRef.current(e);
@@ -3709,10 +3723,19 @@ export function EPUBViewer({
     handleEPUBKeyDownRef.current = handleEPUBKeyDown;
   }, [handleEPUBKeyDown]);
 
+  handlePrevPageRef.current = handlePrevPage;
+  handleNextPageRef.current = handleNextPage;
+
   useEffect(() => {
     if (isMobile && (!settings.interface.volumeRockerScroll || settings.interface.volumeRockerScroll === "none")) {
       return;
     }
+
+    const handleHorizontalWheel = createHorizontalWheelPageTurner({
+      onPrev: () => handlePrevPageRef.current(),
+      onNext: () => handleNextPageRef.current(),
+      canConsumeNativeScroll: (event) => canElementScrollHorizontally(event.target, event.deltaX, viewerRef.current),
+    });
 
     const handleWheel = (e: WheelEvent) => {
       // Ctrl/Cmd + Scroll to change font size
@@ -3723,7 +3746,10 @@ export function EPUBViewer({
         } else {
           decreaseFontSize();
         }
+        return;
       }
+
+      handleHorizontalWheel(e);
     };
 
     window.addEventListener("keydown", handleEPUBKeyDown);
