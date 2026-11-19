@@ -8468,7 +8468,22 @@ export function DocumentViewer({
                 />
               </div>
             ) : (
-              <div className="reading-surface min-h-[500px]">
+              <div
+                className="reading-surface min-h-[500px]"
+                onContextMenu={(e) => {
+                  if (selectionV2Ref.current && isMobileTouchRef.current) return;
+                  const text = window.getSelection()?.toString().trim();
+                  if (!text) return;
+                  e.preventDefault();
+                  e.stopPropagation();
+                  handleReaderContextMenu({
+                    x: e.clientX,
+                    y: e.clientY,
+                    selectedText: text,
+                    selectionContext: null,
+                  });
+                }}
+              >
                 <h1 className="reading-title">{currentDocument.title}</h1>
                 <div className="prose prose-sm max-w-none dark:prose-invert reading-prose">
                   {renderOcrPages()}

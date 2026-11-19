@@ -3240,7 +3240,7 @@ export function PDFViewer({
       // Prioritize an active committed selection over underlying saved
       // highlights so right-clicking a new selection always opens the selection
       // menu and never drops the selection.
-      const payload = resolvePdfContextMenu({
+      let payload = resolvePdfContextMenu({
         clientX: e.clientX,
         clientY: e.clientY,
         reflowSurfaceActive: mobilePdfMode === "reflow" && Boolean(container.querySelector(".pdf-mobile-reflow, .pdf-reflow-content, [data-pdf-reflow-page]")),
@@ -3248,6 +3248,18 @@ export function PDFViewer({
         committedText: persistedSelectedTextRef.current,
         liveReflowSelection: mobilePdfMode === "reflow" ? buildReflowSelectionContext() : null,
       });
+      if (!payload && mobilePdfMode !== "reflow") {
+        const liveDomText = window.getSelection()?.toString().trim() ?? "";
+        const liveDomContext = liveDomText ? buildPdfSelectionContext() : null;
+        if (liveDomText && liveDomContext) {
+          payload = {
+            x: e.clientX,
+            y: e.clientY,
+            selectedText: liveDomText,
+            selectionContext: liveDomContext,
+          };
+        }
+      }
       if (payload) {
         e.preventDefault();
         e.stopImmediatePropagation();
@@ -3264,9 +3276,9 @@ export function PDFViewer({
       }
     };
 
-    document.addEventListener("contextmenu", handleContextMenu);
-    return () => document.removeEventListener("contextmenu", handleContextMenu);
-  }, [onContextMenu, mobilePdfMode, buildReflowSelectionContext]);
+    document.addEventListener("contextmenu", handleContextMenu, { capture: true });
+    return () => document.removeEventListener("contextmenu", handleContextMenu, { capture: true });
+  }, [onContextMenu, mobilePdfMode, buildReflowSelectionContext, buildPdfSelectionContext]);
 
   // A new document (or a fresh pdf.js proxy) invalidates the persisted
   // selection's geometry and page context — clear it. `clearPersistedSelection`

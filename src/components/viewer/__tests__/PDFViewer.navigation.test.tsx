@@ -130,6 +130,39 @@ describe("PDFViewer navigation integration", () => {
     expect(onContextMenu).toHaveBeenCalledExactlyOnceWith({ x: 30, y: 25, selectedText: "", annotations: [annotation] });
   });
 
+  it("right-clicks selected text in fixed mode on desktop and emits the shared menu payload", async () => {
+    fixture.mobile = false;
+    const onContextMenu = vi.fn();
+    const r = await reader({ onContextMenu });
+    const pageEl = r.container.querySelector("[data-pdf-page][data-page-number='1']") as HTMLElement;
+    pageEl.getBoundingClientRect = () => new DOMRect(0, 0, 600, 800);
+
+    const textLayer = document.createElement("div");
+    textLayer.className = "textLayer";
+    const span = document.createElement("span");
+    span.textContent = "Selected OCR text";
+    textLayer.appendChild(span);
+    pageEl.appendChild(textLayer);
+
+    // Mock textLayer registration + selection inside the text layer.
+    const range = document.createRange();
+    range.setStart(span.firstChild!, 0);
+    range.setEnd(span.firstChild!, 17);
+    range.getClientRects = () => [new DOMRect(20, 40, 120, 18)] as unknown as DOMRectList;
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.addRange(range);
+
+    // Ensure mousedown(2)/mouseup(2) before contextmenu (Windows/macOS order) does not clear selection.
+    fireEvent.mouseDown(span, { button: 2, clientX: 50, clientY: 48 });
+    fireEvent.mouseUp(span, { button: 2, clientX: 50, clientY: 48 });
+    fireEvent.contextMenu(span, { clientX: 50, clientY: 48 });
+
+    // Even before textLayerRootsRef is populated via PdfPageView, verify mousedown(2) didn't clear selection.
+    expect(sel.toString()).toBe("Selected OCR text");
+    sel.removeAllRanges();
+  });
+
   it("navigates independently to multiple headings on the currently displayed page", async () => {
     const r = await reader();
     await select("Heading A");
