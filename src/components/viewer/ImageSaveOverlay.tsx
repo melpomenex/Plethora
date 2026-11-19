@@ -11,7 +11,7 @@ import {
 } from "../../utils/screenshotCapture";
 import { acquireImageAsset } from "../../utils/imageAcquisition";
 
-interface ImageHoverData {
+export interface ImageHoverData {
   src: string;
   documentId?: string;
   referrerUrl?: string;
@@ -21,6 +21,11 @@ interface ImageHoverData {
     width: number;
     height: number;
   };
+  /**
+   * Optional custom blob provider used when the image is not backed by a
+   * fetchable DOM <img> src (e.g. an embedded image inside a PDF page canvas).
+   */
+  acquireBlob?: () => Promise<{ blob: Blob; fileName?: string }>;
 }
 
 /**
@@ -139,6 +144,10 @@ export function ImageSaveOverlay() {
    */
   const ingestHoveredImage = async () => {
     if (!hoverData) throw new Error("No image selected");
+    if (hoverData.acquireBlob) {
+      const { blob, fileName } = await hoverData.acquireBlob();
+      return ingestImageBlob(blob, fileName);
+    }
     return acquireImageAsset(
       {
         src: hoverData.src,

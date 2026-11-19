@@ -4607,6 +4607,8 @@ export function PDFViewer({
                     <PdfPageViewWrapper
                       key={pageNum}
                       pdf={pdf}
+                      documentId={documentId}
+                      scrollContainerRef={scrollContainerRef}
                       pageIndex={index}
                       scale={pageScales[index] ?? scale}
                       eventBus={eventBusRef.current!}

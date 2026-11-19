@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 // PDFPageView and EventBus are exported from pdf.js's viewer module. PDFPageView
 // owns the per-page DOM (a `.page` div containing canvasWrapper + textLayer +
@@ -7,12 +7,21 @@ import * as pdfjsLib from "pdfjs-dist";
 // the hand-rolled DOM/cancel/`parentNode-is-null` defensive code that broke
 // text selection on WKWebView and on every pdf.js upgrade.
 import { PDFPageView, EventBus, RenderingStates } from "pdfjs-dist/web/pdf_viewer.mjs";
-import type { PageViewport } from "pdfjs-dist";
+import type { PDFPageProxy, PageViewport } from "pdfjs-dist";
 import { HighlightLayer, type StoredHighlight } from "./HighlightLayer";
 import { SelectionOverlay } from "./SelectionOverlay";
 import type { PdfRect } from "../../types/selection";
 import { hasSelectableTextInLayer } from "./pdfTextSelection";
 import { buildPdfPageCharLayout, type PdfPageCharLayout } from "../../lib/pdf/pdfCharLayout";
+import {
+  extractPdfImageRegionBlob,
+  extractPdfPageImageRegions,
+  hitTestPdfImageRegions,
+  MIN_IMAGE_CSS_PX,
+  viewportRectToClientRect,
+  type PdfImageRegion,
+  type PdfViewportRect,
+} from "../../lib/pdf/pdfImageRegions";
 import { cn } from "../../utils";
 
 // Cap per-page canvas backing store to 4MP (e.g. 2048×2048). PDF.js defaults to
@@ -41,6 +50,10 @@ const EMPTY_PDF_RECTS: PdfRect[] = [];
 export interface PdfPageViewWrapperProps {
   /** The loaded pdf.js document. The wrapper fetches its page on mount. */
   pdf: pdfjsLib.PDFDocumentProxy;
+  /** Document ID in the library (attached to image-hover events for registry/occlusion). */
+  documentId?: string;
+  /** Scroll container ref used to clamp floating image-save overlays to visible bounds. */
+  scrollContainerRef?: React.RefObject<HTMLDivElement | null>;
   /** 0-indexed page index (page number is `pageIndex + 1`). */
   pageIndex: number;
   /** Resolved display scale (already incorporates fit-width/fit-page). */
@@ -88,6 +101,8 @@ export interface PdfPageViewWrapperProps {
  */
 export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
   pdf,
+  documentId,
+  scrollContainerRef,
   pageIndex,
   scale,
   eventBus,
@@ -106,12 +121,30 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
 }: PdfPageViewWrapperProps) {
   const slotRef = useRef<HTMLDivElement | null>(null);
   const pageViewRef = useRef<PdfPageViewInstance | null>(null);
+  const pdfPageRef = useRef<PDFPageProxy | null>(null);
+  const imageRegionsRef = useRef<PdfImageRegion[]>([]);
+  const hoveredRegionIdRef = useRef<string | null>(null);
+  const lastDispatchedRectRef = useRef<PdfViewportRect | null>(null);
   // Compensate for PDF.js's internal PDF_TO_CSS_UNITS multiplication so the
   // app's `scale` (1.0 = 100% at PDF-point pixel size) renders the same as the
   // previous hand-rolled renderer. See the PDF_TO_CSS_UNITS comment above.
   const pdfScale = scale / PDF_TO_CSS_UNITS;
 
   const pageNumber = pageIndex + 1;
+
+  const clearHoveredImage = useCallback(() => {
+    if (hoveredRegionIdRef.current !== null) {
+      hoveredRegionIdRef.current = null;
+      lastDispatchedRectRef.current = null;
+      window.dispatchEvent(new CustomEvent("image-leave"));
+    }
+  }, []);
+
+  useEffect(() => {
+    if (ocrActive) {
+      clearHoveredImage();
+    }
+  }, [ocrActive, clearHoveredImage]);
 
   // Create the PDFPageView once when the slot mounts.
   useEffect(() => {
@@ -122,6 +155,7 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
     const init = async () => {
       const pdfPage = await pdf.getPage(pageNumber);
       if (cancelled) return;
+      pdfPageRef.current = pdfPage;
 
       // Compute the default viewport at the initial scale. Pass pdfScale (already
       // compensated for PDF_TO_CSS_UNITS) so PDFPageView's internal re-multiply
@@ -184,6 +218,18 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       const textLayerDiv = pageView.textLayer?.div ?? null;
       onTextLayerReady(pageIndex, textLayerDiv);
       onTextSelectionAvailability(pageNumber, textLayerDiv ? hasSelectableTextInLayer(textLayerDiv) : false);
+
+      // Extract embedded image bounding boxes (best-effort, after first paint)
+      // so hovering over PDF images triggers the shared ImageSaveOverlay UX.
+      void extractPdfPageImageRegions(pdfPage)
+        .then((regions) => {
+          if (!cancelled) {
+            imageRegionsRef.current = regions;
+          }
+        })
+        .catch(() => {
+          // Best-effort; pages without operator lists simply have no hoverable images.
+        });
     };
 
     void init();
@@ -232,6 +278,9 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       onTextLayerReady(pageIndex, null);
       onCanvasRef(pageIndex, null);
       onCharLayoutReady?.(pageIndex, null);
+      pdfPageRef.current = null;
+      imageRegionsRef.current = [];
+      clearHoveredImage();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdf, pageNumber]); // recreate when the document or page number changes
@@ -270,6 +319,76 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdfScale]);
 
+  const handlePageMouseMove = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      if (ocrActive || e.buttons !== 0) {
+        clearHoveredImage();
+        return;
+      }
+      const regions = imageRegionsRef.current;
+      const pageView = pageViewRef.current;
+      const pdfPage = pdfPageRef.current;
+      const viewport = pageView?.viewport;
+      if (!regions.length || !pageView || !pdfPage || !viewport) return;
+
+      const pageEl = pageView.div ?? slotRef.current;
+      if (!pageEl) return;
+      const pageRect = pageEl.getBoundingClientRect();
+      if (pageRect.width <= 0 || pageRect.height <= 0) return;
+
+      const vx = ((e.clientX - pageRect.left) / pageRect.width) * viewport.width;
+      const vy = ((e.clientY - pageRect.top) / pageRect.height) * viewport.height;
+
+      const hit = hitTestPdfImageRegions(regions, viewport, vx, vy);
+      if (!hit) {
+        clearHoveredImage();
+        return;
+      }
+
+      const clipRect = scrollContainerRef?.current?.getBoundingClientRect() ?? null;
+      const clientRect = viewportRectToClientRect(hit.viewportRect, pageRect, viewport, clipRect);
+      if (!clientRect || clientRect.width < MIN_IMAGE_CSS_PX || clientRect.height < MIN_IMAGE_CSS_PX) {
+        clearHoveredImage();
+        return;
+      }
+
+      const prevRect = lastDispatchedRectRef.current;
+      const rectShifted =
+        !prevRect ||
+        Math.abs(clientRect.left - prevRect.left) > 2 ||
+        Math.abs(clientRect.top - prevRect.top) > 2 ||
+        Math.abs(clientRect.width - prevRect.width) > 2 ||
+        Math.abs(clientRect.height - prevRect.height) > 2;
+
+      if (hoveredRegionIdRef.current === hit.region.id && !rectShifted) {
+        return;
+      }
+
+      hoveredRegionIdRef.current = hit.region.id;
+      lastDispatchedRectRef.current = clientRect;
+      const hitRegion = hit.region;
+
+      window.dispatchEvent(
+        new CustomEvent("image-hover", {
+          detail: {
+            src: `pdf-image://${documentId ?? "pdf"}/p${pageNumber}/${hitRegion.id}`,
+            documentId,
+            rect: clientRect,
+            acquireBlob: () =>
+              extractPdfImageRegionBlob({
+                pdfPage,
+                pageNumber,
+                region: hitRegion,
+                fallbackCanvas: pageViewRef.current?.canvas ?? null,
+                fallbackViewport: pageViewRef.current?.viewport ?? null,
+              }),
+          },
+        }),
+      );
+    },
+    [ocrActive, clearHoveredImage, scrollContainerRef, documentId, pageNumber],
+  );
+
   return (
     <div
       ref={(el) => {
@@ -278,6 +397,9 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       }}
       data-pdf-page
       data-page-number={pageNumber}
+      onMouseMove={handlePageMouseMove}
+      onMouseDown={clearHoveredImage}
+      onMouseLeave={clearHoveredImage}
       className={cn("relative shadow-lg border border-border bg-white pdfViewer", className)}
       style={{
         contain: "layout style paint",

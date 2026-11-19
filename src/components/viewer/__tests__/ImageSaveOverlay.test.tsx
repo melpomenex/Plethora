@@ -164,4 +164,38 @@ describe("ImageSaveOverlay", () => {
       );
     });
   });
+
+  it("uses custom acquireBlob provider for PDF embedded images on save and occlusion", async () => {
+    const pdfBlob = new Blob(["pdf-png"], { type: "image/png" });
+    const acquireBlob = vi.fn().mockResolvedValue({
+      blob: pdfBlob,
+      fileName: "pdf-page-2-image-123.png",
+    });
+    mockApi.ingestImageBlob.mockResolvedValue({ id: "asset-pdf-1" });
+
+    render(<ImageSaveOverlay />);
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("image-hover", {
+          detail: {
+            src: "pdf-image://doc-pdf/p2/img-0",
+            documentId: "doc-pdf",
+            rect: { left: 120, top: 90, width: 280, height: 200 },
+            acquireBlob,
+          },
+        }),
+      );
+    });
+
+    fireEvent.click(screen.getByTitle("Save to Image Registry"));
+
+    await waitFor(() => {
+      expect(acquireBlob).toHaveBeenCalledTimes(1);
+      expect(mockApi.ingestImageBlob).toHaveBeenCalledWith(
+        pdfBlob,
+        "pdf-page-2-image-123.png",
+      );
+      expect(mockToast.success).toHaveBeenCalledTimes(1);
+    });
+  });
 });
