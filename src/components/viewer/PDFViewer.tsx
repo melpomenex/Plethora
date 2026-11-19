@@ -55,6 +55,7 @@ import { enrichPdfSelectionWithCanonical } from "../../lib/pdf/canonicalSelectio
 import {
   hitTestPdfChar,
   lineRangeAtPdfCaret,
+  paragraphRangeAtPdfCaret,
   resolveGeometricSelection,
   wordRangeAtPdfCaret,
   type PdfCaretPosition,
@@ -3146,7 +3147,7 @@ export function PDFViewer({
                 return;
               }
             } else if (e.detail >= 3) {
-              const range = lineRangeAtPdfCaret(layout, caret.charIndex);
+              const range = paragraphRangeAtPdfCaret(layout, caret.charIndex) ?? lineRangeAtPdfCaret(layout, caret.charIndex);
               if (range && range.end > range.start) {
                 const anchor = { pageNumber: caret.pageNumber, charIndex: range.start };
                 const focus = { pageNumber: caret.pageNumber, charIndex: range.end };

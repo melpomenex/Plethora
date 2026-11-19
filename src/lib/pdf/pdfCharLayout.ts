@@ -707,7 +707,9 @@ export function wordRangeAtPdfCaret(
 }
 
 /**
- * Compute the `[start, end)` line range containing `caretIndex` (for triple-click).
+ * Compute the `[start, end)` line segment containing `caretIndex`, stopping at
+ * wide horizontal gaps (e.g. column gutters or diagrams) so selection never
+ * jumps across columns.
  */
 export function lineRangeAtPdfCaret(
   layout: PdfPageCharLayout,
@@ -721,7 +723,92 @@ export function lineRangeAtPdfCaret(
   );
   const line = layout.lines[layout.chars[charIdx].lineIndex];
   if (!line) return null;
-  return { start: line.startChar, end: line.endChar };
+
+  let start = charIdx;
+  while (start > line.startChar) {
+    const prev = layout.chars[start - 1];
+    const curr = layout.chars[start];
+    const gap = curr.x0 - prev.x1;
+    const fh = Math.max(curr.fontHeight, prev.fontHeight, line.fontHeight, 1);
+    if (gap > fh * 2.5) break;
+    start -= 1;
+  }
+
+  let end = charIdx + 1;
+  while (end < line.endChar) {
+    const curr = layout.chars[end - 1];
+    const next = layout.chars[end];
+    const gap = next.x0 - curr.x1;
+    const fh = Math.max(curr.fontHeight, next.fontHeight, line.fontHeight, 1);
+    if (gap > fh * 2.5) break;
+    end += 1;
+  }
+
+  return { start, end };
+}
+
+function horizontalOverlapRatio(a: PdfCharLine, b: PdfCharLine): boolean {
+  const overlap = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+  const minWidth = Math.max(1, Math.min(a.x1 - a.x0, b.x1 - b.x0));
+  return overlap / minWidth > 0.25;
+}
+
+/**
+ * Compute the `[start, end)` paragraph range containing `caretIndex` (for
+ * triple/quad-click, matching Chromium/EPUB behavior). Respects vertical
+ * paragraph breaks, column boundaries, and first-line indentation.
+ */
+export function paragraphRangeAtPdfCaret(
+  layout: PdfPageCharLayout,
+  caretIndex: number,
+): { start: number; end: number } | null {
+  if (layout.chars.length === 0) return null;
+  const charIdx = clamp(
+    caretIndex >= layout.chars.length ? layout.chars.length - 1 : caretIndex,
+    0,
+    layout.chars.length - 1,
+  );
+  const targetLineIdx = layout.chars[charIdx].lineIndex;
+  const targetLine = layout.lines[targetLineIdx];
+  if (!targetLine) return null;
+
+  // If the line itself has a wide horizontal gap (unsplit 2-column line),
+  // fall back to the contiguous horizontal segment so we don't cross columns.
+  const seg = lineRangeAtPdfCaret(layout, charIdx);
+  if (seg && (seg.start > targetLine.startChar || seg.end < targetLine.endChar)) {
+    return seg;
+  }
+
+  let firstLineIdx = targetLineIdx;
+  while (firstLineIdx > 0) {
+    const prev = layout.lines[firstLineIdx - 1];
+    const curr = layout.lines[firstLineIdx];
+    if (prev.paragraphBreakAfter) break;
+    if (!horizontalOverlapRatio(prev, curr)) break;
+    const fh = Math.max(curr.fontHeight, prev.fontHeight, 1);
+    // First-line indent: current line starts noticeably to the right of prev line.
+    if (curr.x0 - prev.x0 > fh * 0.6) break;
+    // Font size jump (e.g. heading above body).
+    if (Math.abs(curr.fontHeight - prev.fontHeight) > fh * 0.35) break;
+    firstLineIdx -= 1;
+  }
+
+  let lastLineIdx = targetLineIdx;
+  while (lastLineIdx + 1 < layout.lines.length) {
+    const curr = layout.lines[lastLineIdx];
+    const next = layout.lines[lastLineIdx + 1];
+    if (curr.paragraphBreakAfter) break;
+    if (!horizontalOverlapRatio(curr, next)) break;
+    const fh = Math.max(curr.fontHeight, next.fontHeight, 1);
+    if (next.x0 - curr.x0 > fh * 0.6) break;
+    if (Math.abs(curr.fontHeight - next.fontHeight) > fh * 0.35) break;
+    lastLineIdx += 1;
+  }
+
+  return {
+    start: layout.lines[firstLineIdx].startChar,
+    end: layout.lines[lastLineIdx].endChar,
+  };
 }
 
 function compareCarets(a: PdfCaretPosition, b: PdfCaretPosition): number {

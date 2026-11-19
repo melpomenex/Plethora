@@ -5,6 +5,7 @@ import {
   isPointNearPdfText,
   wordRangeAtPdfCaret,
   lineRangeAtPdfCaret,
+  paragraphRangeAtPdfCaret,
   resolveGeometricSelection,
   isCjkOrFullwidth,
   type PdfPageCharLayout,
@@ -277,5 +278,41 @@ describe("pdfCharLayout", () => {
     });
     expect(isPointNearPdfText(layout, 115, 504)).toBe(true);
     expect(isPointNearPdfText(layout, 400, 100)).toBe(false);
+  });
+
+  it("stops lineRangeAtPdfCaret at wide column/diagram gaps and selects whole paragraphs", () => {
+    const layout = buildPdfPageCharLayout(1, {
+      items: [
+        // Paragraph 1 (indented first line)
+        item("Consider, for instance,", 62, 700, 120, 10),
+        item("Feedback", 280, 700, 50, 10),
+        item("cell living in the erratic", 50, 686, 132, 10),
+        item("environment of a colon.", 50, 672, 132, 10),
+        // Paragraph 2 (vertical gap)
+        item("Next paragraph starts.", 50, 640, 120, 10),
+      ],
+    });
+    const layouts = new Map([[1, layout]]);
+
+    // Line range on left side does not cross the 100pt gap into "Feedback"
+    const lineRange = lineRangeAtPdfCaret(layout, 2)!;
+    const lineSel = resolveGeometricSelection(
+      layouts,
+      { pageNumber: 1, charIndex: lineRange.start },
+      { pageNumber: 1, charIndex: lineRange.end },
+    );
+    expect(lineSel?.text).toBe("Consider, for instance,");
+
+    // Paragraph range on line 2 selects paragraph 1 without bleeding into paragraph 2
+    const paraCaret = layout.chars.findIndex((c) => c.char === "l");
+    const paraRange = paragraphRangeAtPdfCaret(layout, paraCaret)!;
+    const paraSel = resolveGeometricSelection(
+      layouts,
+      { pageNumber: 1, charIndex: paraRange.start },
+      { pageNumber: 1, charIndex: paraRange.end },
+    );
+    expect(paraSel?.text).toContain("cell living in the erratic");
+    expect(paraSel?.text).toContain("environment of a colon.");
+    expect(paraSel?.text).not.toContain("Next paragraph");
   });
 });
