@@ -1,6 +1,6 @@
 {
-  "_comment": "Post-optimization actuals + headroom. Entry ~2674 KB; article-vendor (355 KB min / 104 KB gzip) lazy-loaded via import(). fix-study-plan-universal-source-grounding + optimize-command-palette-search-latency: universalSourceAdapter & paletteSearchAdapter + help bundle put total dist at ~30.15 MB; totalDistBytes raised slightly from 30.0 MB to 31.0 MB while entryChunkBytes stays 3.0 MB. Guided Reading adds four reader adapters, passage controls, and six locales. The measured bundle is about 31.12 MB with a 31.25 MB budget.",
+  "_comment": "Post-optimization actuals + headroom. Entry ~2674 KB; article-vendor (355 KB min / 104 KB gzip) lazy-loaded via import(). fix-study-plan-universal-source-grounding + optimize-command-palette-search-latency: universalSourceAdapter & paletteSearchAdapter + help bundle put total dist at ~30.15 MB; totalDistBytes raised slightly from 30.0 MB to 31.0 MB while entryChunkBytes stays 3.0 MB. Guided Reading adds four reader adapters, passage controls, and six locales. PDF geometric selection (pdfCharLayout) and image region detection (pdfImageRegions) put total dist at ~31.28 MB with a 31.45 MB budget.",
   "entryChunkBytes": 3000000,
   "pdfWorkerAssetCount": 1,
-  "totalDistBytes": 31250000
+  "totalDistBytes": 31450000
 }
