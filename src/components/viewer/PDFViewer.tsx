@@ -52,6 +52,14 @@ import { useMobileShell } from "../../hooks/useMobileShell";
 import { shouldUseNativePdfRangeSource, isPdfFeatureEnabled } from "./pdfFeatureFlags";
 import { markBusy } from "../../lib/memoryScenario/activity";
 import { enrichPdfSelectionWithCanonical } from "../../lib/pdf/canonicalSelection";
+import {
+  hitTestPdfChar,
+  lineRangeAtPdfCaret,
+  resolveGeometricSelection,
+  wordRangeAtPdfCaret,
+  type PdfCaretPosition,
+  type PdfPageCharLayout,
+} from "../../lib/pdf/pdfCharLayout";
 import { ensureRegionAssetUrl, releaseDocumentResources } from "../../lib/pdf/reflowAssets";
 import { createPdfDocumentHolder } from "../../lib/pdf/pdfDocumentHolder";
 import {
@@ -499,8 +507,9 @@ type PdfSearchMatch = {
 };
 
 type ZoomMode = "custom" | "fit-width" | "fit-page";
-const VIRTUALIZATION_THRESHOLD_PAGES = 40;
-const VIRTUAL_WINDOW_PAGES = 6;
+const VIRTUALIZATION_THRESHOLD_PAGES = 12;
+const VIRTUAL_WINDOW_PAGES = 3;
+const EMPTY_HIGHLIGHTS: StoredHighlight[] = [];
 const PAGE_GAP_PX = 24;
 const ENABLE_PDF_VIRTUALIZATION = true;
 
@@ -711,10 +720,20 @@ export function PDFViewer({
   const searchRequestTokenRef = useRef(0);
   const lastProcessedSearchNavRequestRef = useRef<number | null>(null);
 
+  const highlightsByPage = useMemo(() => {
+    const map = new Map<number, StoredHighlight[]>();
+    for (const highlight of persistedHighlights) {
+      const list = map.get(highlight.pageNumber);
+      if (list) list.push(highlight);
+      else map.set(highlight.pageNumber, [highlight]);
+    }
+    return map;
+  }, [persistedHighlights]);
+
   const getHighlightsForPage = useCallback(
     (pageNumberForHighlights: number) =>
-      persistedHighlights.filter((highlight) => highlight.pageNumber === pageNumberForHighlights),
-    [persistedHighlights],
+      highlightsByPage.get(pageNumberForHighlights) ?? EMPTY_HIGHLIGHTS,
+    [highlightsByPage],
   );
 
   // OCR mode manager
@@ -798,6 +817,33 @@ export function PDFViewer({
     canvasRefs.current[idx] = canvas;
   }, []);
 
+  // Geometric per-character layout per page (1-indexed) for SumatraPDF-grade
+  // character-by-character selection in Fixed mode.
+  const pageCharLayoutsRef = useRef<Map<number, PdfPageCharLayout>>(new Map());
+  const [liveDragRectsByPage, setLiveDragRectsByPage] = useState<Map<number, PdfRect[]> | null>(null);
+  const geomDragRef = useRef<{
+    anchor: PdfCaretPosition;
+    focus: PdfCaretPosition;
+    rafId: number | null;
+  } | null>(null);
+
+  const handleCharLayoutReady = useCallback((idx: number, layout: PdfPageCharLayout | null) => {
+    const pageNum = idx + 1;
+    if (layout) {
+      pageCharLayoutsRef.current.set(pageNum, layout);
+    } else {
+      pageCharLayoutsRef.current.delete(pageNum);
+    }
+  }, []);
+
+  const fallbackPageStyle = useMemo<React.CSSProperties | undefined>(() => {
+    if (!fallbackPageSize) return undefined;
+    return {
+      minWidth: `${Math.round(fallbackPageSize.width)}px`,
+      minHeight: `${Math.round(fallbackPageSize.height)}px`,
+    };
+  }, [fallbackPageSize]);
+
   const handleTextLayerReady = useCallback((idx: number, textLayerDiv: HTMLDivElement | null) => {
     textLayerRootsRef.current[idx] = textLayerDiv;
     notifyTextLayersChange();
@@ -859,6 +905,8 @@ export function PDFViewer({
   // range intact — the committed overlay/text still reset.
   const clearPersistedSelection = useCallback(
     (reason: SelectionClearReason, clearNative = true) => {
+      persistedSelectionRef.current = null;
+      persistedSelectedTextRef.current = "";
       dispatchPersistence({ type: "clear", reason });
       lastSelectionWasPdfRef.current = false;
       if (clearNative) {
@@ -1662,9 +1710,17 @@ export function PDFViewer({
     };
   }, [canonicalPipelineActive, documentId, isPhone, metadata?.language, mobilePreferences.preferredMobileMode, pdf, pdfSourceIdentity]);
 
-  // Canonical (v2) pipeline: cache-first hybrid analysis on every platform.
+  // Canonical (v2) pipeline: only run background raster+Rust analysis when
+  // Reflow mode is active, on mobile (where auto-reflow may activate), or when
+  // the layout debug overlay is enabled. Running it eagerly in desktop Fixed
+  // mode rasterizes up to 17 pages to PNG/base64 on the main thread and causes
+  // heavy stutter on older CPUs (e.g. Windows 10 / i5-7300HQ).
+  const shouldRunCanonicalAnalysis =
+    canonicalPipelineActive &&
+    (mobilePdfMode === "reflow" || isPhone || isPdfReflowDebugEnabled());
+
   useEffect(() => {
-    if (!pdf || !pdfSourceIdentity || !canonicalPipelineActive) {
+    if (!pdf || !pdfSourceIdentity || !shouldRunCanonicalAnalysis) {
       canonicalSchedulerRef.current?.cancel();
       return;
     }
@@ -1698,16 +1754,21 @@ export function PDFViewer({
     return () => {
       disposed = true;
       scheduler.cancel();
+      if (canonicalSchedulerRef.current === scheduler) {
+        canonicalSchedulerRef.current = null;
+      }
     };
-  }, [canonicalPipelineActive, documentId, mobilePreferences.preferredMobileMode, pdf, pdfSourceIdentity]);
+  }, [shouldRunCanonicalAnalysis, documentId, mobilePreferences.preferredMobileMode, pdf, pdfSourceIdentity]);
 
   useEffect(() => {
     if (reflowSchedulerRef.current) void reflowSchedulerRef.current.start(pageNumber, ANALYSIS_WINDOW_PAGES);
   }, [pageNumber]);
 
   useEffect(() => {
-    if (canonicalSchedulerRef.current) void canonicalSchedulerRef.current.start(pageNumber, canonicalReadyRef.current, ANALYSIS_WINDOW_PAGES);
-  }, [pageNumber]);
+    if (shouldRunCanonicalAnalysis && canonicalSchedulerRef.current) {
+      void canonicalSchedulerRef.current.start(pageNumber, canonicalReadyRef.current, ANALYSIS_WINDOW_PAGES);
+    }
+  }, [pageNumber, shouldRunCanonicalAnalysis]);
 
   /**
    * Placeholder list for the reflow stream: the window around the reader
@@ -2758,30 +2819,177 @@ export function PDFViewer({
     vimRuntimeListenersRef.current.forEach((listener) => listener({ kind: "geometry" }));
   }, [canonicalPages, mobilePdfMode]);
 
-  // Selection persistence (native DOM selection + committed overlay).
-  //
-  // Design: the browser's own native highlight paints the selection while the
-  // user drags, so we commit NOTHING to React state during the drag. The range
-  // is captured ONCE on mouseup (after letting the browser finalize it) and
-  // stored through the persistence reducer as the source of truth for the
-  // per-page overlay. Once committed, the overlay no longer depends on the
-  // live native selection: WKWebView drops the document selection whenever
-  // focus moves (popup, assistant panel, other controls), and a dropped native
-  // selection is deliberately NOT a clear signal — there is no selectionchange
-  // handler that clears state. Clearing happens only through the explicit
-  // triggers wired below (see reducePdfSelectionPersistence).
+  // Mirror fixed/reflow mode and OCR flow state in refs for event-time readers.
+  const mobilePdfModeRef = useRef(mobilePdfMode);
+  mobilePdfModeRef.current = mobilePdfMode;
+  const ocrFlowStateRef = useRef(ocr.flowState);
+  ocrFlowStateRef.current = ocr.flowState;
+
+  // Selection persistence (SumatraPDF-style geometric character selection +
+  // committed overlay, with native DOM fallback for touch/unindexed pages).
   useEffect(() => {
     if (!onSelectionChange) return;
 
-    // Commit the current native selection (if any, and if it lives inside a
-    // PDF text layer) to persisted state and surface the popup. Returns true
-    // when a valid PDF selection was committed. The reducer ignores invalid
-    // selections (collapsed / non-PDF / empty text) and leaves the persisted
-    // state untouched.
-    //
-    // With the canonical model flag on, the DOM range is used only for
-    // geometry: the Rust resolver snaps it to canonical words and the exact
-    // canonical text replaces the DOM text-layer string (design D8).
+    // Resolve a client point (clientX, clientY) to a caret position on the
+    // nearest rendered PDF page that has a built character layout.
+    const hitTestClientPoint = (
+      clientX: number,
+      clientY: number,
+      requireInsidePage: boolean,
+    ): PdfCaretPosition | null => {
+      let bestPageNum = -1;
+      let bestDist = Infinity;
+
+      for (let i = 0; i < pageContainerRefs.current.length; i += 1) {
+        const pageEl = pageContainerRefs.current[i];
+        const viewport = pageViewportRefs.current[i];
+        const pageNum = i + 1;
+        const layout = pageCharLayoutsRef.current.get(pageNum);
+        if (!pageEl || !viewport || !layout || layout.chars.length === 0) continue;
+
+        const bounds = pageEl.getBoundingClientRect();
+        if (bounds.width <= 0 || bounds.height <= 0) continue;
+
+        if (requireInsidePage) {
+          if (
+            clientX < bounds.left ||
+            clientX > bounds.right ||
+            clientY < bounds.top ||
+            clientY > bounds.bottom
+          ) {
+            continue;
+          }
+          bestPageNum = pageNum;
+          break;
+        }
+
+        const dy =
+          clientY < bounds.top
+            ? bounds.top - clientY
+            : clientY > bounds.bottom
+              ? clientY - bounds.bottom
+              : 0;
+        const dx =
+          clientX < bounds.left
+            ? bounds.left - clientX
+            : clientX > bounds.right
+              ? clientX - bounds.right
+              : 0;
+        const dist = dy * 10 + dx;
+        if (dist < bestDist) {
+          bestDist = dist;
+          bestPageNum = pageNum;
+        }
+      }
+
+      if (bestPageNum < 1) return null;
+      const pageEl = pageContainerRefs.current[bestPageNum - 1];
+      const viewport = pageViewportRefs.current[bestPageNum - 1];
+      const layout = pageCharLayoutsRef.current.get(bestPageNum);
+      if (!pageEl || !viewport || !layout) return null;
+
+      const bounds = pageEl.getBoundingClientRect();
+      const relX = clientX - bounds.left;
+      const relY = clientY - bounds.top;
+      const [pdfX, pdfY] = viewport.convertToPdfPoint(relX, relY);
+      if (!Number.isFinite(pdfX) || !Number.isFinite(pdfY)) return null;
+
+      return hitTestPdfChar(layout, pdfX, pdfY);
+    };
+
+    const buildContextFromGeometric = (
+      resolved: NonNullable<ReturnType<typeof resolveGeometricSelection>>,
+    ): { context: PdfSelectionContext; popupRect: DOMRect | null } | null => {
+      const pages: PdfSelectionContext["pages"] = [];
+      let minLeft = Infinity;
+      let minTop = Infinity;
+      let maxRight = -Infinity;
+      let maxBottom = -Infinity;
+
+      for (const page of resolved.pages) {
+        const pageIndex = page.pageNumber - 1;
+        const pageEl = pageContainerRefs.current[pageIndex];
+        const viewport = pageViewportRefs.current[pageIndex];
+        if (!pageEl || !viewport) continue;
+        const bounds = pageEl.getBoundingClientRect();
+        const viewportRects: ViewportRect[] = [];
+
+        for (const pdfRect of page.pdfRects) {
+          const [vx1, vy1, vx2, vy2] = viewport.convertToViewportRectangle([
+            pdfRect.x1,
+            pdfRect.y1,
+            pdfRect.x2,
+            pdfRect.y2,
+          ]);
+          const left = Math.min(vx1, vx2);
+          const top = Math.min(vy1, vy2);
+          const width = Math.abs(vx2 - vx1);
+          const height = Math.abs(vy2 - vy1);
+          if (!Number.isFinite(left) || !Number.isFinite(top) || width <= 0 || height <= 0) {
+            continue;
+          }
+          viewportRects.push({ left, top, width, height });
+          minLeft = Math.min(minLeft, bounds.left + left);
+          minTop = Math.min(minTop, bounds.top + top);
+          maxRight = Math.max(maxRight, bounds.left + left + width);
+          maxBottom = Math.max(maxBottom, bounds.top + top + height);
+        }
+
+        if (viewportRects.length > 0) {
+          pages.push({
+            pageNumber: page.pageNumber,
+            viewportRects,
+            pdfRects: page.pdfRects,
+          });
+        }
+      }
+
+      if (pages.length === 0) return null;
+
+      const popupRect =
+        Number.isFinite(minLeft) && maxRight > minLeft && maxBottom > minTop
+          ? new DOMRect(minLeft, minTop, maxRight - minLeft, maxBottom - minTop)
+          : null;
+
+      return {
+        context: {
+          type: "pdf",
+          documentId,
+          fingerprint: (pdf as any)?.fingerprint ?? null,
+          source: "native",
+          pages,
+        },
+        popupRect,
+      };
+    };
+
+    const commitGeometricSelection = (
+      anchor: PdfCaretPosition,
+      focus: PdfCaretPosition,
+    ): boolean => {
+      const resolved = resolveGeometricSelection(pageCharLayoutsRef.current, anchor, focus);
+      if (!resolved) return false;
+      const built = buildContextFromGeometric(resolved);
+      if (!built) return false;
+
+      // Update refs synchronously so a right-click immediately after mouseup
+      // always sees the committed selection and never drops it.
+      persistedSelectionRef.current = built.context;
+      persistedSelectedTextRef.current = resolved.text;
+      lastSelectionWasPdfRef.current = true;
+
+      dispatchPersistence({
+        type: "commit",
+        selection: built.context,
+        text: resolved.text,
+        rect: built.popupRect,
+      });
+      onSelectionChange(resolved.text, built.context);
+      return true;
+    };
+
+    // Fallback commit path for native DOM selection (e.g. touch devices or pages
+    // whose geometric char layout has not finished loading yet).
     const commitSelection = async (): Promise<boolean> => {
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return false;
@@ -2803,11 +3011,13 @@ export function PDFViewer({
 
       let enrichedContext = context;
       let text = domText;
-      if (isPdfFeatureEnabled("canonicalPdfModel")) {
+      if (isPdfFeatureEnabled("canonicalPdfModel") && shouldRunCanonicalAnalysis) {
         enrichedContext = await enrichPdfSelectionWithCanonical(context);
         text = enrichedContext.canonical?.text?.trim() || domText;
       }
 
+      persistedSelectionRef.current = enrichedContext;
+      persistedSelectedTextRef.current = text;
       lastSelectionWasPdfRef.current = true;
       const rect = selection.getRangeAt(0).getBoundingClientRect();
       dispatchPersistence({ type: "commit", selection: enrichedContext, text, rect });
@@ -2815,14 +3025,65 @@ export function PDFViewer({
       return true;
     };
 
-    // Handle mouse up to capture the finalized selection. WKWebView in
-    // particular can report a stale/collapsed selection at the instant mouseup
-    // fires; a short delay lets the browser settle the range first.
+    const scheduleLiveDragPaint = () => {
+      const drag = geomDragRef.current;
+      if (!drag || drag.rafId !== null) return;
+      drag.rafId = requestAnimationFrame(() => {
+        const current = geomDragRef.current;
+        if (!current) return;
+        current.rafId = null;
+        const resolved = resolveGeometricSelection(
+          pageCharLayoutsRef.current,
+          current.anchor,
+          current.focus,
+        );
+        if (!resolved) {
+          setLiveDragRectsByPage(null);
+          return;
+        }
+        const map = new Map<number, PdfRect[]>();
+        for (const page of resolved.pages) {
+          if (page.pdfRects.length > 0) map.set(page.pageNumber, page.pdfRects);
+        }
+        setLiveDragRectsByPage(map);
+      });
+    };
+
+    const handleMouseMove = (e: MouseEvent) => {
+      const drag = geomDragRef.current;
+      if (!drag) return;
+      const nextCaret = hitTestClientPoint(e.clientX, e.clientY, false);
+      if (!nextCaret) return;
+      if (
+        nextCaret.pageNumber === drag.focus.pageNumber &&
+        nextCaret.charIndex === drag.focus.charIndex
+      ) {
+        return;
+      }
+      drag.focus = nextCaret;
+      scheduleLiveDragPaint();
+    };
+
+    // Handle mouse up to finalize either an active geometric drag or a native
+    // DOM selection fallback.
     const handleMouseUp = (e: MouseEvent) => {
       // Only the primary button finalizes selections. A right-click's mouseup
       // must not re-commit (and re-surface the popup) while the context menu
       // handles the gesture.
       if (e.button !== 0) return;
+
+      const drag = geomDragRef.current;
+      if (drag) {
+        if (drag.rafId !== null) cancelAnimationFrame(drag.rafId);
+        geomDragRef.current = null;
+        setLiveDragRectsByPage(null);
+        const committed = commitGeometricSelection(drag.anchor, drag.focus);
+        if (!committed && lastSelectionWasPdfRef.current) {
+          clearPersistedSelection("outside-page-click");
+        }
+        return;
+      }
+
       // A mouseup on the selection popup (focus moved to a popup control) can
       // drop the native selection in WKWebView. That is a focus move, NOT a
       // dismissal — the popup's own click handler decides what happens to the
@@ -2839,22 +3100,10 @@ export function PDFViewer({
       }, 0);
     };
 
-    // Explicit clear semantics (single path via clearPersistedSelection):
-    //  - pointer-down inside a text layer (incl. inter-line whitespace, which
-    //    is delegated to PDF.js's endOfContent handling) starts a new in-page
-    //    selection → clear, but leave the browser's own range untouched so the
-    //    new drag proceeds normally.
-    //  - pointer-down inside the reading surface but outside any text layer
-    //    (page margin, gaps between pages) with no native selection → clear.
-    // Clicks on the floating selection popup are handled by the popup itself
-    // and must NOT clear — focus legitimately moves there. Clicks OUTSIDE the
-    // reading surface (assistant panel, dialogs, other panels) are focus moves
-    // and must NOT clear either: that is exactly the WKWebView focus-loss case
-    // the committed overlay exists to survive.
     const handleMouseDown = (e: MouseEvent) => {
       // Right-click must not clear the committed selection: the contextmenu
-      // handler below needs it, and macOS fires contextmenu on the same
-      // mousedown.
+      // handler below needs it, and macOS/Windows fire mousedown(2) before
+      // contextmenu.
       if (e.button !== 0) return;
       const target = e.target as Node;
       if (!(target instanceof Node)) return;
@@ -2862,6 +3111,56 @@ export function PDFViewer({
 
       const scrollContainer = scrollContainerRef.current;
       if (!scrollContainer || !scrollContainer.contains(target)) return;
+
+      // Ignore interactive controls inside overlays (e.g. OCR buttons, links).
+      const targetEl = target instanceof Element ? target : target.parentElement;
+      if (targetEl?.closest("button, a, input, select, textarea, [role=button], .pdf-ocr-overlay")) {
+        return;
+      }
+
+      // In Fixed mode (with OCR idle), use SumatraPDF-style geometric character
+      // selection whenever the clicked page has a built character layout.
+      if (mobilePdfModeRef.current === "fixed" && ocrFlowStateRef.current === "idle") {
+        const pageEl = targetEl?.closest<HTMLElement>("[data-pdf-page]");
+        const pageNum = pageEl ? Number(pageEl.dataset.pageNumber) : NaN;
+        const layout = Number.isFinite(pageNum) ? pageCharLayoutsRef.current.get(pageNum) : undefined;
+        if (layout && layout.chars.length > 0) {
+          const caret = hitTestClientPoint(e.clientX, e.clientY, true);
+          if (caret) {
+            // Prevent Chromium/WebView2 from starting its buggy DOM selection
+            // over absolutely-positioned .textLayer spans & .markedContent.
+            e.preventDefault();
+            window.getSelection()?.removeAllRanges();
+
+            if (persistedSelectionRef.current) {
+              clearPersistedSelection("new-in-page-drag", /* clearNative */ false);
+            }
+
+            if (e.detail === 2) {
+              const range = wordRangeAtPdfCaret(layout, caret.charIndex);
+              if (range && range.end > range.start) {
+                const anchor = { pageNumber: caret.pageNumber, charIndex: range.start };
+                const focus = { pageNumber: caret.pageNumber, charIndex: range.end };
+                geomDragRef.current = { anchor, focus, rafId: null };
+                scheduleLiveDragPaint();
+                return;
+              }
+            } else if (e.detail >= 3) {
+              const range = lineRangeAtPdfCaret(layout, caret.charIndex);
+              if (range && range.end > range.start) {
+                const anchor = { pageNumber: caret.pageNumber, charIndex: range.start };
+                const focus = { pageNumber: caret.pageNumber, charIndex: range.end };
+                geomDragRef.current = { anchor, focus, rafId: null };
+                scheduleLiveDragPaint();
+                return;
+              }
+            }
+
+            geomDragRef.current = { anchor: caret, focus: caret, rafId: null };
+            return;
+          }
+        }
+      }
 
       const clickedTextLayer = textLayerRootsRef.current.some(
         (layer) => layer && (layer === target || layer.contains(target)),
@@ -2876,6 +3175,24 @@ export function PDFViewer({
       }
     };
 
+    // Ctrl+C / Cmd+C copies the committed geometric PDF selection cleanly.
+    const handleCopy = (e: ClipboardEvent) => {
+      const active = document.activeElement;
+      if (
+        active instanceof HTMLInputElement ||
+        active instanceof HTMLTextAreaElement ||
+        (active instanceof HTMLElement && active.isContentEditable)
+      ) {
+        return;
+      }
+      const nativeText = window.getSelection()?.toString() ?? "";
+      if (nativeText.trim().length > 0) return;
+      const text = persistedSelectedTextRef.current;
+      if (!text) return;
+      e.clipboardData?.setData("text/plain", text);
+      e.preventDefault();
+    };
+
     // Escape clears a persisted selection (overlay, popup, downstream state).
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
@@ -2884,15 +3201,23 @@ export function PDFViewer({
     };
 
     document.addEventListener("mousedown", handleMouseDown);
+    document.addEventListener("mousemove", handleMouseMove);
     document.addEventListener("mouseup", handleMouseUp);
+    document.addEventListener("copy", handleCopy);
     document.addEventListener("keydown", handleKeyDown);
 
     return () => {
+      if (geomDragRef.current?.rafId != null) {
+        cancelAnimationFrame(geomDragRef.current.rafId);
+      }
+      geomDragRef.current = null;
       document.removeEventListener("mousedown", handleMouseDown);
+      document.removeEventListener("mousemove", handleMouseMove);
       document.removeEventListener("mouseup", handleMouseUp);
+      document.removeEventListener("copy", handleCopy);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onSelectionChange, buildPdfSelectionContext, clearPersistedSelection]);
+  }, [onSelectionChange, buildPdfSelectionContext, clearPersistedSelection, documentId, pdf, shouldRunCanonicalAnalysis]);
 
   // Right-click on a committed selection surfaces the host's shared
   // text-selection context menu (same contract as EPUBViewer). The PDF text
@@ -2912,17 +3237,9 @@ export function PDFViewer({
       const container = scrollContainerRef.current;
       if (!target || !container || !container.contains(target)) return;
 
-      const highlights = persistedHighlightsRef.current;
-      const annotations = renderedAnnotationTargetsAtPoint(container, highlights, e.clientX, e.clientY);
-      if (annotations.length) {
-        e.preventDefault();
-        e.stopImmediatePropagation();
-        onContextMenuRef.current?.({ x: e.clientX, y: e.clientY, selectedText: "", annotations });
-        return;
-      }
-
-      // The reflow surface is only mounted when its document data exists; the
-      // container falls back to fixed page views otherwise.
+      // Prioritize an active committed selection over underlying saved
+      // highlights so right-clicking a new selection always opens the selection
+      // menu and never drops the selection.
       const payload = resolvePdfContextMenu({
         clientX: e.clientX,
         clientY: e.clientY,
@@ -2931,10 +3248,20 @@ export function PDFViewer({
         committedText: persistedSelectedTextRef.current,
         liveReflowSelection: mobilePdfMode === "reflow" ? buildReflowSelectionContext() : null,
       });
-      if (!payload) return;
+      if (payload) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        onContextMenuRef.current?.(payload);
+        return;
+      }
 
-      e.preventDefault();
-      onContextMenuRef.current?.(payload);
+      const highlights = persistedHighlightsRef.current;
+      const annotations = renderedAnnotationTargetsAtPoint(container, highlights, e.clientX, e.clientY);
+      if (annotations.length) {
+        e.preventDefault();
+        e.stopImmediatePropagation();
+        onContextMenuRef.current?.({ x: e.clientX, y: e.clientY, selectedText: "", annotations });
+      }
     };
 
     document.addEventListener("contextmenu", handleContextMenu);
@@ -2961,10 +3288,11 @@ export function PDFViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ocr.flowState]);
 
-  // Per-page PDF-space rects of the persisted selection, for the overlay.
-  // Pages without rects (or no committed selection) are simply not painted;
-  // committed state survives so scrolling back re-paints them.
+  // Per-page PDF-space rects of the active drag or persisted selection, for the
+  // overlay. Pages without rects (or no committed selection) are simply not
+  // painted; committed state survives so scrolling back re-paints them.
   const selectionPdfRectsByPage = useMemo(() => {
+    if (liveDragRectsByPage) return liveDragRectsByPage;
     const selection = persistedSelection.selection;
     if (!selection) return null;
     const map = new Map<number, PdfRect[]>();
@@ -2972,7 +3300,7 @@ export function PDFViewer({
       if (page.pdfRects.length > 0) map.set(page.pageNumber, page.pdfRects);
     }
     return map;
-  }, [persistedSelection.selection]);
+  }, [liveDragRectsByPage, persistedSelection.selection]);
 
   // Resolve the per-page display scale from the current zoom mode.
   // fit-width / fit-page need the scroll container width/height, so this must
@@ -3684,12 +4012,20 @@ export function PDFViewer({
     if (isZoomedIn || isMiddleButton) {
       const targetNode = e.target as Node;
       
-      // Don't drag if clicking on text layer (allow text selection)
+      // Don't drag-pan if clicking on text layer or on a page with geometric
+      // character selection (allow text selection unless middle-dragging).
       const isClickingText = textLayerRootsRef.current.some((layer) => 
         layer && (layer === targetNode || layer.contains(targetNode))
       );
+      const targetEl = targetNode instanceof Element ? targetNode : targetNode.parentElement;
+      const pageEl = targetEl?.closest<HTMLElement>("[data-pdf-page]");
+      const pageNum = pageEl ? Number(pageEl.dataset.pageNumber) : NaN;
+      const hasGeomText =
+        !isMiddleButton &&
+        Number.isFinite(pageNum) &&
+        (pageCharLayoutsRef.current.get(pageNum)?.chars.length ?? 0) > 0;
       
-      if (isClickingText) {
+      if (isClickingText || hasGeomText) {
         // Allow text selection to proceed
         return;
       }
@@ -4270,14 +4606,8 @@ export function PDFViewer({
                       onSlotRef={handleSlotRef}
                       onCanvasRef={handleCanvasRef}
                       onTextSelectionAvailability={setPageTextSelectionAvailability}
-                      style={
-                        fallbackPageSize
-                          ? {
-                              minWidth: `${Math.round(fallbackPageSize.width)}px`,
-                              minHeight: `${Math.round(fallbackPageSize.height)}px`,
-                            }
-                          : undefined
-                      }
+                      onCharLayoutReady={handleCharLayoutReady}
+                      style={fallbackPageStyle}
                     >
                       {/* Canonical layout debug overlay (task 8.5). */}
                       {isPdfReflowDebugEnabled() && canonicalPipelineActive

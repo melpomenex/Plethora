@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { memo, useEffect, useRef } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 // PDFPageView and EventBus are exported from pdf.js's viewer module. PDFPageView
 // owns the per-page DOM (a `.page` div containing canvasWrapper + textLayer +
@@ -12,7 +12,14 @@ import { HighlightLayer, type StoredHighlight } from "./HighlightLayer";
 import { SelectionOverlay } from "./SelectionOverlay";
 import type { PdfRect } from "../../types/selection";
 import { hasSelectableTextInLayer } from "./pdfTextSelection";
+import { buildPdfPageCharLayout, type PdfPageCharLayout } from "../../lib/pdf/pdfCharLayout";
 import { cn } from "../../utils";
+
+// Cap per-page canvas backing store to 4MP (e.g. 2048×2048). PDF.js defaults to
+// 16MP, which causes multi-hundred-MB GPU texture allocations and sluggish
+// blits on older integrated GPUs (e.g. Intel HD 630 on Windows 10) at 125-150%
+// display scaling or high zoom. 4MP remains crisp on 1080p/1440p displays.
+const MAX_CANVAS_PIXELS = 4_194_304;
 
 // PDF.js internally multiplies the page scale by PDF_TO_CSS_UNITS (96/72 ≈
 // 1.333) when computing the viewport, so that 1 PDF point ≈ 1.333 CSS pixels
@@ -56,6 +63,8 @@ export interface PdfPageViewWrapperProps {
   onCanvasRef: (pageIndex: number, canvas: HTMLCanvasElement | null) => void;
   /** Called with whether the page has a selectable text layer. */
   onTextSelectionAvailability: (pageNumber: number, hasSelectableText: boolean) => void;
+  /** Called once the page's geometric per-character layout is built (null on unmount). */
+  onCharLayoutReady?: (pageIndex: number, layout: PdfPageCharLayout | null) => void;
   /** Optional className for the slot. */
   className?: string;
   /** Optional inline style for the slot (e.g. min size before first render). */
@@ -77,7 +86,7 @@ export interface PdfPageViewWrapperProps {
  * The lifecycle: create → `setPdfPage` → `draw()` on mount; `reset()` + `draw()`
  * on scale change; `destroy()` + remove the `.page` div on unmount.
  */
-export function PdfPageViewWrapper({
+export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
   pdf,
   pageIndex,
   scale,
@@ -90,6 +99,7 @@ export function PdfPageViewWrapper({
   onSlotRef,
   onCanvasRef,
   onTextSelectionAvailability,
+  onCharLayoutReady,
   className,
   style,
   children,
@@ -127,6 +137,7 @@ export function PdfPageViewWrapper({
         // Text layer on (default). Annotation layer off — we don't render link
         // annotations and it adds overhead + DOM we'd have to style around.
         textLayerMode: 1, // TextLayerMode.ENABLE = 1
+        maxCanvasPixels: MAX_CANVAS_PIXELS,
       });
       if (cancelled) {
         try { pageView.destroy(); } catch { /* ignore */ }
@@ -138,6 +149,25 @@ export function PdfPageViewWrapper({
       // `setPdfPage` recomputes the viewport (scale * PDF_TO_CSS_UNITS) and resets.
       pageView.setPdfPage(pdfPage);
       onViewportChange(pageIndex, pageView.viewport);
+
+      // Build the geometric per-character layout in parallel with canvas/text
+      // draw so SumatraPDF-style character-by-character selection is ready as
+      // soon as the page is visible.
+      if (onCharLayoutReady) {
+        void pdfPage
+          .getTextContent()
+          .then((tc) => {
+            if (cancelled) return;
+            const layout = buildPdfPageCharLayout(pageNumber, tc as any);
+            onCharLayoutReady(pageIndex, layout);
+            if (layout.chars.length > 0) {
+              onTextSelectionAvailability(pageNumber, true);
+            }
+          })
+          .catch(() => {
+            // Best-effort; falls back to DOM text-layer selection.
+          });
+      }
 
       try {
         await pageView.draw();
@@ -201,6 +231,7 @@ export function PdfPageViewWrapper({
       }
       onTextLayerReady(pageIndex, null);
       onCanvasRef(pageIndex, null);
+      onCharLayoutReady?.(pageIndex, null);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdf, pageNumber]); // recreate when the document or page number changes
@@ -300,4 +331,4 @@ export function PdfPageViewWrapper({
       ) : null}
     </div>
   );
-}
+});

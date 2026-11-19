@@ -2249,7 +2249,10 @@ export function DocumentViewer({
         return;
       }
 
-      setMinimapPosition(Math.max(0, Math.min(1, state.scrollPercent / 100)));
+      // Quantize minimap updates to 0.5% increments so scrolling does not
+      // trigger a 60fps full re-render of the DocumentViewer tree.
+      const nextMinimap = Math.round(Math.max(0, Math.min(1, state.scrollPercent / 100)) * 200) / 200;
+      setMinimapPosition((prev) => (Math.abs(prev - nextMinimap) >= 0.005 ? nextMinimap : prev));
 
       lastScrollStateRef.current = state;
       onScrollPositionChange?.({

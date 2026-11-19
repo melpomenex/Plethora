@@ -246,8 +246,14 @@ pub fn join_block_text(texts: &[String]) -> String {
         }
         let prev = texts[i - 1].chars().last();
         let curr = text.chars().next();
-        let cjk_adjacent = matches!((prev, curr), (Some(a), Some(b)) if is_cjk(a) && is_cjk(b));
-        if !cjk_adjacent {
+        let no_space = matches!(
+            (prev, curr),
+            (Some(a), Some(b))
+                if (is_cjk(a) && is_cjk(b))
+                    || (is_cjk(a) && b.is_ascii_digit())
+                    || (a.is_ascii_digit() && is_cjk(b))
+        );
+        if !no_space {
             out.push(' ');
         }
         out.push_str(text);
@@ -257,11 +263,16 @@ pub fn join_block_text(texts: &[String]) -> String {
 
 fn is_cjk(c: char) -> bool {
     matches!(c as u32,
-        0x4E00..=0x9FFF   // CJK Unified
-        | 0x3400..=0x4DBF // Extension A
-        | 0xF900..=0xFAFF // Compatibility
+        0x2E80..=0x2FFF   // CJK Radicals
         | 0x3000..=0x303F // CJK punctuation
         | 0x3040..=0x30FF // Hiragana/Katakana
+        | 0x3100..=0x31FF // Bopomofo / Hangul Compat
+        | 0x3200..=0x4DBF // Enclosed CJK / Extension A
+        | 0x4E00..=0x9FFF // CJK Unified
+        | 0xAC00..=0xD7AF // Hangul Syllables
+        | 0xF900..=0xFAFF // Compatibility Ideographs
+        | 0xFE30..=0xFE4F // CJK Compatibility Forms
+        | 0xFF00..=0xFFEF // Fullwidth ASCII & Punctuation (，；：！？（）)
     )
 }
 
@@ -353,6 +364,11 @@ mod tests {
             "The quick"
         );
         assert_eq!(join_block_text(&["名词".into(), "解释".into()]), "名词解释");
+        assert_eq!(
+            join_block_text(&["殊荣，".into(), "从".into(), "1791".into(), "年".into()]),
+            "殊荣，从1791年"
+        );
+        assert_eq!(join_block_text(&["名字；".into(), "主殿".into()]), "名字；主殿");
         assert_eq!(join_block_text(&["café".into()]), "café");
     }
 
