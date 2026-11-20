@@ -1,0 +1,9 @@
+{
+  "$comment": "Compliance gate for Apple HealthKit entitlement injection (scripts/apply-ios-project-overrides.js). Keep enabled=false until Apple Developer Portal HealthKit capability, provisioning profiles, and App Store Guideline 5.1.3 review sign-off are complete.",
+  "enabled": false,
+  "reason": "Requires Apple Developer HealthKit capability + App Store Guideline 5.1.3 compliance review before release",
+  "entitlements": {
+    "com.apple.developer.healthkit": true,
+    "com.apple.developer.healthkit.access": []
+  }
+}

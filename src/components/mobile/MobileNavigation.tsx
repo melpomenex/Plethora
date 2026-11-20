@@ -21,6 +21,7 @@ import {
   Download,
   Gear,
   GraduationCap,
+  MoonStars,
   Headphones,
   House,
   Image,
@@ -58,6 +59,7 @@ import {
   ExtractsTab,
   DocumentQATab,
   StudyPlansTab,
+  LearningInsightsTab,
 } from "../tabs/TabRegistry";
 import {
   getPlatformCapability,
@@ -260,6 +262,17 @@ export const allNavItems: NavItem[] = [
     tabContent: KnowledgeSphereTab,
     closable: true,
     capabilityId: "tab_knowledge_sphere",
+  },
+  {
+    id: "learning-insights",
+    label: "health.learningInsights",
+    icon: MoonStars,
+    tabType: "learning-insights",
+    tabTitle: "health.learningInsights",
+    tabIcon: "☾",
+    tabContent: LearningInsightsTab,
+    closable: true,
+    capabilityId: "tab_learning_insights",
   },
   {
     id: "study-plans",

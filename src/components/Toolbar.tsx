@@ -48,6 +48,7 @@ import {
   Headphones,
   Link,
   Microphone,
+  MoonStars,
   Newspaper,
   Planet,
   Rss,
@@ -471,6 +472,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     addTab(createCanonicalTab("dashboard"));
   };
 
+  const healthInsightsAvailable = usePlatformCapability("tab_learning_insights").available;
   const handleStudyPlans = () => {
     addTab(createCanonicalTab("study-plans"));
   };
@@ -783,6 +785,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       action: handleStudyPlans,
       group: 1,
     },
+    ...(healthInsightsAvailable ? [{
+      id: "learning-insights",
+      icon: MoonStars,
+      label: t("health.learningInsights"),
+      shortcut: "",
+      action: () => addTab(createCanonicalTab("learning-insights")),
+      group: 1,
+    }] : []),
     // Group 2: RSS
     {
       id: "rss",
@@ -940,6 +950,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     dashboard: ["dashboard"],
     "start-review": ["review"],
     "study-plans": ["study-plans"],
+    "learning-insights": ["learning-insights"],
     "continue-reading": ["continue-reading"],
     settings: ["settings"],
     documents: ["documents"],

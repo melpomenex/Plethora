@@ -89,6 +89,7 @@ The registry keeps platform-specific controls predictable while preserving the c
 | `tab_rss` |  | ✅ | ✅ | ✅ | ✅ |
 | `tab_newsletter` |  | ✅ | ✅ | ✅ | ✅ |
 | `tab_analytics` |  | ✅ | ✅ | ✅ | ✅ |
+| `tab_learning_insights` |  | ✅ | ✅ | ✅ | `❌ unsupported_platform` |
 | `tab_podcast` |  | ✅ | ✅ | ✅ | ✅ |
 | `tab_audiobook` |  | ✅ | ✅ | ✅ | ✅ |
 | `tab_knowledge_sphere` |  | ✅ | ✅ | ✅ | ✅ |
@@ -104,7 +105,7 @@ The registry keeps platform-specific controls predictable while preserving the c
 | `on_device_ai_gemini_nano` |  | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |
 | `on_device_ai_apple_foundation` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
 | `apple_speech_transcription` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
-| `import_document_scan` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
+| `import_document_scan` |  | ✅ | ✅ | ✅ | `❌ unsupported_platform` |
 | `import_photo_library` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
 | `apple_spotlight_search` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |
 | `on_device_ai_apple_coreai` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |

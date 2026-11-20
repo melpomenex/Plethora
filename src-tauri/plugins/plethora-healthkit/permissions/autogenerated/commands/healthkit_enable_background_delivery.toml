@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-healthkit-enable-background-delivery"
+description = "Enables the healthkit_enable_background_delivery command without any pre-configured scope."
+commands.allow = ["healthkit_enable_background_delivery"]
+
+[[permission]]
+identifier = "deny-healthkit-enable-background-delivery"
+description = "Denies the healthkit_enable_background_delivery command without any pre-configured scope."
+commands.deny = ["healthkit_enable_background_delivery"]

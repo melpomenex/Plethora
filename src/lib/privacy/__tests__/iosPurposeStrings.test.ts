@@ -42,9 +42,10 @@ describe('iOS purpose-string overrides contract (Change C §5.2)', () => {
   it('declares a user-oriented string for every permission with a shipped feature', () => {
     const { purposeStrings } = JSON.parse(readFileSync(contractPath, 'utf8')) as PrivacyManifestContract;
 
-    // Camera: QR sync scanning. Microphone: dictation / pronunciation practice.
+    // Camera: QR sync scanning. Microphone: dictation / pronunciation practice. Health: sleep/HRV charts.
     expect(Object.keys(purposeStrings).sort()).toEqual([
       'NSCameraUsageDescription',
+      'NSHealthShareUsageDescription',
       'NSMicrophoneUsageDescription',
       'NSSpeechRecognitionUsageDescription',
     ]);

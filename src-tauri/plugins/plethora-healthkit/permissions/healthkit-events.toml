@@ -1,0 +1,11 @@
+"$schema" = "schemas/schema.json"
+
+[[permission]]
+identifier = "allow-register-listener"
+description = "Allows registering native HealthKit observer event listeners."
+commands.allow = ["registerListener"]
+
+[[permission]]
+identifier = "allow-remove-listener"
+description = "Allows removing native HealthKit observer event listeners."
+commands.allow = ["removeListener"]

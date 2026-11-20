@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-healthkit-query-anchored-changes"
+description = "Enables the healthkit_query_anchored_changes command without any pre-configured scope."
+commands.allow = ["healthkit_query_anchored_changes"]
+
+[[permission]]
+identifier = "deny-healthkit-query-anchored-changes"
+description = "Denies the healthkit_query_anchored_changes command without any pre-configured scope."
+commands.deny = ["healthkit_query_anchored_changes"]

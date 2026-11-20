@@ -69,6 +69,8 @@ plethora-storekit = { path = "plugins/plethora-storekit" }
 # platform_unsupported. Server-side acknowledgement is authoritative.
 # See plugins/plethora-playbilling/.
 plethora-playbilling = { path = "plugins/plethora-playbilling" }
+plethora-healthkit = { path = "plugins/plethora-healthkit" }
+plethora-healthconnect = { path = "plugins/plethora-healthconnect" }
 # In-repo mobile plugin for on-device TTS on Android via sherpa-onnx
 # (KittenTTS Micro / Kokoro-82M). The Rust side is a thin shim that registers
 # the Android plugin; the Kotlin side owns inference, AudioTrack playback, audio

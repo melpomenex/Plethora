@@ -43,6 +43,8 @@
     "plethora-folder-import:default",
     "plethora-storekit:default",
     "plethora-playbilling:default",
+    "plethora-healthkit:default",
+    "plethora-healthconnect:default",
     "plethora-android-tts:default",
     "plethora-android-genai:default",
     "plethora-apple-intelligence:default",

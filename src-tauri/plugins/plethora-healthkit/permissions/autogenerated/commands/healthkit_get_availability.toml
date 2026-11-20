@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-healthkit-get-availability"
+description = "Enables the healthkit_get_availability command without any pre-configured scope."
+commands.allow = ["healthkit_get_availability"]
+
+[[permission]]
+identifier = "deny-healthkit-get-availability"
+description = "Denies the healthkit_get_availability command without any pre-configured scope."
+commands.deny = ["healthkit_get_availability"]

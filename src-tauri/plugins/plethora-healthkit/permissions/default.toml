@@ -1,0 +1,18 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+Allows HealthKit availability checks, explicit read authorization, anchored
+sleep/biometric queries, and background delivery toggle.
+"""
+permissions = [
+  "allow-healthkit-get-availability",
+  "allow-healthkit-request-authorization",
+  "allow-healthkit-query-sleep-sessions",
+  "allow-healthkit-query-physiological-samples",
+  "allow-healthkit-query-anchored-changes",
+  "allow-healthkit-enable-background-delivery",
+  "allow-healthkit-disable-background-delivery",
+  "allow-register-listener",
+  "allow-remove-listener"
+]

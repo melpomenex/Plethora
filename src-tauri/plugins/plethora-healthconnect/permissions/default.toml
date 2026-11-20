@@ -1,0 +1,16 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+Allows Health Connect SDK availability checks, explicit runtime permissions,
+sleep/physiological queries, and incremental change tracking.
+"""
+permissions = [
+  "allow-healthconnect-get-sdk-status",
+  "allow-healthconnect-get-granted-permissions",
+  "allow-healthconnect-request-permissions",
+  "allow-healthconnect-read-sleep-sessions",
+  "allow-healthconnect-read-physiological-records",
+  "allow-healthconnect-get-changes-token",
+  "allow-healthconnect-read-changes"
+]

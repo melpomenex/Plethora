@@ -45,6 +45,24 @@ exports[`ASC privacy-label draft generator (Change C §3.2) > produces a stable 
   ],
   "perDisclosure": [
     {
+      "dataLeavesDevice": false,
+      "dataTypes": [],
+      "id": "local_health_vault",
+      "linkedToIdentity": false,
+      "name": "Local Health Vault",
+      "purposes": [],
+      "usedForTracking": false,
+    },
+    {
+      "dataLeavesDevice": true,
+      "dataTypes": [],
+      "id": "health_oauth_broker",
+      "linkedToIdentity": false,
+      "name": "Wearable Provider Sign-in",
+      "purposes": [],
+      "usedForTracking": false,
+    },
+    {
       "dataLeavesDevice": true,
       "dataTypes": [
         "user_content",

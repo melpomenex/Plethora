@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, type KeyboardEvent, type ComponentType } from "react";
+import { useState, useEffect, useRef, lazy, Suspense, type KeyboardEvent, type ComponentType } from "react";
 import { useModal } from "../common/Modal";
 import {
   ArrowsClockwise,
@@ -10,6 +10,7 @@ import {
   FolderOpen,
   Globe,
   HardDrives,
+  Heartbeat,
   Info,
   Key,
   Plug,
@@ -64,6 +65,10 @@ import { useApiTokensStore } from "../../stores/apiTokensStore";
 import { usePlatformCapability } from "../../hooks/usePlatformCapability";
 import { isPlethoraCloudAvailable } from "../../config/product";
 
+const HealthWearablesSettings = lazy(() => import("./HealthWearablesSettings").then((module) => ({
+  default: module.HealthWearablesSettings,
+})));
+
 type IntegrationType =
   | "obsidian"
   | "anki"
@@ -73,7 +78,8 @@ type IntegrationType =
   | "youtube-cookies"
   | "youtube-transcript"
   | "sponsorblock"
-  | "api-tokens";
+  | "api-tokens"
+  | "health";
 
 
 export function IntegrationSettings() {
@@ -483,6 +489,10 @@ export function IntegrationSettings() {
       ],
     },
     {
+      id: "health",
+      items: [{ id: "health", label: t("health.wearables"), icon: Heartbeat, visible: isTauri() }],
+    },
+    {
       id: "sync",
       items: [
         { id: "extension", label: t("integrations.browserExtension"), icon: Globe, visible: extensionServerAvailable },
@@ -540,6 +550,7 @@ export function IntegrationSettings() {
       {/* Search-only reveal resolvers: open the owning tab before its content
           (and the actual target) mounts. They are not focus destinations. */}
       <div className="hidden" aria-hidden="true">
+        <SettingsSearchTarget id="integrations.reveal.health" reveal={() => setActiveTab("health")} />
         <SettingsSearchTarget id="integrations.reveal.obsidian" reveal={() => setActiveTab("obsidian")} />
         <SettingsSearchTarget id="integrations.reveal.anki" reveal={() => setActiveTab("anki")} />
         <SettingsSearchTarget id="integrations.reveal.extension" reveal={() => setActiveTab("extension")} />
@@ -1074,6 +1085,12 @@ export function IntegrationSettings() {
             </div>
           </div>
         </SettingsSearchTarget>
+      )}
+
+      {activeTab === "health" && isTauri() && (
+        <Suspense fallback={<p role="status">Loading Health &amp; Wearables…</p>}>
+          <HealthWearablesSettings />
+        </Suspense>
       )}
 
       {/* NotebookLM Settings */}

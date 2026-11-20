@@ -1,9 +1,9 @@
 {
   "version": "1.0.0",
-  "corpusHash": "sha256:371b4c070ff4cb267a9f1db05110b489036458104752f878f5de5f4fbb187831",
-  "generatedAt": "2026-11-12T21:04:12.502Z",
-  "totalDocs": 76,
-  "totalChunks": 229,
+  "corpusHash": "sha256:2d3177bc32e8c416ac250cb957a688afd8ab902b7d2dc9aad289f4a6a4141c4a",
+  "generatedAt": "2026-11-20T03:22:40.561Z",
+  "totalDocs": 77,
+  "totalChunks": 232,
   "aliasMap": {
     "incremental reading philosophy & workflow": "concepts.incremental_reading",
     "incremental reading": "concepts.incremental_reading",
@@ -168,6 +168,12 @@
     "ios capabilities": "platform.mobile_ios",
     "ios feature matrix": "platform.mobile_ios",
     "platform gating": "platform.mobile_ios",
+    "wearable health and learning insights": "platform.wearable_health_insights",
+    "sleep chart": "platform.wearable_health_insights",
+    "health vault": "platform.wearable_health_insights",
+    "wearables": "platform.wearable_health_insights",
+    "health connect": "platform.wearable_health_insights",
+    "learning insights": "platform.wearable_health_insights",
     "queue composition sliders": "queue.composition",
     "queue mix": "queue.composition",
     "content balance": "queue.composition",
@@ -1838,7 +1844,50 @@
         "Exact Behavioral Rules": "1. A registry entry without a platform column means available on that\n   platform — desktop and Android behavior is frozen by a regression\n   snapshot test.\n2. Unknown capability id → fail closed + dev-mode console error.\n3. `apkInstallClass` capabilities are unavailable on all platforms when\n   `BUILD_PROFILE === \"store\"`.\n4. The doc matrix below is generated from the registry and verified by\n   `iosCapabilitiesDoc.test.ts`; edit the registry, then regenerate.",
         "Rationale": "The registry keeps platform-specific controls predictable while preserving the core learning workflow across phone and tablet form factors.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `platform.unavailable.*` (i18n) | — | Reason strings for marked-unavailable surfaces, all six locales. |",
-        "Platform Behavior": "- **iOS**: matrix below applies; protected core workflow fully available.\n- **Android / Desktop / Web**: unchanged shipped behavior (snapshot-enforced),\n  with the sanctioned §2 fixes (screenshot source hidden on mobile,\n  NotebookLM/extension-server desktop-only).\n\n<!-- BEGIN GENERATED MATRIX -->\n| Capability id | Kind | iOS | Android | Desktop | Web/PWA |\n| --- | --- | --- | --- | --- | --- |\n| `core_import` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_read` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_extract` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_remember` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_review` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `tab_dashboard` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_queue` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_review` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_documents` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_settings` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_extracts` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_image_registry` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_doc_qa` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_rss` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_newsletter` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_analytics` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_podcast` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_audiobook` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_knowledge_sphere` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_notebooklm` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `tts_android_adapter` |  | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `app_updater` | apk-install-class | `❌ unsupported_platform` | ✅ | ✅ | `❌ unsupported_platform` |\n| `import_screenshot` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | ✅ |\n| `browser_extension_server` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `notebooklm_cli` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `apk_install` | apk-install-class | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `desktop_capture_dom` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `share_extension_inbox` |  | ✅ | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `on_device_ai_gemini_nano` |  | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `on_device_ai_apple_foundation` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `apple_speech_transcription` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `import_document_scan` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `import_photo_library` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `apple_spotlight_search` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `on_device_ai_apple_coreai` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n<!-- END GENERATED MATRIX -->"
+        "Platform Behavior": "- **iOS**: matrix below applies; protected core workflow fully available.\n- **Android / Desktop / Web**: unchanged shipped behavior (snapshot-enforced),\n  with the sanctioned §2 fixes (screenshot source hidden on mobile,\n  NotebookLM/extension-server desktop-only).\n\n<!-- BEGIN GENERATED MATRIX -->\n| Capability id | Kind | iOS | Android | Desktop | Web/PWA |\n| --- | --- | --- | --- | --- | --- |\n| `core_import` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_read` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_extract` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_remember` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `core_review` | **protected** | ✅ | ✅ | ✅ | ✅ |\n| `tab_dashboard` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_queue` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_review` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_documents` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_settings` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_extracts` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_image_registry` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_doc_qa` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_rss` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_newsletter` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_analytics` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_learning_insights` |  | ✅ | ✅ | ✅ | `❌ unsupported_platform` |\n| `tab_podcast` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_audiobook` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_knowledge_sphere` |  | ✅ | ✅ | ✅ | ✅ |\n| `tab_notebooklm` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `tts_android_adapter` |  | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `app_updater` | apk-install-class | `❌ unsupported_platform` | ✅ | ✅ | `❌ unsupported_platform` |\n| `import_screenshot` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | ✅ |\n| `browser_extension_server` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `notebooklm_cli` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `apk_install` | apk-install-class | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `desktop_capture_dom` |  | `❌ unsupported_platform` | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `share_extension_inbox` |  | ✅ | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `on_device_ai_gemini_nano` |  | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` | `❌ unsupported_platform` |\n| `on_device_ai_apple_foundation` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `apple_speech_transcription` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `import_document_scan` |  | ✅ | ✅ | ✅ | `❌ unsupported_platform` |\n| `import_photo_library` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `apple_spotlight_search` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n| `on_device_ai_apple_coreai` |  | ✅ | `❌ unsupported_platform` | ✅ | `❌ unsupported_platform` |\n<!-- END GENERATED MATRIX -->"
+      }
+    },
+    {
+      "id": "platform.wearable_health_insights",
+      "title": "Wearable Health and Learning Insights",
+      "domain": "platform",
+      "status": "implemented",
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "summary": "Review local sleep, nap, and biometric history alongside study activity in the native app.",
+      "how_to": "Open Learning Insights. Log sleep by hand, import a health file, or check provider availability under Data Sources.",
+      "why": "Sleep history and paired review data can show personal patterns when enough records are available.",
+      "aliases": [
+        "sleep chart",
+        "health vault",
+        "wearables",
+        "health connect",
+        "learning insights"
+      ],
+      "settings": [
+        "integrations.health.local",
+        "integrations.health.providers",
+        "integrations.health.priority",
+        "integrations.health.transfer",
+        "integrations.health.privacy"
+      ],
+      "actions": [],
+      "related": [
+        "platform.mobile_android",
+        "platform.mobile_ios"
+      ],
+      "filePath": "docs/product/features/platform/wearable-health-insights.md",
+      "sections": {
+        "intro": "# Wearable Health and Learning Insights",
+        "Purpose": "View sleep history together with your own learning activity in the native app.",
+        "User-Facing Behavior": "Open **Learning Insights** on desktop or mobile. Start with **Log sleep**, or use **Data Sources** to import CSV, Plethora health JSON, Apple Health XML, or a passphrase-protected Plethora health bundle. **Sample data** lets you explore the charts using a temporary synthetic dataset.\n\n**Sleep Chart** shows sleep by wake date, recorded stages, gaps in coverage, and optional study sessions. Select a date to see the source and any conflicts. Manage which source takes priority in **Settings → Integrations → Health & Wearables**.\n\n**Learning Performance** compares sleep and study activity when enough data is available. Use the Study Plan filter to narrow the report. **Personal Patterns → Inspect evidence** shows sample counts, coverage, and limitations for each available association. Exploratory alertness estimates and personal associations are for reflection.",
+        "Exact Behavioral Rules": "Provider availability depends on device support, permissions, and the provider’s approval and configuration. After connecting a source, use **Sync now** to request new records. Disconnect stops future syncs and keeps imported records. Use Health privacy and deletion to remove the records or wipe the local vault. Exported files are managed separately.",
+        "Rationale": "Local analysis keeps health history separate from the learning library. The evidence view explains how much data supports each observed association."
       }
     },
     {
@@ -7142,6 +7191,100 @@
       ],
       "actions": [],
       "filePath": "docs/product/features/platform/ios-capabilities.md"
+    },
+    {
+      "id": "platform.wearable_health_insights#summary",
+      "docId": "platform.wearable_health_insights",
+      "title": "Wearable Health and Learning Insights",
+      "domain": "platform",
+      "section": "Summary & How-To",
+      "content": "Title: Wearable Health and Learning Insights\nDomain: platform\nSummary: Review local sleep, nap, and biometric history alongside study activity in the native app.\nHow to use: Open Learning Insights. Log sleep by hand, import a health file, or check provider availability under Data Sources.\nRationale: Sleep history and paired review data can show personal patterns when enough records are available.\nAliases: sleep chart, health vault, wearables, health connect, learning insights\nSettings: integrations.health.local, integrations.health.providers, integrations.health.priority, integrations.health.transfer, integrations.health.privacy",
+      "aliases": [
+        "sleep chart",
+        "health vault",
+        "wearables",
+        "health connect",
+        "learning insights"
+      ],
+      "tags": [
+        "platform",
+        "integrations.health.local",
+        "integrations.health.providers",
+        "integrations.health.priority",
+        "integrations.health.transfer",
+        "integrations.health.privacy",
+        "sleep chart",
+        "health vault",
+        "wearables",
+        "health connect",
+        "learning insights"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [],
+      "filePath": "docs/product/features/platform/wearable-health-insights.md"
+    },
+    {
+      "id": "platform.wearable_health_insights#rules",
+      "docId": "platform.wearable_health_insights",
+      "title": "Wearable Health and Learning Insights › Behavioral Rules",
+      "domain": "platform",
+      "section": "Exact Behavioral Rules",
+      "content": "Provider availability depends on device support, permissions, and the provider’s approval and configuration. After connecting a source, use **Sync now** to request new records. Disconnect stops future syncs and keeps imported records. Use Health privacy and deletion to remove the records or wipe the local vault. Exported files are managed separately.",
+      "aliases": [
+        "sleep chart",
+        "health vault",
+        "wearables",
+        "health connect",
+        "learning insights"
+      ],
+      "tags": [
+        "platform",
+        "rules"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [],
+      "filePath": "docs/product/features/platform/wearable-health-insights.md"
+    },
+    {
+      "id": "platform.wearable_health_insights#rationale",
+      "docId": "platform.wearable_health_insights",
+      "title": "Wearable Health and Learning Insights › Purpose & Rationale",
+      "domain": "platform",
+      "section": "Rationale",
+      "content": "Local analysis keeps health history separate from the learning library. The evidence view explains how much data supports each observed association.",
+      "aliases": [
+        "sleep chart",
+        "health vault",
+        "wearables",
+        "health connect",
+        "learning insights"
+      ],
+      "tags": [
+        "platform",
+        "rationale",
+        "why"
+      ],
+      "platforms": [
+        "desktop-macos",
+        "desktop-windows",
+        "desktop-linux",
+        "mobile-android",
+        "mobile-ios"
+      ],
+      "actions": [],
+      "filePath": "docs/product/features/platform/wearable-health-insights.md"
     },
     {
       "id": "queue.composition#summary",

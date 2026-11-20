@@ -173,6 +173,20 @@ test("updateEntitlements adds App Group when share-extension data provides one",
   assert.deepEqual(again.applied, []);
 });
 
+test("updateEntitlements keeps HealthKit gated unless explicitly enabled", () => {
+  const gated = updateEntitlements(ENTITLEMENTS_EMPTY, {
+    appGroup: null,
+    healthkitEntitlements: { enabled: false },
+  });
+  assert.doesNotMatch(gated.out, /com\.apple\.developer\.healthkit/);
+
+  const enabled = updateEntitlements(ENTITLEMENTS_EMPTY, {
+    appGroup: null,
+    healthkitEntitlements: { enabled: true },
+  });
+  assert.match(enabled.out, /com\.apple\.developer\.healthkit/);
+});
+
 /* ── syncIcons ────────────────────────────────────────────────────────────── */
 
 test("syncIcons copies AppIcon PNGs into the appiconset and is idempotent", () => {

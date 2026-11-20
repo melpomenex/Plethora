@@ -22,6 +22,8 @@ Plethora is built on the philosophy that reading, thinking, and note-taking are 
 
 | Feature ID | Subsystem | Trigger | Destination | Encryption | Retention | Third-Party Access | Local Fallback |
 |---|---|---|---|---|---|---|---|
+| `local_health_vault` | Sleep records and learning insights | Local entry, import, or analysis | On-device `health/health.db` | Standard SQLite protected by the OS. Portable encrypted exports use AES-256-GCM. | Until deleted by the user | None for local storage and analysis | Manual logs and local imports |
+| `health_oauth_broker` | Wearable OAuth authorization codes and tokens | Optional wearable connection, authorized token refresh, and disconnection | Plethora OAuth broker and selected wearable provider | TLS | Transient credential exchange | Selected wearable provider | Manual logs and local imports |
 | `cloud_sync` | Multi-Device Sync | Automatic | Plethora Cloud Relay / S3 | **End-to-End Encrypted** | Until deleted by user | None (zero-knowledge) | Local SQLite DB & device files |
 | `cloud_backup` | Cloud Vault Backups | Scheduled | Plethora Cloud Vault | **End-to-End Encrypted** | Rolling 30 days | None | Local `.plethora` export |
 | `cloud_ai_intelligence` | RAG & AI Learning | Manual | AI Gateway / Provider | **In-Transit TLS** | Ephemeral (zero training retention) | BYO Key / Pro Model Provider | On-device EmbeddingGemma, Ollama |
@@ -62,3 +64,11 @@ document as never-leaving-device without touching settings.
 
 - **Account Deletion**: Deleting your Plethora account triggers a complete cascade removing all cloud-held ciphertext, capture queue items, device registrations, and billing tokens within 30 days. Local data on your devices remains 100% intact unless you explicitly opt in to erase the local device storage.
 - **Portability**: All library data can be exported at any time to open `.plethora` archive format, standard Anki `.apkg` packages, Markdown trees, or SQLite database files.
+
+### Health data
+
+The Health Vault stores sleep, physiological measurements, and source provenance in `health/health.db`. The primary library database, Plethora library backups, E2EE library sync, semantic indexes, and AI prompts receive no Health Vault records. The iOS app sets backup exclusion on the health directory before opening it. Demo records use a separate in-memory vault for the current session and use no real learning history.
+
+The health export commands save files only at a location selected by the user. Portable `.plethora-health.enc` bundles use PBKDF2-HMAC-SHA256 and AES-256-GCM with a user-supplied passphrase. Users control the copies they export, including deletion of those copies. The vault deletion command removes local records and runs SQLite compaction.
+
+When a configured wearable provider is connected, Plethora’s OAuth broker exchanges authorization codes, refreshes or revokes tokens, and verifies signed notifications. The exchanges keep client secrets on the broker. The app downloads health observations directly from the selected provider to the vault. The app stores OAuth tokens in the opt-in OS keychain or in an AES-256-GCM fallback file derived from device account and host information. The fallback offers weaker protection against processes running as the same OS user.

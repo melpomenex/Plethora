@@ -374,7 +374,7 @@ export function updateInfoPlist(plist, { version, purposeStrings, buildNumber })
 
 /* ── Entitlements ────────────────────────────────────────────────────────── */
 
-export function updateEntitlements(entitlements, { appGroup }) {
+export function updateEntitlements(entitlements, { appGroup, healthkitEntitlements = null }) {
   let out = entitlements;
   const applied = [];
 
@@ -407,6 +407,16 @@ export function updateEntitlements(entitlements, { appGroup }) {
       );
       applied.push("entitlements: TODO-E placeholder");
     }
+  }
+
+  if (healthkitEntitlements?.enabled === true && !/<key>com\.apple\.developer\.healthkit<\/key>/.test(out)) {
+    const hkBlock = `\t<key>com.apple.developer.healthkit</key>\n\t<true/>\n\t<key>com.apple.developer.healthkit.access</key>\n\t<array/>\n`;
+    if (/<dict\/>/.test(out)) {
+      out = out.replace(/<dict\/>/, `<dict>\n${hkBlock}</dict>`);
+    } else if (/<\/dict>/.test(out)) {
+      out = out.replace(/(\t?<\/dict>)/, `${hkBlock}$1`);
+    }
+    applied.push("entitlements: HealthKit enabled");
   }
 
   if (out === entitlements) return { out, applied: [] };
@@ -465,6 +475,7 @@ export function applyIosProjectOverrides({
 
   const privacyManifest = readOptionalJson(join(overridesDir, "privacy-manifest.json"));
   const shareExtension = readOptionalJson(join(overridesDir, "share-extension.target.json"));
+  const healthkitEntitlements = readOptionalJson(join(overridesDir, "healthkit.entitlements.json"));
   const version = readMarketingVersion(tauriConfPath);
 
   // 1. project.yml
@@ -479,10 +490,11 @@ export function applyIosProjectOverrides({
   writeTextIfChanged(infoPlistPath, plist.out, changes, "Info.plist: updated");
   changes.push(...plist.applied);
 
-  // 3. Entitlements (main app; minimal unless E's App Group data exists)
+  // 3. Entitlements (main app; minimal unless E's App Group or enabled HealthKit exists)
   const entitlementsPath = join(appleDir, "plethora-tauri_iOS", "plethora-tauri_iOS.entitlements");
   const ent = updateEntitlements(readText(entitlementsPath), {
     appGroup: shareExtension?.appGroup ?? null,
+    healthkitEntitlements,
   });
   writeTextIfChanged(entitlementsPath, ent.out, changes, "entitlements: updated");
   changes.push(...ent.applied);

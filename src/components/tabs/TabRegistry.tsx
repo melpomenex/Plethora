@@ -52,6 +52,7 @@ export const PodcastTab = debugLazy("PodcastTab", () => import("../media/Podcast
 export const AudiobooksTab = debugLazy("AudiobooksTab", () => import("./AudiobooksTab").then(m => ({ default: m.AudiobooksTab })));
 export const ImportNeedsReviewTab = debugLazy("ImportNeedsReviewTab", () => import("../../pages/ImportNeedsReviewPage").then(m => ({ default: m.ImportNeedsReviewTab })));
 export const IngestionAirlockModal = debugLazy("IngestionAirlockModal", () => import("../import/IngestionAirlockModal").then(m => ({ default: m.IngestionAirlockModal })));
+export const LearningInsightsTab = debugLazy("LearningInsightsTab", () => import("./LearningInsightsTab").then(m => ({ default: m.LearningInsightsTab })));
 export const StudyPlansTab = debugLazy("StudyPlansTab", () => import("../study-plans/StudyPlansTab").then(m => ({ default: m.StudyPlansTab })));
 
 /**
@@ -96,6 +97,7 @@ export const TAB_TYPE_ICONS: Record<string, string> = {
   "queue-scroll": "📜", "audiobook-epub-sync": "🎧",
   audiobook: "🎧",
   "import-needs-review": "🧭",
+  "learning-insights": "☾",
   "study-plans": "🎓",
 };
 
@@ -124,6 +126,7 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
   audiobook: { content: AudiobooksTab, title: "Audiobooks", icon: "🎧", closable: true },
   extracts: { content: ExtractsTab, title: "Extracts", icon: "✂️", closable: true },
   "import-needs-review": { content: ImportNeedsReviewTab, title: "Import Needs Review", icon: "🧭", closable: true },
+  "learning-insights": { content: LearningInsightsTab, title: "Learning Insights", icon: "☾", closable: true },
   "study-plans": { content: StudyPlansTab, title: "Study Plans", icon: "🎓", closable: true },
 };
 
@@ -156,6 +159,7 @@ const TAB_TITLE_TRANSLATION_KEYS: Partial<Record<TabType, string>> = {
   audiobook: "i18nAudit.ui.audiobooks.0104e6dd",
   extracts: "audio.extracts",
   "import-needs-review": "i18nAudit.ui.import-needs-review.fba4f59c",
+  "learning-insights": "health.learningInsights",
   "study-plans": "studyPlans.title",
 };
 
@@ -184,6 +188,7 @@ export const TAB_TYPE_TO_CAPABILITY: Partial<Record<TabType, PlatformCapabilityI
   review: "tab_review",
   documents: "tab_documents",
   analytics: "tab_analytics",
+  "learning-insights": "tab_learning_insights",
   settings: "tab_settings",
   extracts: "tab_extracts",
   "image-registry": "tab_image_registry",
@@ -204,6 +209,7 @@ const TAB_FALLBACK_CHAINS: Partial<Record<TabType, TabType[]>> = {
   // NotebookLM (desktop-only CLI integration) → Document Q&A (closest
   // research/chat surface) → Documents → Dashboard.
   notebooklm: ["doc-qa", "documents", "dashboard"],
+  "learning-insights": ["analytics", "dashboard"],
 };
 
 /**

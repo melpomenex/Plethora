@@ -22,6 +22,7 @@ mod rss_preferences;
 // Linux graphics policy: single owner of the WebKitGTK acceleration env
 // decision (PLETHORA_GPU_MODE), applied from main() before any webview.
 pub mod graphics;
+pub mod health;
 // Linux AppImage parent environment setup must run before WebKit/GStreamer
 // can start helper processes. Other targets use a no-op implementation.
 mod audio_lifecycle;
@@ -1019,6 +1020,8 @@ pub fn run() {
         .plugin(plethora_android_vision::init())
         .plugin(plethora_android_nlp::init())
         .plugin(plethora_android_search::init())
+        .plugin(plethora_healthkit::init())
+        .plugin(plethora_healthconnect::init())
         // StoreKit 2 billing (iOS): native product query, purchase with
         // appAccountToken, verified entitlements, restore, and the
         // Transaction.updates listener. On non-iOS targets every command
@@ -1251,6 +1254,10 @@ pub fn run() {
             // code that might set one (e.g. database recovery) runs.
             startup_notice::register(&app_handle);
             app.manage(BackendReadyState::default());
+            app.manage(commands::health::DemoHealthVault::default());
+            app.manage(commands::health_sources::HealthSourceOperations::default());
+            app.manage(health::oauth::HealthOAuthManager::default());
+            commands::health_cloud::listen_for_mobile_callback(&app_handle);
             app.manage(external_open::PendingExternalOpens::default());
 
             // Window APIs stay on the setup thread. Let the WebView paint
@@ -1475,6 +1482,13 @@ pub fn run() {
                     anyhow::bail!("Repository state was already managed before database setup");
                 }
                 *app.state::<AppState>().db.lock().expect("app state mutex poisoned") = Some(db);
+
+                match commands::health::open_vault(&app, &app_dir).await {
+                    Ok(vault) => {
+                        app.manage(vault);
+                    }
+                    Err(error) => tracing::warn!(%error, "Health vault unavailable"),
+                }
 
                 migrations::fsrs7_migration::spawn_fsrs7_migration(pool.clone());
 
@@ -1752,6 +1766,33 @@ pub fn run() {
             wait_for_backend_ready,
             start_optional_runtime,
             ping_health,
+            commands::health::health_list_providers,
+            commands::health_cloud::health_connect_cloud,
+            commands::health_cloud::health_sync_cloud,
+            commands::health_sources::health_connect_native,
+            commands::health_sources::health_sync_native,
+            commands::health_sources::health_disconnect_provider,
+            commands::health::health_get_connections,
+            commands::health::health_get_source_preferences,
+            commands::health::health_set_source_preferences,
+            commands::health::health_get_privacy_settings,
+            commands::health::health_update_privacy_settings,
+            commands::health::health_get_consent_log,
+            commands::health::health_upsert_manual_sleep,
+            commands::health::health_get_manual_sleep,
+            commands::health::health_delete_manual_sleep,
+            commands::health::health_override_sleep_kind,
+            commands::health::health_import_file,
+            commands::health::health_export_json,
+            commands::health::health_import_encrypted_bundle,
+            commands::health::health_export_encrypted_bundle,
+            commands::health::health_load_demo_dataset,
+            commands::health::health_clear_demo_dataset,
+            commands::health::health_delete_provider_data,
+            commands::health::health_wipe_all_data,
+            commands::health::health_get_sleep_chart_data,
+            commands::health::health_get_learning_insights,
+            commands::health::health_get_study_plan_insights,
             commands::memory_scenario::get_memory_scenario_config,
             download_update_apk,
             updater_bundle_type,

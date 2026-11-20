@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-healthkit-query-sleep-sessions"
+description = "Enables the healthkit_query_sleep_sessions command without any pre-configured scope."
+commands.allow = ["healthkit_query_sleep_sessions"]
+
+[[permission]]
+identifier = "deny-healthkit-query-sleep-sessions"
+description = "Denies the healthkit_query_sleep_sessions command without any pre-configured scope."
+commands.deny = ["healthkit_query_sleep_sessions"]

@@ -2,6 +2,9 @@ import { recentFeatureEn } from "./recentFeatures/en";
 export type Dict = Record<string, string>;
 
 export const en: Dict = {
+  "health.learningInsights": "Learning Insights",
+  "health.learningInsightsDescription": "Explore sleep history and learning performance",
+  "health.wearables": "Health & Wearables",
   "studyPlans.reading.heading": "Guided Reading",
   "studyPlans.reading.start": "Start Guided Reading",
   "studyPlans.reading.resume": "Continue Reading",

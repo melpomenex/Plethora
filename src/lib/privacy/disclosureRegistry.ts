@@ -9,6 +9,48 @@ import type { PrivacyDisclosure } from '../../types/privacy';
  * Sourced by docs/PRIVACY_ARCHITECTURE.md, in-app Privacy Center, and store privacy labels.
  */
 export const DISCLOSURE_REGISTRY: Record<string, PrivacyDisclosure> = {
+  local_health_vault: {
+    id: 'local_health_vault',
+    name: 'Local Health Vault',
+    category: 'integrations',
+    dataLeavesDevice: false,
+    trigger: 'never',
+    destination: 'Separate on-device SQLite health database',
+    retention: 'Until deleted by the user',
+    encryptionState: 'none_local_only',
+    thirdPartyInvolvement: 'None for local storage and analysis',
+    userDeletable: true,
+    localFallback: 'Manual sleep logs and local file imports',
+    description:
+      'Sleep, biometrics, and related learning analysis stay on your device. The vault uses standard SQLite and relies on device storage protections. You can export a passphrase-protected copy to a location you choose.',
+    labelMapping: {
+      dataTypes: [],
+      linkedToIdentity: false,
+      usedForTracking: false,
+      purposes: [],
+    },
+  },
+  health_oauth_broker: {
+    id: 'health_oauth_broker',
+    name: 'Wearable Provider Sign-in',
+    category: 'integrations',
+    dataLeavesDevice: true,
+    trigger: 'opt_in',
+    destination: 'Plethora OAuth broker and the selected wearable provider',
+    retention: 'Credentials processed during authorization, refresh, or revocation',
+    encryptionState: 'in_transit_tls',
+    thirdPartyInvolvement: 'The wearable provider selected during connection',
+    userDeletable: true,
+    localFallback: 'Manual sleep logs and local file imports',
+    description:
+      'When you connect a configured wearable provider, the broker exchanges sign-in codes or tokens with that provider. Health records are downloaded directly from the provider to the local Health Vault.',
+    labelMapping: {
+      dataTypes: [],
+      linkedToIdentity: false,
+      usedForTracking: false,
+      purposes: [],
+    },
+  },
   cloud_sync: {
     id: 'cloud_sync',
     name: 'End-to-End Encrypted Cloud Sync',

@@ -96,6 +96,14 @@ describe('Privacy & Disclosure Registry Completeness', () => {
       expect(typeof lm.linkedToIdentity).toBe('boolean');
       expect(lm.usedForTracking).toBe(false); // Plethora never tracks
       expect(Array.isArray(lm.purposes)).toBe(true);
+      if (d.id === 'health_oauth_broker') {
+        // App Store Connect excludes real-time exchanges that do not retain the
+        // data. The disclosure still records that OAuth credentials leave the device.
+        expect(d.dataLeavesDevice).toBe(true);
+        expect(lm.dataTypes).toHaveLength(0);
+        expect(lm.purposes).toHaveLength(0);
+        continue;
+      }
       if (d.dataLeavesDevice) {
         expect(lm.dataTypes.length, `${d.id} egresses but declares no ASC data types`).toBeGreaterThan(0);
         expect(lm.purposes.length, `${d.id} egresses but declares no ASC purposes`).toBeGreaterThan(0);
@@ -140,7 +148,7 @@ describe('Privacy & Disclosure Registry Completeness', () => {
     // may chain after it, but the Tauri gate must come first.
     const mainTsx = readFileSync(join(__dirname, '..', '..', 'src', 'main.tsx'), 'utf8');
     expect(mainTsx).toContain('@vercel/analytics');
-    expect(mainTsx).toMatch(/!isTauri\(\)\s*&&\s*(?:![\w$]+\s*&&\s*)*<Analytics\s*\/>/);
+    expect(mainTsx).toMatch(/!isTauri\(\)\s*&&\s*(?:![\w$]+\s*&&\s*)*<(?:Startup)?Analytics\s*\/>/);
 
     // No crash-reporting SDK may appear in dependencies while
     // telemetry_crash_reporting claims zero egress.

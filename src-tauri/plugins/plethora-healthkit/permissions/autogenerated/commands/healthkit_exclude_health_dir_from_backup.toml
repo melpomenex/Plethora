@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-healthkit-exclude-health-dir-from-backup"
+description = "Enables the healthkit_exclude_health_dir_from_backup command without any pre-configured scope."
+commands.allow = ["healthkit_exclude_health_dir_from_backup"]
+
+[[permission]]
+identifier = "deny-healthkit-exclude-health-dir-from-backup"
+description = "Denies the healthkit_exclude_health_dir_from_backup command without any pre-configured scope."
+commands.deny = ["healthkit_exclude_health_dir_from_backup"]

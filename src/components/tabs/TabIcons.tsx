@@ -23,6 +23,7 @@ import {
   Gear,
   Globe,
   GraduationCap,
+  MoonStars,
   Graph,
   Headphones,
   Image,
@@ -72,6 +73,7 @@ export const TAB_TYPE_ICONS: Record<TabType, Icon> = {
   extracts: Scissors,
   "import-needs-review": Stack,
   "study-plans": GraduationCap,
+  "learning-insights": MoonStars,
 };
 
 /**

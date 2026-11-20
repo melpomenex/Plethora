@@ -7,6 +7,7 @@
  * visible. Coverage/activity/demonstrated evidence remain separated.
  */
 
+import { StudyPlanHealthInsightsCard } from "../StudyPlanHealthInsightsCard";
 import React from 'react';
 import { ArrowRight, CalendarCheck, Sparkle, Warning } from '@phosphor-icons/react';
 import { Button } from '../../md3/Button';
@@ -94,6 +95,7 @@ export const PlanHomeView: React.FC<PlanHomeViewProps> = ({
         )}
       </section>
 
+      <StudyPlanHealthInsightsCard planId={planDetail.plan.id} />
       <section
         tabIndex={0}
         onContextMenu={(event) => {

@@ -39,6 +39,7 @@ export type SettingsSearchAvailabilityId =
   | "cloud"
   | "desktop"
   | "mobile"
+  | "native"
   | "app-updater"
   | "browser-extension"
   | "notebooklm"
@@ -141,6 +142,8 @@ export function isSettingsSearchEntryAvailable(
       return true;
     case "cloud":
       return snapshot.cloudAvailable;
+    case "native":
+      return snapshot.platform !== "web";
     case "desktop":
       return snapshot.platform === "desktop";
     case "mobile":
@@ -1824,6 +1827,61 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
   },
 
   /* ── Integrations ────────────────────────────────────────────────────── */
+  {
+    id: "integrations.health.local",
+    kind: "group",
+    section: SettingsTab.Integrations,
+    label: lit("Local sleep data"),
+    groupPath: [k("health.wearables")],
+    keywords: ["log", "sleep", "manual", "sleep", "csv", "json", "apple", "import"],
+    targetId: "integrations.health.local",
+    revealTargetId: "integrations.reveal.health",
+    availability: "native",
+  },
+  {
+    id: "integrations.health.providers",
+    kind: "group",
+    section: SettingsTab.Integrations,
+    label: lit("Wearable connections"),
+    groupPath: [k("health.wearables")],
+    keywords: ["health", "wearables", "connect", "apple", "watch", "oura", "whoop", "fitbit", "android"],
+    targetId: "integrations.health.providers",
+    revealTargetId: "integrations.reveal.health",
+    availability: "native",
+  },
+  {
+    id: "integrations.health.priority",
+    kind: "group",
+    section: SettingsTab.Integrations,
+    label: lit("Sleep source priority"),
+    groupPath: [k("health.wearables")],
+    keywords: ["sleep", "priority", "wearable", "overlap", "source", "order"],
+    targetId: "integrations.health.priority",
+    revealTargetId: "integrations.reveal.health",
+    availability: "native",
+  },
+  {
+    id: "integrations.health.transfer",
+    kind: "group",
+    section: SettingsTab.Integrations,
+    label: lit("Health file transfer"),
+    groupPath: [k("health.wearables")],
+    keywords: ["export", "encrypted", "bundle", "health", "backup", "passphrase"],
+    targetId: "integrations.health.transfer",
+    revealTargetId: "integrations.reveal.health",
+    availability: "native",
+  },
+  {
+    id: "integrations.health.privacy",
+    kind: "group",
+    section: SettingsTab.Integrations,
+    label: lit("Health privacy and deletion"),
+    groupPath: [k("health.wearables")],
+    keywords: ["delete", "wipe", "consent", "history", "health", "privacy"],
+    targetId: "integrations.health.privacy",
+    revealTargetId: "integrations.reveal.health",
+    availability: "native",
+  },
   {
     id: "integrations.obsidian",
     kind: "group",

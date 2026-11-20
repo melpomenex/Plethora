@@ -1,3 +1,4 @@
+import { StudyPlanHealthInsightsCard } from "../StudyPlanHealthInsightsCard";
 import React, { useCallback, useEffect, useState } from 'react';
 import type { KnowledgeGapView, NodeLearningProgress, PlanEvidenceSummary } from '../../../types/learningEvidence';
 import type { TargetedPracticeOptions } from '../../../lib/study-plans/remediation/remediationService';
@@ -110,6 +111,7 @@ export const StudyPlanProgress: React.FC<StudyPlanProgressProps> = ({
           ))}
         </div>
       )}
+      <StudyPlanHealthInsightsCard planId={planId} />
       <GapHistory gaps={planGaps} onDismiss={handleDismiss} onOpenSource={onOpenSource}
         onPrepareAssessment={onPrepareAssessment} onOpenLesson={onOpenLesson} onProposeCards={onProposeCards} onRefresh={() => void handleRefresh()} isRefreshing={isRefreshing} />
     </div>

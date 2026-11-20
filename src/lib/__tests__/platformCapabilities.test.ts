@@ -238,6 +238,7 @@ describe("§1.5 desktop + Android regression snapshot", () => {
     tab_rss: { desktop: true, android: true },
     tab_newsletter: { desktop: true, android: true },
     tab_analytics: { desktop: true, android: true },
+    tab_learning_insights: { desktop: true, android: true },
     tab_podcast: { desktop: true, android: true },
     tab_audiobook: { desktop: true, android: true },
     tab_knowledge_sphere: { desktop: true, android: true },
