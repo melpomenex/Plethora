@@ -235,7 +235,10 @@ describe("animated image theme mutations", () => {
     });
 
     await expect(commitAnimatedImageTheme(next, makePrepared(MEDIA_B)))
-      .rejects.toMatchObject({ code: "storage-write-failed" });
+      .rejects.toMatchObject({
+        code: "storage-write-failed",
+        message: "Local Storage is full. The image theme could not be saved.",
+      });
 
     expect(JSON.parse(localStorage.getItem(REGISTRY_KEY) || "[]")).toEqual([previous]);
     expect(localStorage.getItem(SELECTION_KEY)).toBe(previous.id);

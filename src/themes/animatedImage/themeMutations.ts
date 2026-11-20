@@ -277,7 +277,7 @@ async function commitMutation(request: MutationRequest): Promise<ImageThemeMutat
               const durableJournal = savedJournal ? parseJournal(savedJournal) : null;
               if (durableJournal?.state === "committed") {
                 journal.state = "committed";
-              } else if (!durableJournal || durableJournal.state === "prepared") {
+              } else if (durableJournal?.state === "prepared") {
                 journal.state = "prepared";
                 rollbackPreparedMutation(journal);
               }
@@ -549,7 +549,9 @@ function mutationError(message: string): AnimatedImagePreparationError {
 }
 
 function normalizeMutationError(error: unknown): AnimatedImagePreparationError {
-  return error instanceof AnimatedImagePreparationError
-    ? error
-    : mutationError("The image theme update could not be saved.");
+  if (error instanceof AnimatedImagePreparationError) return error;
+  const message = error instanceof DOMException && error.name === "QuotaExceededError"
+    ? "Local Storage is full. The image theme could not be saved."
+    : "The image theme update could not be saved.";
+  return new AnimatedImagePreparationError("storage-write-failed", message, { cause: error });
 }

@@ -82,6 +82,7 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
   const [stillFallbackReason, setStillFallbackReason] = useState<string | null>(null);
   const [playAnimation, setPlayAnimation] = useState(true);
   const [animatedPreviewUrl, setAnimatedPreviewUrl] = useState<string | null>(null);
+  const [readyPreviewMediaId, setReadyPreviewMediaId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const fileJobRef = useRef(0);
   const abortControllerRef = useRef<AbortController | null>(null);
@@ -187,6 +188,7 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
         const token = beginAnimatedImagePreview(prepared.value, synthesizedTheme);
         animatedPreviewTokenRef.current = token;
         previewPreparedRef.current = prepared.value;
+        setReadyPreviewMediaId(prepared.value.mediaId);
       } else {
         updateAnimatedImagePreview(animatedPreviewTokenRef.current, synthesizedTheme);
       }
@@ -373,6 +375,7 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
     onClose();
   };
 
+  const previewReady = prepared?.kind !== "gif" || prepared.value.mediaId === readyPreviewMediaId;
   const footer = (
     <div className="flex items-center justify-end gap-2">
       <button
@@ -384,7 +387,7 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
       </button>
       <button
         type="button"
-        disabled={!synthesizedTheme || isProcessing || isSaving}
+        disabled={!synthesizedTheme || !previewReady || isProcessing || isSaving}
         onClick={() => void handleSave()}
         className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
       >

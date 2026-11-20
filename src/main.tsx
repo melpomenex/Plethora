@@ -361,6 +361,11 @@ if (typeof window !== "undefined") {
 // see exactly the same provider as the desktop assistant.
 if (isTauri()) {
   afterLocalStartupReady(() => {
+    void import("./lib/ai/assistant/panelConversationStorage")
+      .then(({ compactNativeAssistantPanelCache }) => compactNativeAssistantPanelCache())
+      .catch((error) => console.warn("[startup] Could not compact the assistant history cache:", error));
+  });
+  afterLocalStartupReady(() => {
     void invokeCommand("start_optional_runtime").catch((error) => {
       console.warn("[startup] Optional native services failed:", error);
     });

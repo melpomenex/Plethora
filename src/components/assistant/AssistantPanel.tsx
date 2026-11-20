@@ -122,6 +122,13 @@ import {
   type AssistantProviderId,
 } from "../../utils/assistantProvider";
 import { runAssistantAppleFmChat } from "../../lib/ai/assistant/assistantAppleFmChat";
+import {
+  loadNativeAssistantPanelSnapshot,
+  needsAssistantPanelSnapshotHydration,
+  readAssistantPanelSnapshot,
+  releaseRedundantAssistantPanelSnapshot,
+  writeAssistantPanelSnapshot,
+} from "../../lib/ai/assistant/panelConversationStorage";
 import { appleFmAvailability } from "../../lib/ai/apple/foundation";
 import { getAppleIntelligenceSnapshot, isAppleOsPlatform } from "../../lib/ai/apple/capabilities";
 import { providerRequiresApiKey, type ConfiguredLLMProvider } from "../../utils/llmProviderUtils";
@@ -358,7 +365,6 @@ interface AssistantPanelProps {
 
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
 const ASSISTANT_WIDTH_KEY = "assistant-panel-width";
-const ASSISTANT_CONVERSATIONS_KEY = "assistant-panel-conversations-v1";
 const PODCAST_CONVERSATION_CHANGED_EVENT = "plethora:podcast-conversation-changed";
 
 /**
@@ -472,7 +478,7 @@ const parseStoredConversations = (raw: string | null | undefined): StoredConvers
 
 const readStoredConversations = (): StoredConversationMap => {
   try {
-    return parseStoredConversations(localStorage.getItem(ASSISTANT_CONVERSATIONS_KEY));
+    return parseStoredConversations(readAssistantPanelSnapshot());
   } catch (error) {
     console.warn("Failed to read stored assistant conversations:", error);
     return {};
@@ -500,6 +506,7 @@ const flushAssistantConversationsToSqlite = (payload: string) => {
         const nextPayload = sqlitePendingPayload;
         sqlitePendingPayload = null;
         await invokeCommand("assistant_panel_conversations_set", { payload: nextPayload });
+        releaseRedundantAssistantPanelSnapshot(nextPayload);
       }
     } catch (error) {
       console.warn("Failed to persist assistant conversations to SQLite:", error);
@@ -515,7 +522,7 @@ const loadAssistantConversationsFromSqliteOnce = (): Promise<StoredConversationM
     sqliteHydrationRevisionsAtStart = snapshotConversationRevisions();
     sqliteHydrationPromise = (async () => {
       try {
-        const raw = await invokeCommand<string | null>("assistant_panel_conversations_get");
+        const raw = await loadNativeAssistantPanelSnapshot();
         if (!raw) return null;
         return parseStoredConversations(raw);
       } catch (error) {
@@ -558,7 +565,7 @@ const writeStoredConversations = (conversations: StoredConversationMap, options?
       };
     }
     const serialized = JSON.stringify(sanitized);
-    localStorage.setItem(ASSISTANT_CONVERSATIONS_KEY, serialized);
+    writeAssistantPanelSnapshot(serialized);
     const keys = new Set([...Object.keys(previous), ...Object.keys(sanitized)]);
     for (const key of keys) {
       if (JSON.stringify(previous[key]) !== JSON.stringify(sanitized[key])) {
@@ -686,6 +693,7 @@ export function AssistantPanel({
   const podcastAttemptRef = useRef<string | null>(null);
   const podcastViewIdRef = useRef(`podcast-view-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const [hydratedSessionKey, setHydratedSessionKey] = useState<string | null>(null);
+  const [panelStorageReady, setPanelStorageReady] = useState(() => !needsAssistantPanelSnapshotHydration());
   useEffect(() => {
     if (!isPodcastSession) return;
     return attachPodcastEpisodeView(sessionKey, podcastViewIdRef.current);
@@ -1338,6 +1346,16 @@ export function AssistantPanel({
   }, [isInputFocused, isInputHovered, onInputHoverChange]);
 
   useEffect(() => {
+    if (panelStorageReady) return;
+    let cancelled = false;
+    void loadAssistantConversationsFromSqliteOnce().then(() => {
+      if (!cancelled) setPanelStorageReady(true);
+    });
+    return () => { cancelled = true; };
+  }, [panelStorageReady]);
+
+  useEffect(() => {
+    if (!panelStorageReady) return;
     requestEpochRef.current += 1;
     chatAbortRef.current?.abort();
     chatAbortRef.current = null;
@@ -1446,10 +1464,10 @@ export function AssistantPanel({
     setHistoryIndex(null);
     lastContextSignatureRef.current = null;
     clearAttachedImages();
-  }, [sessionKey, isPodcastSession, ownerProfileId]);
+  }, [sessionKey, isPodcastSession, ownerProfileId, panelStorageReady]);
 
   useEffect(() => {
-    if (!isTauri() || isMobileSession) return;
+    if (!panelStorageReady || !isTauri() || isMobileSession) return;
     let cancelled = false;
     void loadAssistantConversationsFromSqliteOnce().then((sqliteMap) => {
       if (cancelled || !sqliteMap) return;
@@ -1487,7 +1505,7 @@ export function AssistantPanel({
     return () => {
       cancelled = true;
     };
-  }, [sessionKey, isMobileSession, isInputFocused]);
+  }, [sessionKey, isMobileSession, isInputFocused, panelStorageReady]);
 
   useEffect(() => {
     const key = activeConversationKeyRef.current;
