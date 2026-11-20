@@ -192,8 +192,8 @@ describe('Pinned Study Task Execution (C2-T05)', () => {
       sendsSourceOffDevice: false,
       billable: false,
       generationDestination: {
-        providerClass: 'ondevice',
-        locality: 'ondevice',
+        providerClass: 'apple-native',
+        locality: 'device',
         keyless: true,
         billable: false,
         sendsOffDevice: false,
