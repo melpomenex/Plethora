@@ -53,7 +53,10 @@ pub unsafe extern "C" fn decoder_new(input_pointer: *const u8, input_length: usi
         NonZeroU64::new(MAX_LOGICAL_PIXELS as u64).expect("positive pixel limit"),
     ));
     options.check_frame_consistency(true);
-    options.check_lzw_end_code(true);
+    // Some encoders omit the LZW end code after writing a complete frame.
+    // Structural preflight still requires terminated sub-blocks and a trailer;
+    // the decoder rejects invalid codes and requires a frame-sized output.
+    options.check_lzw_end_code(false);
     let owned_input = input.to_vec();
     let decoder = match options.read_info(Cursor::new(owned_input)) {
         Ok(decoder) => decoder,

@@ -6,6 +6,16 @@ export interface TimedRgbaSample {
 type FlashKind = "luminance" | "red";
 type Direction = "forward" | "reverse";
 
+interface LinearRgb {
+  readonly red: number;
+  readonly green: number;
+  readonly blue: number;
+}
+
+const BACKDROPS = [0, 255] as const;
+const SATURATED_RED_SHARE = 0.8;
+const RED_CHROMATICITY_THRESHOLD = 0.2;
+
 interface FlashTransition {
   readonly timeMs: number;
   readonly kind: FlashKind;
@@ -85,42 +95,31 @@ function collectTransition(
 
   for (let pixel = 0; pixel < pixels; pixel += 1) {
     const offset = pixel * 4;
-    const beforeAlpha = before[offset + 3] / 255;
-    const afterAlpha = after[offset + 3] / 255;
-    const beforeRed = before[offset];
-    const beforeGreen = before[offset + 1];
-    const beforeBlue = before[offset + 2];
-    const afterRed = after[offset];
-    const afterGreen = after[offset + 1];
-    const afterBlue = after[offset + 2];
-    const beforeBlack = luminance(
-      beforeRed * beforeAlpha,
-      beforeGreen * beforeAlpha,
-      beforeBlue * beforeAlpha
-    );
-    const beforeWhite = luminance(
-      beforeRed * beforeAlpha + 255 * (1 - beforeAlpha),
-      beforeGreen * beforeAlpha + 255 * (1 - beforeAlpha),
-      beforeBlue * beforeAlpha + 255 * (1 - beforeAlpha)
-    );
-    const afterBlack = luminance(afterRed * afterAlpha, afterGreen * afterAlpha, afterBlue * afterAlpha);
-    const afterWhite = luminance(
-      afterRed * afterAlpha + 255 * (1 - afterAlpha),
-      afterGreen * afterAlpha + 255 * (1 - afterAlpha),
-      afterBlue * afterAlpha + 255 * (1 - afterAlpha)
-    );
+    if (
+      before[offset] === after[offset] && before[offset + 1] === after[offset + 1] &&
+      before[offset + 2] === after[offset + 2] && before[offset + 3] === after[offset + 3]
+    ) continue;
 
-    if (isBrightToDark(beforeBlack, afterBlack) || isBrightToDark(beforeWhite, afterWhite)) {
-      luminanceForward = true;
-    }
-    if (isBrightToDark(afterBlack, beforeBlack) || isBrightToDark(afterWhite, beforeWhite)) {
-      luminanceReverse = true;
-    }
+    for (const backdrop of BACKDROPS) {
+      const beforeColor = readCompositedColor(before, offset, backdrop);
+      const afterColor = readCompositedColor(after, offset, backdrop);
+      const beforeLuminance = luminance(beforeColor);
+      const afterLuminance = luminance(afterColor);
+      luminanceForward ||= isBrightToDark(beforeLuminance, afterLuminance);
+      luminanceReverse ||= isBrightToDark(afterLuminance, beforeLuminance);
 
-    const wasRed = isSaturatedRed(beforeRed, beforeGreen, beforeBlue);
-    const isRed = isSaturatedRed(afterRed, afterGreen, afterBlue);
-    if (!wasRed && isRed) redForward = true;
-    if (wasRed && !isRed) redReverse = true;
+      const beforeRedShare = redShare(beforeColor);
+      const afterRedShare = redShare(afterColor);
+      if (
+        Math.max(beforeRedShare, afterRedShare) >= SATURATED_RED_SHARE &&
+        hasRedChromaticityChange(beforeColor, afterColor)
+      ) {
+        redForward ||= beforeRedShare < afterRedShare;
+        redReverse ||= beforeRedShare > afterRedShare;
+      }
+
+      if (before[offset + 3] === 255 && after[offset + 3] === 255) break;
+    }
   }
 
   if (luminanceForward) output.push({ timeMs, kind: "luminance", direction: "forward" });
@@ -133,17 +132,45 @@ function isBrightToDark(from: number, to: number): boolean {
   return from >= 0.8 && to <= 0.1;
 }
 
-function luminance(red: number, green: number, blue: number): number {
-  const redLinear = linearize(red / 255);
-  const greenLinear = linearize(green / 255);
-  const blueLinear = linearize(blue / 255);
-  return (0.2126 * redLinear) + (0.7152 * greenLinear) + (0.0722 * blueLinear);
+function readCompositedColor(
+  pixels: Uint8ClampedArray, offset: number, backdrop: number
+): LinearRgb {
+  const alpha = pixels[offset + 3] / 255;
+  const base = backdrop * (1 - alpha);
+  return {
+    red: linearize((pixels[offset] * alpha + base) / 255),
+    green: linearize((pixels[offset + 1] * alpha + base) / 255),
+    blue: linearize((pixels[offset + 2] * alpha + base) / 255),
+  };
+}
+
+function luminance({ red, green, blue }: LinearRgb): number {
+  return 0.2126 * red + 0.7152 * green + 0.0722 * blue;
 }
 
 function linearize(channel: number): number {
   return channel <= 0.04045 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4;
 }
 
-function isSaturatedRed(red: number, green: number, blue: number): boolean {
-  return red >= 160 && red > green * 1.2 && red > blue * 1.2 && (red - Math.min(green, blue)) >= 80;
+function redShare({ red, green, blue }: LinearRgb): number {
+  return red > 0 ? red / (red + green + blue) : 0;
+}
+
+function hasRedChromaticityChange(before: LinearRgb, after: LinearRgb): boolean {
+  const from = chromaticity(before);
+  const to = chromaticity(after);
+  // Black has no defined chromaticity. Retain detection of bright red flashing against black.
+  if (!from || !to) return Math.abs(luminance(before) - luminance(after)) >= 0.1;
+  const deltaU = from.u - to.u;
+  const deltaV = from.v - to.v;
+  return deltaU * deltaU + deltaV * deltaV > RED_CHROMATICITY_THRESHOLD ** 2;
+}
+
+/** CIE 1976 UCS coordinates used by the WCAG 2.2 red flash definition. */
+function chromaticity({ red, green, blue }: LinearRgb): { u: number; v: number } | null {
+  const x = 0.4124564 * red + 0.3575761 * green + 0.1804375 * blue;
+  const y = 0.2126729 * red + 0.7151522 * green + 0.0721750 * blue;
+  const z = 0.0193339 * red + 0.1191920 * green + 0.9503041 * blue;
+  const scale = x + 15 * y + 3 * z;
+  return scale > 0 ? { u: 4 * x / scale, v: 9 * y / scale } : null;
 }

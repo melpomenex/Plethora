@@ -47,4 +47,26 @@ describe("GIF flash risk sampling", () => {
       { pixels: solid(255, 255, 255), timeMs: 400 },
     ], 800)).toBe(false);
   });
+
+  it("allows small changes in warm highlights across the former red cutoff", () => {
+    const amber = solid(159, 80, 5);
+    const brighterAmber = solid(161, 81, 5);
+    expect(hasHighFlashRisk([
+      { pixels: amber, timeMs: 0 },
+      { pixels: brighterAmber, timeMs: 180 },
+      { pixels: amber, timeMs: 360 },
+      { pixels: brighterAmber, timeMs: 540 },
+    ], 720)).toBe(false);
+  });
+
+  it("still blocks repeated bright red flashes against black", () => {
+    const black = solid(0, 0, 0);
+    const red = solid(255, 0, 0);
+    expect(hasHighFlashRisk([
+      { pixels: black, timeMs: 0 },
+      { pixels: red, timeMs: 180 },
+      { pixels: black, timeMs: 360 },
+      { pixels: red, timeMs: 540 },
+    ], 720)).toBe(true);
+  });
 });

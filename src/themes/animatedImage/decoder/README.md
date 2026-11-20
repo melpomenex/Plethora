@@ -3,8 +3,10 @@
 This small module uses the repository-locked `gif` 0.13.3 Rust crate. The crate
 is licensed MIT OR Apache-2.0. It emits decoded indexed patches one frame at a
 time; JavaScript applies palette, transparency, disposal and canvas composition.
-It enables strict LZW end-code and frame consistency checks and bounds each
-decoded patch to the source pixel limit. The caller must still run structural
+It validates LZW codes and frame consistency, bounds each decoded patch, and
+accepts streams that omit the explicit LZW end code when the GIF sub-blocks are
+properly terminated and the decoder fills the complete frame buffer. Invalid
+codes and incomplete frames still fail. The caller must run structural
 preflight and enforce cumulative frame, timeline and work limits.
 
 Rebuild with the pinned crate and no network access:

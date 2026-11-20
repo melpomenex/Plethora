@@ -21,7 +21,7 @@ async function decoderFor(bytes: Uint8Array) {
   return initializeStrictGifDecoder(instance.exports as unknown as GifDecoderWasmExports, bytes);
 }
 
-describe("strict GIF decoder WASM", () => {
+describe("bounded GIF decoder WASM", () => {
   it.each([
     ["valid palette index 255", 255, 1, 255],
     ["no transparency", 255, 0, null],
@@ -113,11 +113,24 @@ describe("strict GIF decoder WASM", () => {
     }
   });
 
+  it("decodes a complete frame whose LZW data omits the end code", async () => {
+    const decoder = await decoderFor(readFixture("missing-lzw-end-code.gif"));
+    try {
+      expect(decoder.info).toEqual({ width: 2, height: 2, plays: 1 });
+      const frame = decoder.next();
+      expect(frame).not.toBeNull();
+      expect(frame?.indices).toEqual(new Uint8Array([0, 1, 0, 1]));
+      expect(decoder.next()).toBeNull();
+    } finally {
+      decoder.close();
+    }
+  });
+
   it.each([
     ["disposal-background.gif", 3, "infinite"],
     ["alpha-transparency.gif", 2, "infinite"],
     ["finite-loop-seam.gif", 3, 2],
-  ] as const)("strictly decodes %s", async (name, expectedFrames, plays) => {
+  ] as const)("decodes within bounds %s", async (name, expectedFrames, plays) => {
     const decoder = await decoderFor(readFixture(name));
     try {
       expect(decoder.info.plays).toBe(plays);

@@ -9,6 +9,9 @@ The fixtures cover duration-weighted blue/green palette dominance, optimized
 partial-frame composition with restore-background disposal, transparent
 patch accumulation, a finite loop seam, and the existing still-image route.
 The nearby small PNGs are the source layers used to make the GIF fixtures.
+`missing-lzw-end-code.gif` is a tiny decoder compatibility fixture: it has a
+terminated GIF image-data block and a complete 2×2 frame, but no explicit LZW
+end code. It is covered by decoder tests, not the presentation oracle.
 
 The oracle was independently decoded with ImageMagick 7.1.2-34 Q16-HDRI and
 FFmpeg n9.0.2. The decoders agreed on frame count, alpha coverage, and every
@@ -19,5 +22,5 @@ normalized cycle durations in the oracle. The finite fixture carries a
 Netscape repeat count of one, meaning two total plays.
 
 This is a reference corpus, not a claim that any browser decoder is suitable
-for untrusted input. Animated import remains gated on a strict decoder and
+for untrusted input. Animated import remains gated on a bounded decoder and
 packaged worker/canvas/storage probes.
