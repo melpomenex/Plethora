@@ -173,10 +173,10 @@
   height: 1.8rem;
   align-items: center;
   justify-content: center;
-  border: 1px solid rgb(255 255 255 / 35%);
+  border: 1px solid Canvas;
   border-radius: 0.45rem;
-  background: rgb(15 18 24 / 78%);
-  color: white;
+  background: CanvasText;
+  color: Canvas;
   font-size: 1.1rem;
   line-height: 1;
   opacity: 0;

@@ -38,7 +38,7 @@ function addFrameStyles(doc: Document): void {
     .document-image-viewer-wrap { position:relative; display:inline-block; max-width:100%; vertical-align:middle; cursor:zoom-in; }
     .document-image-viewer-trigger { cursor:zoom-in !important; outline-offset:3px; }
     .document-image-viewer-trigger:focus-visible { outline:2px solid currentColor; border-radius:4px; }
-    .document-image-viewer-affordance { position:absolute; right:5px; bottom:5px; display:flex; width:29px; height:29px; align-items:center; justify-content:center; border:1px solid rgb(255 255 255 / 35%); border-radius:7px; background:rgb(15 18 24 / 78%); color:white; opacity:0; pointer-events:none; }
+    .document-image-viewer-affordance { position:absolute; right:5px; bottom:5px; display:flex; width:29px; height:29px; align-items:center; justify-content:center; border:1px solid Canvas; border-radius:7px; background:CanvasText; color:Canvas; opacity:0; pointer-events:none; }
     .document-image-viewer-affordance svg { width:18px; height:18px; fill:none; stroke:currentColor; stroke-linecap:round; stroke-linejoin:round; stroke-width:1.8; }
     .document-image-viewer-wrap:hover .document-image-viewer-affordance, .document-image-viewer-wrap:focus-within .document-image-viewer-affordance { opacity:1; }
     @media (hover:none) { .document-image-viewer-affordance { opacity:1; } }

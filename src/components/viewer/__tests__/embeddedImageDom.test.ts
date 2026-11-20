@@ -22,7 +22,7 @@ describe("attachEmbeddedImageViewer", () => {
     expect(img.getAttribute("role")).toBe("button");
     expect(img.getAttribute("tabindex")).toBe("0");
     expect(img.getAttribute("aria-label")).toBe("Diagram");
-    expect(img.parentElement?.querySelector(".document-image-viewer-affordance")).toBeTruthy();
+    expect(img.parentElement?.querySelector(".document-image-viewer-affordance svg")).toBeTruthy();
 
     fireEvent.keyDown(img, { key: "Enter" });
     expect(open).toHaveBeenCalledWith(expect.objectContaining({
