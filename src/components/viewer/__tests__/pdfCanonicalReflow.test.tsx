@@ -3,7 +3,7 @@
  * selection mapping (task 4.3), word-level anchors (4.5), and marginal-role
  * suppression.
  */
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { PdfCanonicalReflowRenderer } from "../PdfCanonicalReflowRenderer";
 import { canonicalReflowSelectionFromRange } from "../pdfCanonicalReflowSelection";
@@ -250,18 +250,18 @@ describe("PdfCanonicalReflowRenderer", () => {
 
     const dialog = screen.getByRole("dialog");
     expect(dialog).toBeTruthy();
-    expect(screen.getByText("Figure 1 Architecture")).toBeTruthy();
-    expect(screen.getByText("100%")).toBeTruthy();
+    expect(document.querySelector(".embedded-image-viewer__title")?.textContent).toBe("Figure 1 Architecture");
+    expect(document.querySelector(".embedded-image-viewer__scale")?.textContent).toBe("100%");
 
     // Zoom in
-    const zoomInBtn = screen.getByLabelText("Zoom in");
+    const zoomInBtn = screen.getByLabelText("Zoom In");
     act(() => {
       fireEvent.click(zoomInBtn);
     });
-    expect(screen.getByText("125%")).toBeTruthy();
+    expect(document.querySelector(".embedded-image-viewer__scale")?.textContent).toBe("125%");
 
     // View in original
-    const viewOrigBtn = screen.getByText("View in Original");
+    const viewOrigBtn = screen.getByText("View in original");
     act(() => {
       fireEvent.click(viewOrigBtn);
     });
@@ -590,6 +590,46 @@ describe("PdfCanonicalReflowRenderer visual aspect boxes", () => {
     expect(eq.closest(".pdf-reflow-visual-box")).toBeNull();
     expect(eq.getAttribute("width")).toBe("400");
     expect(eq.getAttribute("height")).toBe("300");
+  });
+
+  it("opens figure, table, equation, and unknown-visual assets in the shared viewer", () => {
+    const base = figurePage().blocks[0];
+    const visualPage: PdfCanonicalPage = {
+      ...page(),
+      blocks: [
+        { ...base, id: "p1:fig", altText: "Figure image" },
+        { ...base, id: "p1:table", kind: "table", altText: "Table image" },
+        { ...base, id: "p1:eq", kind: "equation", altText: "Equation image" },
+        { ...base, id: "p1:unknown", kind: "unknown-visual", altText: "Unknown image" },
+        { ...base, id: "p1:caption", kind: "caption", captionOf: "p1:fig", text: "Figure caption" },
+      ],
+    };
+    const assets = new Map([
+      ["p1:fig", "blob:http://localhost/fig"],
+      ["p1:table", "blob:http://localhost/table"],
+      ["p1:eq", "blob:http://localhost/equation"],
+      ["p1:unknown", "blob:http://localhost/unknown"],
+    ]);
+    const onViewOriginal = vi.fn();
+    render(<PdfCanonicalReflowRenderer pages={[visualPage]} assetUrls={assets} onViewOriginal={onViewOriginal} />);
+
+    for (const [label, src] of [
+      ["Figure image", assets.get("p1:fig")!],
+      ["Table image", assets.get("p1:table")!],
+      ["Equation image", assets.get("p1:eq")!],
+      ["Unknown image", assets.get("p1:unknown")!],
+    ]) {
+      const trigger = screen.getByRole("button", { name: label });
+      fireEvent.keyDown(trigger, { key: "Enter" });
+      expect(screen.getByRole("dialog", { name: "Image viewer" })).toBeTruthy();
+      expect((document.querySelector(".embedded-image-viewer__image") as HTMLImageElement).src).toBe(src);
+      if (label === "Figure image") expect(document.querySelector(".embedded-image-viewer__caption")?.textContent).toBe("Figure caption");
+      fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
+    }
+
+    fireEvent.click(screen.getByRole("button", { name: "Figure image" }));
+    fireEvent.click(screen.getByRole("button", { name: "View in original" }));
+    expect(onViewOriginal).toHaveBeenCalledWith(expect.objectContaining({ id: "p1:fig" }));
   });
 });
 

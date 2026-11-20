@@ -47,6 +47,7 @@ import { attachInterfaceZoomToWindow } from "../../lib/interfaceZoom/iframeForwa
 import { attachMouseNavigationToWindow } from "../../hooks/useMouseNavigation";
 import { canElementScrollHorizontally, createHorizontalWheelPageTurner } from "../../lib/horizontalWheelNavigation";
 import type { EpubVimRuntime } from "../../utils/vim/readerRuntimes";
+import { attachEmbeddedImageViewer, type EmbeddedImageOpenDetails } from "./embeddedImageDom";
 
 // Define outside component to keep a stable reference across renders
 const FONT_FAMILY_MAP: Record<string, string> = {
@@ -656,6 +657,7 @@ interface EPUBViewerProps {
   onSyncWordClick?: (charOffset: number, chapterHref: string) => void;
   metadata?: DocumentMetadata;
   onIframeWindowReady?: (iframeWindow: Window) => void;
+  onImageOpen?: (image: EmbeddedImageOpenDetails) => void;
   onBack?: () => void;
   readingToolbarAction?: ReactNode;
   autoFocusContent?: boolean;
@@ -727,6 +729,7 @@ export function EPUBViewer({
   onSyncWordClick,
   metadata,
   onIframeWindowReady,
+  onImageOpen,
   onBack,
   readingToolbarAction,
   autoFocusContent = true,
@@ -735,6 +738,8 @@ export function EPUBViewer({
   selectionInteractionBridge,
   passageContentBridge,
 }: EPUBViewerProps) {
+  const onImageOpenRef = useRef(onImageOpen);
+  onImageOpenRef.current = onImageOpen;
   const autoFocusContentRef = useRef(autoFocusContent);
   autoFocusContentRef.current = autoFocusContent;
   const viewerRef = useRef<HTMLDivElement>(null);
@@ -840,6 +845,8 @@ export function EPUBViewer({
   appearanceRef.current = appearance;
   const themeRef = useRef(theme);
   const { t } = useI18n();
+  const genericImageLabelRef = useRef(t("viewer.genericImageDescription"));
+  genericImageLabelRef.current = t("viewer.genericImageDescription");
   const { settings, updateSettings } = useSettingsStore();
   const settingsRef = useRef(settings);
   useEffect(() => {
@@ -1586,6 +1593,7 @@ export function EPUBViewer({
     let savePositionTimer: ReturnType<typeof setTimeout> | null = null;
     let retryCount = 0;
     const maxRetries = 10;
+    const attachedImageDocuments = new WeakSet<globalThis.Document>();
 
     const destroyBookInstance = () => {
       if (!bookInstance || bookDestroyed) return;
@@ -1920,6 +1928,17 @@ export function EPUBViewer({
             if (contents.document?.body && spineIndex >= 0 && href) {
               contents.document.body.dataset.epubSpineIndex = String(spineIndex);
               contents.document.body.dataset.epubHref = href;
+            }
+
+            const imageDocument = contents.document as globalThis.Document | undefined;
+            if (imageDocument?.body && !attachedImageDocuments.has(imageDocument)) {
+              attachedImageDocuments.add(imageDocument);
+              annotationMenuDetachers.push(attachEmbeddedImageViewer({
+                root: imageDocument,
+                genericLabel: () => genericImageLabelRef.current,
+                open: (image) => onImageOpenRef.current?.(image),
+                suppressReaderGestures: true,
+              }));
             }
 
             // Install Plethora's theme layers FIRST so cleanup can never

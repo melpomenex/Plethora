@@ -12,10 +12,12 @@
  * page objects are immutable, so identity-stable props skip re-rendering
  * finished pages entirely.
  */
-import { Fragment, memo, useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { Fragment, memo, useMemo, useRef, useState, type CSSProperties, type ReactNode } from "react";
 import type { PdfCanonicalBlock, PdfCanonicalPage, PdfCanonicalWord } from "../../types/pdfCanonical";
 import type { StoredHighlight } from "./HighlightLayer";
 import { safePdfLink } from "./PdfReflowRenderer";
+import { useI18n } from "../../lib/i18n";
+import { EmbeddedImageViewer, type EmbeddedImageRequest } from "./EmbeddedImageViewer";
 
 function WordText({
   words,
@@ -45,8 +47,10 @@ function WordText({
 export interface ZoomableAsset {
   url: string;
   alt: string;
+  caption?: string;
   pageNumber: number;
   block: PdfCanonicalBlock;
+  trigger: HTMLImageElement;
 }
 
 /** Intrinsic pixel size of a block's rendered source crop. */
@@ -89,184 +93,48 @@ function VisualAssetImg({
   aspect,
   className,
   onClick,
+  inlineWrapper = false,
 }: {
   src: string;
   alt: string;
   aspect: PdfVisualAssetDims | null;
   className: string;
-  onClick?: () => void;
+  onClick?: (trigger: HTMLImageElement) => void;
+  inlineWrapper?: boolean;
 }) {
+  const { t } = useI18n();
+  const label = alt.trim() || t("viewer.genericImageDescription");
   return (
     <span
-      className="pdf-reflow-visual-box"
-      style={aspect ? { aspectRatio: `${aspect.width} / ${aspect.height}` } : undefined}
+      className={inlineWrapper ? "document-image-viewer-wrap" : "pdf-reflow-visual-box document-image-viewer-wrap"}
+      data-embedded-image-viewer-wrap="true"
+      style={!inlineWrapper && aspect ? { aspectRatio: `${aspect.width} / ${aspect.height}` } : undefined}
     >
       <img
         src={src}
         alt={alt}
+        role="button"
+        tabIndex={0}
+        aria-label={label}
+        aria-haspopup="dialog"
         loading="lazy"
         width={aspect?.width}
         height={aspect?.height}
-        className={className}
-        onClick={onClick}
-      />
-    </span>
-  );
-}
-
-export function PdfAssetZoomModal({
-  asset,
-  onClose,
-  onViewOriginal,
-}: {
-  asset: ZoomableAsset;
-  onClose: () => void;
-  onViewOriginal?: (block: PdfCanonicalBlock) => void;
-}) {
-  const [scale, setScale] = useState(1);
-  const [offset, setOffset] = useState({ x: 0, y: 0 });
-  const isDraggingRef = useRef(false);
-  const dragStartRef = useRef({ x: 0, y: 0, initialOffsetX: 0, initialOffsetY: 0 });
-
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        onClose();
-      } else if (e.key === "+" || e.key === "=") {
-        setScale((s) => Math.min(s + 0.25, 4));
-      } else if (e.key === "-") {
-        setScale((s) => Math.max(s - 0.25, 0.5));
-      } else if (e.key === "0") {
-        setScale(1);
-        setOffset({ x: 0, y: 0 });
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [onClose]);
-
-  const handlePointerDown = (e: React.PointerEvent) => {
-    isDraggingRef.current = true;
-    dragStartRef.current = {
-      x: e.clientX,
-      y: e.clientY,
-      initialOffsetX: offset.x,
-      initialOffsetY: offset.y,
-    };
-    (e.target as HTMLElement).setPointerCapture(e.pointerId);
-  };
-
-  const handlePointerMove = (e: React.PointerEvent) => {
-    if (!isDraggingRef.current) return;
-    const dx = e.clientX - dragStartRef.current.x;
-    const dy = e.clientY - dragStartRef.current.y;
-    setOffset({
-      x: dragStartRef.current.initialOffsetX + dx,
-      y: dragStartRef.current.initialOffsetY + dy,
-    });
-  };
-
-  const handlePointerUp = (e: React.PointerEvent) => {
-    isDraggingRef.current = false;
-    try {
-      (e.target as HTMLElement).releasePointerCapture(e.pointerId);
-    } catch {
-      // ignore
-    }
-  };
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label={asset.alt || "Visual crop zoom viewer"}
-      className="fixed inset-0 z-50 flex flex-col bg-background/90 backdrop-blur-md"
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
-      }}
-    >
-      <div className="flex items-center justify-between border-b border-border bg-card/80 px-4 py-2 text-foreground">
-        <div className="flex items-center gap-3">
-          <span className="text-sm font-medium">Page {asset.pageNumber}</span>
-          {asset.alt && <span className="text-xs text-muted-foreground truncate max-w-xs">{asset.alt}</span>}
-        </div>
-        <div className="flex items-center gap-2">
-          <button
-            type="button"
-            className="rounded border border-border px-2 py-1 text-xs hover:bg-muted"
-            onClick={() => setScale((s) => Math.max(s - 0.25, 0.5))}
-            aria-label="Zoom out"
-          >
-            -
-          </button>
-          <span className="text-xs font-mono w-12 text-center">{Math.round(scale * 100)}%</span>
-          <button
-            type="button"
-            className="rounded border border-border px-2 py-1 text-xs hover:bg-muted"
-            onClick={() => setScale((s) => Math.min(s + 0.25, 4))}
-            aria-label="Zoom in"
-          >
-            +
-          </button>
-          <button
-            type="button"
-            className="rounded border border-border px-2 py-1 text-xs hover:bg-muted"
-            onClick={() => {
-              setScale(1);
-              setOffset({ x: 0, y: 0 });
-            }}
-          >
-            Reset
-          </button>
-          {onViewOriginal && (
-            <button
-              type="button"
-              className="rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90"
-              onClick={() => {
-                onClose();
-                onViewOriginal(asset.block);
-              }}
-            >
-              View in Original
-            </button>
-          )}
-          <button
-            type="button"
-            className="rounded border border-border px-3 py-1 text-xs hover:bg-muted"
-            onClick={onClose}
-            aria-label="Close viewer"
-          >
-            ✕
-          </button>
-        </div>
-      </div>
-
-      <div
-        className="relative flex-1 overflow-hidden flex items-center justify-center p-4 cursor-grab active:cursor-grabbing select-none"
-        onPointerDown={handlePointerDown}
-        onPointerMove={handlePointerMove}
-        onPointerUp={handlePointerUp}
-        onWheel={(e) => {
-          e.preventDefault();
-          const delta = e.deltaY < 0 ? 0.15 : -0.15;
-          setScale((s) => Math.min(Math.max(s + delta, 0.5), 4));
+        className={`${className} document-image-viewer-trigger`}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          onClick?.(event.currentTarget);
         }}
-      >
-        <img
-          src={asset.url}
-          alt={asset.alt}
-          style={{
-            transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
-            transition: isDraggingRef.current ? "none" : "transform 0.1s ease-out",
-            maxHeight: "85vh",
-            maxWidth: "90vw",
-            objectFit: "contain",
-          }}
-          className="shadow-2xl rounded"
-          draggable={false}
-        />
-      </div>
-    </div>
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          event.stopPropagation();
+          onClick?.(event.currentTarget);
+        }}
+      />
+      <span className="document-image-viewer-affordance" aria-hidden="true">⤢</span>
+    </span>
   );
 }
 
@@ -280,11 +148,13 @@ interface BlockProps {
   assetUrls?: Map<string, string>;
   /** Measured crop pixel dims by block id (aspect basis for visual blocks). */
   assetDims?: Map<string, PdfVisualAssetDims>;
+  captionByBlock?: Map<string, string>;
   onZoomAsset?: (asset: ZoomableAsset) => void;
 }
 
 const Block = memo(function Block({
   block,
+  captionByBlock,
   wordById,
   highlightedWordIds,
   onViewOriginal,
@@ -345,7 +215,7 @@ const Block = memo(function Block({
             alt={block.altText ?? "Table"}
             aspect={aspect}
             className="max-w-full h-auto cursor-zoom-in rounded border border-border shadow-sm hover:opacity-95 transition"
-            onClick={() => onZoomAsset?.({ url: assetUrls.get(block.id)!, alt: block.altText ?? "Table", pageNumber: block.pageNumber, block })}
+            onClick={(trigger) => onZoomAsset?.({ url: assetUrls.get(block.id)!, alt: block.altText ?? "", caption: captionByBlock?.get(block.id), pageNumber: block.pageNumber, block, trigger })}
           />
         </div>
       ) : (
@@ -364,7 +234,7 @@ const Block = memo(function Block({
               alt={block.altText ?? ""}
               aspect={aspect}
               className="max-w-full h-auto cursor-zoom-in rounded-lg shadow-sm hover:opacity-95 transition"
-              onClick={() => onZoomAsset?.({ url: assetUrls.get(block.id)!, alt: block.altText ?? "Figure", pageNumber: block.pageNumber, block })}
+              onClick={(trigger) => onZoomAsset?.({ url: assetUrls.get(block.id)!, alt: block.altText ?? "", caption: captionByBlock?.get(block.id), pageNumber: block.pageNumber, block, trigger })}
             />
           ) : (
             <div className="rounded border border-border bg-muted/30 p-4 text-sm text-muted-foreground">
@@ -385,14 +255,13 @@ const Block = memo(function Block({
         <div {...common} role="math" className="pdf-reflow-equation my-3 text-center overflow-x-auto">
           {/* Inline-block flow: no aspect box, the width/height attributes
               carry the intrinsic ratio and reserve the line box instead. */}
-          <img
-            src={assetUrls.get(block.id)}
-            alt={block.altText ?? block.text ?? "Equation"}
-            loading="lazy"
-            width={aspect?.width}
-            height={aspect?.height}
+          <VisualAssetImg
+            src={assetUrls.get(block.id)!}
+            alt={block.altText ?? block.text ?? ""}
+            aspect={aspect}
             className="max-w-full h-auto inline-block cursor-zoom-in align-middle dark:invert dark:hue-rotate-180"
-            onClick={() => onZoomAsset?.({ url: assetUrls.get(block.id)!, alt: block.altText ?? block.text ?? "Equation", pageNumber: block.pageNumber, block })}
+            inlineWrapper
+            onClick={(trigger) => onZoomAsset?.({ url: assetUrls.get(block.id)!, alt: block.altText ?? block.text ?? "", caption: captionByBlock?.get(block.id), pageNumber: block.pageNumber, block, trigger })}
           />
         </div>
       ) : (
@@ -422,7 +291,7 @@ const Block = memo(function Block({
             alt={block.altText ?? ""}
             aspect={aspect}
             className="max-w-full h-auto cursor-zoom-in rounded border border-border shadow-sm hover:opacity-95 transition"
-            onClick={() => onZoomAsset?.({ url: assetUrls.get(block.id)!, alt: block.altText ?? "Original visual content", pageNumber: block.pageNumber, block })}
+            onClick={(trigger) => onZoomAsset?.({ url: assetUrls.get(block.id)!, alt: block.altText ?? "", caption: captionByBlock?.get(block.id), pageNumber: block.pageNumber, block, trigger })}
           />
         </div>
       ) : (
@@ -473,6 +342,11 @@ const PageSection = memo(function PageSection({
   onZoomAsset,
 }: PageSectionProps) {
   const wordById = useMemo(() => new Map(page.words.map((word) => [word.id, word])), [page]);
+  const captionByBlock = useMemo(() => new Map(
+    page.blocks.flatMap((block) => block.kind === "caption" && block.captionOf
+      ? [[block.captionOf, block.text] as const]
+      : []),
+  ), [page.blocks]);
   const highlightedWordIds = useMemo(
     () => new Set(highlights.flatMap((highlight) => highlight.wordIds ?? [])),
     [highlights],
@@ -526,6 +400,7 @@ const PageSection = memo(function PageSection({
           activeSearchBlockId={activeSearchBlockId}
           assetUrls={assetUrls}
           assetDims={assetDims}
+          captionByBlock={captionByBlock}
           onZoomAsset={onZoomAsset}
         />
       ))}
@@ -565,6 +440,7 @@ export function PdfCanonicalReflowRenderer({
   className?: string;
 }) {
   const [zoomedAsset, setZoomedAsset] = useState<ZoomableAsset | null>(null);
+  const readerRef = useRef<HTMLElement>(null);
 
   const renderedItems = useMemo(() => {
     const pageMap = new Map<number, PdfCanonicalPage>();
@@ -583,7 +459,7 @@ export function PdfCanonicalReflowRenderer({
 
   return (
     <>
-      <article className={`pdf-reflow-content ${className ?? ""}`} aria-label="Reflowed PDF" dir={dir} style={style}>
+      <article ref={readerRef} className={`pdf-reflow-content ${className ?? ""}`} aria-label="Reflowed PDF" dir={dir} style={style}>
         {renderedItems.map(({ pageNumber, page }) =>
           page ? (
             <PageSection
@@ -614,10 +490,16 @@ export function PdfCanonicalReflowRenderer({
         )}
       </article>
       {zoomedAsset && (
-        <PdfAssetZoomModal
-          asset={zoomedAsset}
+        <EmbeddedImageViewer
+          image={{
+            src: zoomedAsset.url,
+            alt: zoomedAsset.alt,
+            caption: zoomedAsset.caption,
+            trigger: zoomedAsset.trigger,
+            onViewOriginal: onViewOriginal ? () => onViewOriginal(zoomedAsset.block) : undefined,
+          }}
           onClose={() => setZoomedAsset(null)}
-          onViewOriginal={onViewOriginal}
+          fallbackFocusRef={readerRef}
         />
       )}
     </>

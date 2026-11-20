@@ -87,6 +87,8 @@ import {
   flatOffsetOfWord,
 } from "../../utils/visibleText";
 import { ImageViewer } from "./ImageViewer";
+import { EmbeddedImageViewer, type EmbeddedImageRequest } from "./EmbeddedImageViewer";
+import { attachEmbeddedImageViewer, type EmbeddedImageOpenDetails } from "./embeddedImageDom";
 import { XThreadViewer, isXThreadDocument } from "./XThreadViewer";
 import { StructuredDocumentViewer } from "../notebooklm/artifacts/StructuredDocumentViewer";
 import { EPUBViewer } from "./EPUBViewer";
@@ -906,6 +908,15 @@ export function DocumentViewer({
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [iframeElement, setIframeElement] = useState<HTMLIFrameElement | null>(null);
+  const [htmlFrameLoadSequence, setHtmlFrameLoadSequence] = useState(0);
+  const [embeddedImage, setEmbeddedImage] = useState<EmbeddedImageRequest | null>(null);
+  const openEmbeddedImage = useCallback((image: EmbeddedImageOpenDetails) => {
+    setEmbeddedImage({ ...image });
+  }, []);
+  const genericImageDescription = t("viewer.genericImageDescription");
+  useEffect(() => {
+    setEmbeddedImage(null);
+  }, [currentDocument?.id]);
   const [marketingCapturePlacement, setMarketingCapturePlacement] = useState<BarPlacement | null>(null);
   const [marketingCaptureRegion, setMarketingCaptureRegion] = useState<{
     left: number;
@@ -1042,6 +1053,14 @@ export function DocumentViewer({
   };
 
   const docType = inferFileType(currentDocument);
+  useEffect(() => {
+    if (docType !== "html" || !iframeElement?.contentDocument) return;
+    return attachEmbeddedImageViewer({
+      root: iframeElement.contentDocument,
+      genericLabel: genericImageDescription,
+      open: openEmbeddedImage,
+    });
+  }, [docType, genericImageDescription, htmlFrameLoadSequence, iframeElement, openEmbeddedImage]);
   const [pdfTextLayerRoots, setPdfTextLayerRoots] = useState<(HTMLDivElement | null)[]>([]);
   const [pdfScrollContainer, setPdfScrollContainer] = useState<HTMLElement | null>(null);
   const [pdfCanonicalPages, setPdfCanonicalPages] = useState<ReadonlyMap<number, PdfCanonicalPage>>(() => new Map());
@@ -8626,6 +8645,7 @@ export function DocumentViewer({
               });
             }}
             onIframeWindowReady={setEpubIframeWindow}
+            onImageOpen={openEmbeddedImage}
             onVimRuntimeChange={setEpubVimRuntime}
             selectionInteractionBridge={
               selectionV2
@@ -8839,6 +8859,7 @@ export function DocumentViewer({
               document={currentDocument}
               content={currentDocument.content}
               onContentRoot={setMarkdownStudyRoot}
+              onImageOpen={openEmbeddedImage}
               initialScrollPercent={
                 studyRequest && !studyRequest.coarse ? undefined :
                 initialJump?.kind === "markdown" || initialJump?.kind === "text"
@@ -9074,6 +9095,7 @@ export function DocumentViewer({
               onMouseUp={handleIframeMouseUp}
               onLoad={() => {
                 const loadedFrame = iframeRef.current;
+                setHtmlFrameLoadSequence((sequence) => sequence + 1);
                 injectHtmlViewerStyles();
                 attachHtmlIframeContextMenuListener();
                 attachHtmlIframePointerActivityForwarder();
@@ -9932,6 +9954,13 @@ export function DocumentViewer({
         canCreateObjects={passageHandlers.canCreateObjects}
         learnThisEnabled={aiLearnThisEnabled}
       />}
+      {embeddedImage && (
+        <EmbeddedImageViewer
+          image={embeddedImage}
+          onClose={() => setEmbeddedImage(null)}
+          fallbackFocusRef={containerRef}
+        />
+      )}
     </div>
   );
 }

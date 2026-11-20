@@ -9,6 +9,7 @@ import { Sparkle } from "@phosphor-icons/react";
 import type { SelectionContext } from "../../types/selection";
 import { applyAnchoredTextHighlights, buildTextSelectionContext, type AnchoredTextHighlight } from "../../utils/textHighlights";
 import { useBreakoutOverlay } from "./BreakoutOverlayModal";
+import { attachEmbeddedImageViewer, type EmbeddedImageOpenDetails } from "./embeddedImageDom";
 
 interface MarkdownViewerProps {
   document: Document;
@@ -28,6 +29,7 @@ interface MarkdownViewerProps {
   /** Callback when user right-clicks on selected text */
   onContextMenu?: (event: ReaderContextMenuPayload) => void;
   onContentRoot?: (root: HTMLDivElement | null) => void;
+  onImageOpen?: (image: EmbeddedImageOpenDetails) => void;
 }
 
 function escapeRegex(term: string): string {
@@ -54,6 +56,7 @@ export function MarkdownViewer({
   onCreateFlashcard,
   onContextMenu,
   onContentRoot,
+  onImageOpen,
 }: MarkdownViewerProps) {
   const { t } = useI18n();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -66,6 +69,8 @@ export function MarkdownViewer({
   const isRestoringRef = useRef(false);
   const hasRestoredRef = useRef(false);
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; selectedText: string } | null>(null);
+  const onImageOpenRef = useRef(onImageOpen);
+  onImageOpenRef.current = onImageOpen;
 
   const html = useMemo(() => {
     if (!content) return "";
@@ -155,6 +160,17 @@ export function MarkdownViewer({
       signature: `${document.id}:${content ?? ""}`,
     });
   }, [content, document.id, highlights, html]);
+
+  const genericImageDescription = t("viewer.genericImageDescription");
+  useEffect(() => {
+    const root = contentRef.current;
+    if (!root || !onImageOpenRef.current) return;
+    return attachEmbeddedImageViewer({
+      root,
+      genericLabel: genericImageDescription,
+      open: (image) => onImageOpenRef.current?.(image),
+    });
+  }, [genericImageDescription, html]);
 
   // Store callback in a ref so the highlighting effect doesn't re-run when
   // the parent re-renders with a new inline function reference.

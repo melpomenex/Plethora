@@ -446,6 +446,10 @@
   width: min(100%, 56rem);
 }
 
+.pdf-reflow-visual-box.document-image-viewer-wrap {
+  position: relative;
+}
+
 /* Intrinsic-size viewing: drop the box constraints so the img sizes to its
  * own width/height attributes (which also reserve the pre-load height).
  * `!important` is required to beat the inline aspect-ratio — with it kept,
