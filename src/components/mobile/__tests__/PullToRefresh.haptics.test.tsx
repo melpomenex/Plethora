@@ -1,5 +1,5 @@
 import { act, fireEvent, render } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const emit = vi.hoisted(() => vi.fn());
 vi.mock("../../../lib/feedback/orchestrator", () => ({
@@ -14,6 +14,7 @@ function touch(node: HTMLElement, kind: string, y = 0) {
 }
 describe("refresh threshold ownership", () => {
   beforeEach(() => { emit.mockClear(); });
+  afterEach(() => { vi.useRealTimers(); });
   it("arms once across retreat/re-cross, then re-arms a new gesture", () => {
     const refresh = vi.fn().mockResolvedValue(undefined);
     const view = render(<PullToRefresh onRefresh={refresh}><div>Content</div></PullToRefresh>);
@@ -44,6 +45,45 @@ describe("refresh threshold ownership", () => {
     expect(refresh).not.toHaveBeenCalled();
     expect(emit).toHaveBeenCalledTimes(1);
   });
+  it("requires the marked scroll container to be at the top and the pull to reach the threshold", async () => {
+    const refresh = vi.fn().mockResolvedValue(undefined);
+    const view = render(
+      <PullToRefresh onRefresh={refresh}>
+        <div data-scroll-container="true" />
+      </PullToRefresh>,
+    );
+    const scrollArea = view.container.querySelector("[data-scroll-container]") as HTMLDivElement;
+    scrollArea.scrollTop = 20;
+
+    await act(async () => {
+      touch(scrollArea, "touchstart", 0);
+      touch(scrollArea, "touchmove", 200);
+      touch(scrollArea, "touchend");
+    });
+    expect(refresh).not.toHaveBeenCalled();
+
+    scrollArea.scrollTop = 0;
+    await act(async () => {
+      touch(scrollArea, "touchstart", 0);
+      touch(scrollArea, "touchmove", 100);
+      touch(scrollArea, "touchend");
+    });
+    expect(refresh).not.toHaveBeenCalled();
+
+    await act(async () => {
+      touch(scrollArea, "touchstart", 0);
+      touch(scrollArea, "touchmove", 180);
+      touch(scrollArea, "touchcancel");
+    });
+    expect(refresh).not.toHaveBeenCalled();
+
+    await act(async () => {
+      touch(scrollArea, "touchstart", 0);
+      touch(scrollArea, "touchmove", 180);
+      touch(scrollArea, "touchend");
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+  });
   it("a committed refresh failure owns a distinct error and never a second success", async () => {
     const refresh = vi.fn().mockRejectedValue(new Error("offline"));
     const view = render(<PullToRefresh onRefresh={refresh}><div /></PullToRefresh>);
@@ -54,5 +94,30 @@ describe("refresh threshold ownership", () => {
     expect(refresh).toHaveBeenCalledOnce();
     expect(emit.mock.calls.map((call) => call[0])).toEqual(["queue.refresh-armed", "action.failed"]);
     expect(emit.mock.calls[0]?.[1]).not.toBe(emit.mock.calls[1]?.[1]);
+  });
+  it("keeps the outcome timer through a disabled-state rerender", async () => {
+    vi.useFakeTimers();
+    let rejectRefresh!: (error: Error) => void;
+    const refresh = vi.fn(() => new Promise<void>((_, reject) => { rejectRefresh = reject; }));
+    const view = render(<PullToRefresh onRefresh={refresh}><div /></PullToRefresh>);
+    const node = view.container.firstElementChild as HTMLElement;
+
+    await act(async () => {
+      touch(node, "touchstart");
+      touch(node, "touchmove", 180);
+      touch(node, "touchend");
+    });
+    view.rerender(<PullToRefresh disabled onRefresh={refresh}><div /></PullToRefresh>);
+    await act(async () => {
+      rejectRefresh(new Error("offline"));
+      await Promise.resolve();
+    });
+
+    expect(view.container.querySelector(".pull-indicator")?.className).toContain("refreshing");
+    expect(view.container.querySelector(".pull-status-text")?.textContent).not.toBe("");
+    await act(async () => { vi.advanceTimersByTime(1300); });
+    expect(view.container.querySelector(".pull-indicator")?.className).not.toContain("refreshing");
+    expect(view.container.querySelector(".pull-status-text")?.textContent).toBe("");
+    vi.useRealTimers();
   });
 });

@@ -123,6 +123,13 @@ import { useTabsStore } from "../../stores/tabsStore";
 import { useIsActiveTab } from "../common/Tabs";
 import { cn } from "../../utils";
 import { SemanticGraphPanel } from "../review/SemanticGraphPanel";
+import { PullToRefresh } from "../mobile/PullToRefresh";
+import {
+  coalesceRssRefresh,
+  refreshFeedsWithConcurrency,
+  summarizeRssRefresh,
+  type RssBulkRefreshResult,
+} from "./rssBulkRefresh";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useToastExtract } from "../../hooks/useToastExtract";
 import { CreateExtractDialog } from "../extracts/CreateExtractDialog";
@@ -477,6 +484,7 @@ export function RSSReader() {
   const autoRefreshIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const syncFeedbackTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const rssListParentRef = useRef<HTMLDivElement | null>(null);
+  const inFlightRssRefreshRef = useRef<Promise<RssBulkRefreshResult> | null>(null);
 
   const scheduleSyncFeedbackReset = useCallback((delayMs = 3500) => {
     if (syncFeedbackTimeoutRef.current) {
@@ -661,18 +669,21 @@ export function RSSReader() {
     }
   }, [selectedItem?.id, articleLayout]);
 
+  const mobileSelectedFeedId = selectedFeed?.id;
+  const mobileSelectedItemId = selectedItem?.id;
+
   useEffect(() => {
     if (!isMobile) return;
-    if (!selectedFeed) {
+    if (!mobileSelectedFeedId) {
       setMobileView("feeds");
       return;
     }
-    if (!selectedItem) {
+    if (!mobileSelectedItemId) {
       setMobileView("items");
     }
-  }, [isMobile, selectedFeed, selectedItem]);
+  }, [isMobile, mobileSelectedFeedId, mobileSelectedItemId]);
 
-  const loadFeeds = async () => {
+  const loadFeeds = useCallback(async () => {
     const feeds = await getSubscribedFeedsAuto();
     setFeeds(feeds);
     setSelectedFeed((prev) => {
@@ -702,7 +713,7 @@ export function RSSReader() {
       console.warn("[RSS] Folder migration failed:", err);
     }
     return feeds;
-  };
+  }, [settings?.rssQueue?.maxItemAgeDays]);
 
   const moveFeedToFolderInSidebar = useCallback((feedId: string, folderId?: string) => {
     const nextFolders = getFeedFolders().map((folder) => ({
@@ -721,12 +732,22 @@ export function RSSReader() {
     setFolders(nextFolders);
   }, []);
 
-  // Refresh all feeds (for auto-refresh and manual refresh all)
+  // Refresh all feeds (for auto-refresh and manual refresh all). Keep the
+  // complete run in one promise so toolbar, scheduler, and gesture triggers
+  // share both the fetches and the final reload.
   const refreshAllFeeds = useCallback(
-    async (source: "auto" | "manual" = "manual") => {
-      if (isAutoRefreshing) return; // Prevent concurrent refreshes
+    (source: "auto" | "manual" = "manual"): Promise<RssBulkRefreshResult> => {
+      const existingRefresh = inFlightRssRefreshRef.current;
+      if (!existingRefresh && isAutoRefreshing) {
+        return Promise.resolve({
+          status: "skipped",
+          attempted: 0,
+          succeeded: 0,
+          failed: 0,
+          reloadFailed: false,
+        });
+      }
 
-      setIsAutoRefreshing(true);
       if (source === "manual") {
         setSyncFeedback("syncing");
         // An explicit refresh ends the unread session: previously retained
@@ -734,94 +755,90 @@ export function RSSReader() {
         setSessionReadItemIds(new Set());
       }
 
-      try {
-        const currentFeeds = await getSubscribedFeedsAuto();
-        let hadFeedErrors = false;
-
-        // Refresh feeds in parallel with bounded concurrency. Previously this
-        // was a serial `for ... await` loop, so N feeds took N round-trips; now
-        // up to CONCURRENCY feeds are fetched/synced at once. Each feed is
-        // wrapped in its own try/catch so one failure doesn't block the others.
-        const refreshOneFeed = async (feed: Feed): Promise<boolean> => {
-          try {
-            const updated = await fetchFeed(feed.feedUrl);
-            if (updated) {
-              if (isTauri()) {
-                const merged = {
-                  ...updated,
-                  category: feed.category ?? updated.category,
-                };
-                await syncFeedToTauri(merged, feed.items);
-              } else {
-                // Preserve read/favorite status from existing items
-                const existing = getSubscribedFeeds().find((f) => f.id === feed.id);
-                if (existing) {
-                  updated.items.forEach((newItem) => {
-                    const existingItem = existing.items.find((i) => i.id === newItem.id);
-                    if (existingItem) {
-                      newItem.read = existingItem.read;
-                      newItem.favorite = existingItem.favorite;
-                    }
-                  });
-                }
-                subscribeToFeed(updated);
-
-                // Auto-fetch full content for "always" mode feeds in web mode
-                if (feed.autoFetchFullContent === "always") {
-                  const newItems = updated.items.filter((newItem) => {
-                    const existingItem = existing?.items.find((i) => i.id === newItem.id);
-                    return !existingItem; // Only new items
-                  });
-                  if (newItems.length > 0) {
-                    newItems.forEach((item) => {
-                      void fetchArticleFullContent(item.id, item.link);
+      const refreshPromise = existingRefresh ?? coalesceRssRefresh(inFlightRssRefreshRef, async () => {
+        setIsAutoRefreshing(true);
+        try {
+          const currentFeeds = await getSubscribedFeedsAuto();
+          const counts = await refreshFeedsWithConcurrency(currentFeeds, async (feed) => {
+            try {
+              const updated = await fetchFeed(feed.feedUrl);
+              if (updated) {
+                if (isTauri()) {
+                  const merged = {
+                    ...updated,
+                    category: feed.category ?? updated.category,
+                  };
+                  await syncFeedToTauri(merged, feed.items);
+                } else {
+                  // Preserve read/favorite status from existing items
+                  const existing = getSubscribedFeeds().find((f) => f.id === feed.id);
+                  if (existing) {
+                    updated.items.forEach((newItem) => {
+                      const existingItem = existing.items.find((i) => i.id === newItem.id);
+                      if (existingItem) {
+                        newItem.read = existingItem.read;
+                        newItem.favorite = existingItem.favorite;
+                      }
                     });
+                  }
+                  subscribeToFeed(updated);
+
+                  // Auto-fetch full content for "always" mode feeds in web mode
+                  if (feed.autoFetchFullContent === "always") {
+                    const newItems = updated.items.filter((newItem) => {
+                      const existingItem = existing?.items.find((i) => i.id === newItem.id);
+                      return !existingItem; // Only new items
+                    });
+                    if (newItems.length > 0) {
+                      newItems.forEach((item) => {
+                        void fetchArticleFullContent(item.id, item.link);
+                      });
+                    }
                   }
                 }
               }
+            } catch (error) {
+              console.warn(`[RSS Auto-Refresh] Failed to refresh feed ${feed.title}:`, error);
+              throw error;
             }
-            return true;
+          });
+
+          let result = summarizeRssRefresh(counts);
+          try {
+            // Reload even after partial failures so successful updates and
+            // unread counts are visible in the active pane.
+            await loadFeeds();
+            setLastAutoRefresh(new Date());
           } catch (error) {
-            console.warn(`[RSS Auto-Refresh] Failed to refresh feed ${feed.title}:`, error);
-            return false;
+            console.error("[RSS Auto-Refresh] Failed to reload feeds:", error);
+            result = summarizeRssRefresh(counts, true);
           }
-        };
-
-        // Simple bounded-concurrency runner (no extra deps). Feed counts are
-        // modest, but capping parallelism avoids flooding the network/scheduler.
-        const CONCURRENCY = 6;
-        let cursor = 0;
-        const workers: Promise<void>[] = [];
-        const runWorker = async () => {
-          while (cursor < currentFeeds.length) {
-            const feed = currentFeeds[cursor++];
-            const ok = await refreshOneFeed(feed);
-            if (!ok) hadFeedErrors = true;
-          }
-        };
-        const workerCount = Math.min(CONCURRENCY, currentFeeds.length);
-        for (let i = 0; i < workerCount; i++) workers.push(runWorker());
-        await Promise.all(workers);
-
-        // Reload feeds after updating
-        await loadFeeds();
-        setLastAutoRefresh(new Date());
-        if (source === "manual") {
-          setSyncFeedback(hadFeedErrors ? "error" : "success");
-          scheduleSyncFeedbackReset(hadFeedErrors ? 5000 : 3500);
+          return result;
+        } catch (error) {
+          console.error("[RSS Auto-Refresh] Failed to refresh feeds:", error);
+          return summarizeRssRefresh({ attempted: 0, succeeded: 0, failed: 0 }, true);
+        } finally {
+          setIsAutoRefreshing(false);
         }
-      } catch (error) {
-        console.error("[RSS Auto-Refresh] Failed to refresh feeds:", error);
-        if (source === "manual") {
-          setSyncFeedback("error");
-          scheduleSyncFeedbackReset(5000);
-        }
-      } finally {
-        setIsAutoRefreshing(false);
-      }
+      });
+
+      if (source === "auto") return refreshPromise;
+      return refreshPromise.then((result) => {
+        const failed = result.status !== "success";
+        setSyncFeedback(failed ? "error" : "success");
+        scheduleSyncFeedbackReset(failed ? 5000 : 3500);
+        return result;
+      });
     },
-    [isAutoRefreshing, scheduleSyncFeedbackReset]
+    [isAutoRefreshing, loadFeeds, scheduleSyncFeedbackReset]
   );
+
+  const handlePullRefresh = useCallback(async () => {
+    const result = await refreshAllFeeds("manual");
+    if (result.status !== "success") {
+      throw new Error("One or more RSS subscriptions could not be refreshed.");
+    }
+  }, [refreshAllFeeds]);
 
   // Global palette command: "Refresh RSS Feeds" delivers this request through
   // the shared destination-action handoff, reusing the existing manual refresh.
@@ -2644,7 +2661,12 @@ export function RSSReader() {
             </div>
 
             {/* Feed list */}
-            <div className="flex-1 overflow-y-auto">
+            <PullToRefresh
+              onRefresh={handlePullRefresh}
+              disabled={!isMobile || isAutoRefreshing || feeds.length === 0 || dragModeActive}
+              className="flex-1 min-h-0 overflow-hidden"
+            >
+            <div className="h-full min-h-0 overflow-y-auto overscroll-contain" data-scroll-container="true">
               {feeds.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
                   <Rss className="w-12 h-12 mx-auto mb-3 opacity-50" />
@@ -2950,8 +2972,8 @@ export function RSSReader() {
                             feedMenu.openEvent(e, buildFeedMenuItems(feed));
                           }}
                           className={`group w-full cursor-grab px-3 py-2 text-left hover:bg-muted/70 transition-all flex items-start gap-2 border-l-2 ${
-                            selectedFeed?.id === feed.id 
-                              ? "bg-primary/10 border-primary font-medium text-foreground" 
+                            selectedFeed?.id === feed.id
+                              ? "bg-primary/10 border-primary font-medium text-foreground"
                               : "border-transparent text-muted-foreground"
                           } ${draggedFeedId === feed.id ? "opacity-50 cursor-grabbing" : ""}`}
                         >
@@ -3068,6 +3090,7 @@ export function RSSReader() {
                 </div>
               )}
             </div>
+            </PullToRefresh>
           </div>
 
           {/* Main content */}
@@ -3216,12 +3239,17 @@ export function RSSReader() {
                 </div>
               )}
 
+              <PullToRefresh
+                onRefresh={handlePullRefresh}
+                disabled={!isMobile || isAutoRefreshing || feeds.length === 0 || dragModeActive}
+                className="flex-1 min-h-0 flex flex-col overflow-hidden"
+              >
               {items.length === 0 && !(viewMode === "search" && searchQuery) ? (
-                <div className="p-8 text-center text-muted-foreground mobile-density-section">
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-8 text-center text-muted-foreground mobile-density-section" data-scroll-container="true">
                   {viewMode === "unread" ? t("rssReader.noUnread") : t("rssReader.noArticles")}
                 </div>
               ) : articleLayout === "magazine" ? (
-                <div className="flex-1 overflow-y-auto transition-all duration-300">
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain transition-all duration-300" data-scroll-container="true">
                   <MagazineLayout
                     preferences={preferences}
                     items={items}
@@ -3237,7 +3265,7 @@ export function RSSReader() {
                   />
                 </div>
               ) : articleLayout === "grid" ? (
-                <div className="flex-1 overflow-y-auto transition-all duration-300">
+                <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain transition-all duration-300" data-scroll-container="true">
                   <GridLayout
                     preferences={preferences}
                     items={items}
@@ -3251,7 +3279,7 @@ export function RSSReader() {
                   />
                 </div>
               ) : (
-                <div ref={rssListParentRef} className="rss-list-viewport flex-1 overflow-y-auto">
+                <div ref={rssListParentRef} className="rss-list-viewport flex-1 min-h-0 overflow-y-auto overscroll-contain" data-scroll-container="true">
                   <div style={{ height: `${rssVirtualizer.getTotalSize()}px`, position: "relative" }} className={`mx-auto w-full ${selectedItem ? "" : "max-w-4xl"}`}>
                     {rssVirtualizer.getVirtualItems().map((virtualRow) => {
                       const entry = items[virtualRow.index];
@@ -3280,6 +3308,7 @@ export function RSSReader() {
                   </div>
                 </div>
               )}
+              </PullToRefresh>
             </div>
 
             {/* Article preview / Dashboard */}

@@ -257,9 +257,18 @@ export function PullToRefresh({
         frame.removeEventListener("load", listener.load);
         if (listener.doc) detachFrameDocument(listener.doc);
       }
-      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     };
   }, [cancelPull, handleTouchEnd, handleTouchMove, handleTouchStart]);
+
+  // Listener effects are re-installed when the active scroll container or
+  // disabled state changes. Keep outcome timing alive across those updates;
+  // only cancel a pending settle when the component actually unmounts.
+  useEffect(() => () => {
+    if (settleTimerRef.current) {
+      clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    }
+  }, []);
 
   const progress = Math.min(pullDistance / threshold, 1);
   const progressCircumference = 2 * Math.PI * 13;
