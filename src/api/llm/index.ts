@@ -3,7 +3,7 @@
  * Supports OpenAI, Anthropic, and local Ollama models with streaming support
  */
 
-import { invokeCommand, listen, type UnlistenFn } from "../../lib/tauri";
+import { invokeCommand, isTauri, listen, type UnlistenFn } from "../../lib/tauri";
 import { resolveRequestPolicy, type LlmRequestPolicy } from "./policy";
 import { normalizeLLMResponse, type LLMResponseKind } from "./response";
 
@@ -67,6 +67,8 @@ export interface LLMRequest {
   requestId?: string;
   /** Optional resolved request policy (Ollama `num_ctx` / cloud `max_tokens`). */
   policy?: LlmRequestPolicy;
+  /** Context envelope used by the shared contextual chat pipeline. */
+  context?: LLMContext;
   /** The task runner owns the single corrective attempt. Disable hidden transport recovery. */
   taskManagedRecovery?: boolean;
   pinEndpoint?: boolean;
@@ -108,9 +110,14 @@ export interface LLMContext {
 }
 
 export interface StreamOptions {
+  signal?: AbortSignal;
   onChunk: (chunk: string) => void;
-  onDone?: (info?: { finishReason?: string }) => void;
-  onError?: (error: string) => void;
+  onDone?: (info?: {
+    finishReason?: string;
+    responseKind?: LLMResponseKind;
+    usage?: LLMResponse["usage"];
+  }) => void;
+  onError?: (error: string, code?: string) => void;
 }
 
 /**
@@ -156,7 +163,7 @@ function normalizeContextContent(value: unknown): string | undefined {
   return String(value);
 }
 
-export async function chatWithContext(
+function buildContextChatRequest(
   provider: LLMProvider,
   model: string | undefined,
   messages: LLMMessage[],
@@ -168,7 +175,7 @@ export async function chatWithContext(
   systemPrompt?: string,
   contextFromRelatedCards?: boolean,
   documentSnippetLength?: number
-): Promise<LLMResponse> {
+): LLMRequest {
   // Normalize context content to ensure it's always a string
   const normalizedContent = normalizeContextContent(context.content);
   if (context.type === "document" && context.scope === "document" && !normalizedContent?.trim()) {
@@ -189,34 +196,79 @@ export async function chatWithContext(
     applyOllamaDefaultGuard: provider === "ollama",
   });
 
-  const args = {
+  const contextRequest: LLMContext = {
+    type: context.type,
+    scope: context.scope,
+    documentId: context.documentId,
+    url: context.url,
+    selection: context.selection,
+    content: normalizedContent,
+    contextWindowTokens: context.promptBudgetTokens ?? context.contextWindowTokens,
+    promptBudgetTokens: context.promptBudgetTokens ?? policy.promptBudgetTokens,
+    configuredContextTokens: context.configuredContextTokens ?? policy.configuredContextTokens,
+    maxOutputTokens: context.maxOutputTokens ?? policy.maxOutputTokens,
+    memoryEnabled: context.memoryEnabled,
+  };
+
+  return {
     provider,
     model,
     messages: effectiveMessages,
     temperature: temperature ?? 0.7,
     maxTokens: policy.maxOutputTokens,
     context: {
-      type: context.type,
-      scope: context.scope,
-      documentId: context.documentId,
-      url: context.url,
-      selection: context.selection,
-      content: normalizedContent,
-      // Keep legacy field as prompt-budget hint for older backends.
-      contextWindowTokens: context.promptBudgetTokens ?? context.contextWindowTokens,
-      promptBudgetTokens: context.promptBudgetTokens ?? policy.promptBudgetTokens,
-      configuredContextTokens: context.configuredContextTokens ?? policy.configuredContextTokens,
-      maxOutputTokens: context.maxOutputTokens ?? policy.maxOutputTokens,
+      ...contextRequest,
       contextFromRelatedCards,
       documentSnippetLength,
-      memoryEnabled: context.memoryEnabled,
-    },
+    } as LLMContext,
     apiKey,
     baseUrl,
     policy,
   };
+}
 
-  return normalizeLLMResponse(await invokeCommand<unknown>("llm_chat_with_context", args));
+export async function chatWithContext(
+  provider: LLMProvider,
+  model: string | undefined,
+  messages: LLMMessage[],
+  context: LLMContext,
+  apiKey?: string,
+  baseUrl?: string,
+  temperature?: number,
+  maxTokens?: number,
+  systemPrompt?: string,
+  contextFromRelatedCards?: boolean,
+  documentSnippetLength?: number
+): Promise<LLMResponse> {
+  const request = buildContextChatRequest(
+    provider, model, messages, context, apiKey, baseUrl, temperature,
+    maxTokens, systemPrompt, contextFromRelatedCards, documentSnippetLength,
+  );
+  return normalizeLLMResponse(await invokeCommand<unknown>("llm_chat_with_context", {
+    ...request,
+    context: request.context,
+  }));
+}
+
+export async function streamChatWithContext(
+  provider: LLMProvider,
+  model: string | undefined,
+  messages: LLMMessage[],
+  context: LLMContext,
+  options: StreamOptions,
+  apiKey?: string,
+  baseUrl?: string,
+  temperature?: number,
+  maxTokens?: number,
+  systemPrompt?: string,
+  contextFromRelatedCards?: boolean,
+  documentSnippetLength?: number
+): Promise<void> {
+  const request = buildContextChatRequest(
+    provider, model, messages, context, apiKey, baseUrl, temperature,
+    maxTokens, systemPrompt, contextFromRelatedCards, documentSnippetLength,
+  );
+  return streamChatWithLLM(request, options);
 }
 
 /**
@@ -227,7 +279,21 @@ export async function streamChatWithLLM(
   request: LLMRequest,
   options: StreamOptions
 ): Promise<void> {
+  if (!isTauri()) {
+    // Browser streaming uses the same configured endpoint and request shape as
+    // the buffered browser chat path. Its transport is implemented beside the
+    // browser command backend so PWA builds do not depend on Tauri events.
+    const { streamBrowserLLM } = await import("../../lib/browserLlmTransport");
+    await streamBrowserLLM(request, options);
+    return;
+  }
+
   const unlisteners: UnlistenFn[] = [];
+  const requestId = request.requestId ?? createLLMRequestId();
+  let terminal = false;
+  let terminalError: Error | undefined;
+  let receivedText = "";
+  const onAbort = () => { void llmCancelStream(requestId); };
 
   // Debounce incoming chunks via requestAnimationFrame so we coalesce many
   // per-token IPC events into at most one `onChunk` call per animation frame.
@@ -241,11 +307,18 @@ export async function streamChatWithLLM(
       rafId = null;
     }
     rafScheduled = false;
-    if (pending.length > 0) {
+    if (pending.length > 0 && !terminal && !options.signal?.aborted) {
       const text = pending;
       pending = "";
       options.onChunk(text);
     }
+  };
+
+  const discardPending = () => {
+    pending = "";
+    if (rafId !== null) cancelAnimationFrame(rafId);
+    rafId = null;
+    rafScheduled = false;
   };
 
   const scheduleFlush = () => {
@@ -254,7 +327,7 @@ export async function streamChatWithLLM(
     rafId = requestAnimationFrame(() => {
       rafScheduled = false;
       rafId = null;
-      if (pending.length > 0) {
+      if (pending.length > 0 && !terminal && !options.signal?.aborted) {
         const text = pending;
         pending = "";
         options.onChunk(text);
@@ -263,36 +336,59 @@ export async function streamChatWithLLM(
   };
 
   try {
-    let finishReason: string | undefined;
-    const chunkUnlisten = await listen<{ content: string; done: boolean }>(
+    if (options.signal?.aborted) {
+      throw Object.assign(new Error("Cloud stream was cancelled."), { code: "cancelled" });
+    }
+    options.signal?.addEventListener("abort", onAbort, { once: true });
+    const chunkUnlisten = await listen<{ requestId?: string; content: string; done?: boolean }>(
       "llm:stream:chunk",
       (event) => {
+        if (terminal || options.signal?.aborted || event.payload.requestId !== requestId) return;
+        receivedText += event.payload.content;
         pending += event.payload.content;
         scheduleFlush();
       }
     );
     unlisteners.push(chunkUnlisten);
 
-    const doneUnlisten = await listen<{ finishReason?: string }>(
+    const doneUnlisten = await listen<{
+      requestId?: string;
+      finishReason?: string;
+      responseKind?: LLMResponseKind;
+      usage?: LLMResponse["usage"];
+    }>(
       "llm:stream:done",
       (event) => {
+        if (terminal || options.signal?.aborted || event.payload.requestId !== requestId) return;
         flushPending();
-        if (event.payload?.finishReason) finishReason = event.payload.finishReason;
-        options.onDone?.({ finishReason });
+        terminal = true;
+        options.onDone?.({
+          finishReason: event.payload.finishReason,
+          responseKind: event.payload.responseKind ?? inferStreamResponseKind(receivedText, event.payload.finishReason),
+          usage: event.payload.usage,
+        });
       }
     );
     unlisteners.push(doneUnlisten);
 
-    const errorUnlisten = await listen<{ error: string }>(
+    const errorUnlisten = await listen<{ requestId?: string; error: string; code?: string }>(
       "llm:stream:error",
       (event) => {
-        flushPending();
-        options.onError?.(event.payload.error);
+        if (
+          terminal ||
+          event.payload.requestId !== requestId ||
+          (options.signal?.aborted && event.payload.code !== "cancelled")
+        ) return;
+        if (event.payload.code === "cancelled") discardPending();
+        else flushPending();
+        terminal = true;
+        terminalError = new Error(event.payload.error);
+        options.onError?.(event.payload.error, event.payload.code);
       }
     );
     unlisteners.push(errorUnlisten);
 
-    await invokeCommand("llm_stream_chat", {
+    await invokeCommand(request.context ? "llm_stream_chat_with_context" : "llm_stream_chat", {
       provider: request.provider,
       model: request.model,
       messages: request.messages,
@@ -300,23 +396,55 @@ export async function streamChatWithLLM(
       maxTokens: request.maxTokens ?? request.policy?.maxOutputTokens ?? 2000,
       apiKey: request.apiKey,
       baseUrl: request.baseUrl,
-      requestId: request.requestId,
+      requestId,
       policy: request.policy,
+      pinEndpoint: request.pinEndpoint,
+      context: request.context,
     });
+    if (options.signal?.aborted && !terminal) {
+      throw Object.assign(new Error("Cloud stream was cancelled."), { code: "cancelled" });
+    }
+    if (!terminal) {
+      terminal = true;
+      options.onDone?.();
+    }
+    if (terminalError) throw terminalError;
+  } catch (error) {
+    if (!terminal) {
+      if (options.signal?.aborted) discardPending();
+      else flushPending();
+      terminal = true;
+      const message = error instanceof Error ? error.message : String(error);
+      options.onError?.(message, (error as { code?: string })?.code);
+    }
+    throw error;
   } finally {
-    // Final synchronous flush of any buffered text, then clean up listeners
-    // after a delay to ensure all events are received.
+    // Terminal events are request-scoped and emitted before the native command
+    // returns, so listeners can be released synchronously here.
     flushPending();
-    setTimeout(() => {
-      unlisteners.forEach((unlisten) => {
-        try {
-          unlisten();
-        } catch {
-          // Ignore errors during cleanup - listener may already be removed
-        }
-      });
-    }, 1000);
+    unlisteners.forEach((unlisten) => {
+      try {
+        unlisten();
+      } catch {
+        // Ignore errors during cleanup - listener may already be removed
+      }
+    });
+    options.signal?.removeEventListener("abort", onAbort);
   }
+}
+
+function createLLMRequestId(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return `llm-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function inferStreamResponseKind(content: string, finishReason?: string): LLMResponseKind {
+  if (["refusal", "content_filter", "safety"].includes(finishReason ?? "")) return "refusal";
+  if (content.trim()) return "final-text";
+  if (["tool_calls", "function_call", "tool_use"].includes(finishReason ?? "")) return "tool-only";
+  return "empty";
 }
 
 /**

@@ -31,6 +31,7 @@ import {
   Plus,
   Sparkle,
   SpeakerHigh,
+  Square,
   X,
 } from "@phosphor-icons/react";
 import { MobileContextMenuSheet } from "../common/MobileContextMenuSheet";
@@ -50,6 +51,13 @@ import type {
   AskLibraryCitedSource,
   AskLibraryResult,
 } from "../../lib/ai/tasks/definitions/libraryTask";
+const CHAT_STATUS_KEYS = {
+  preparing: "assistant.chatStatus.preparing",
+  sources: "assistant.chatStatus.sources",
+  model: "assistant.chatStatus.model",
+  tools: "assistant.chatStatus.tools",
+  validation: "assistant.chatStatus.validation",
+} as const;
 import { studyQuestionsTask } from "../../lib/ai/tasks/definitions/extractTasks";
 import { runTask } from "../../lib/ai/tasks/runTask";
 import { retrieveFromLibrary } from "../../api/ai-learning";
@@ -123,6 +131,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
   const [question, setQuestion] = useState("");
   const [suggestions, setSuggestions] = useState<string[]>([]);
   const [answer, setAnswer] = useState<Pick<AskLibraryResult, "answer" | "sources" | "retrievalOnly"> | null>(null);
+  const [pendingReply, setPendingReply] = useState<{ text: string; stage: "preparing" | "sources" | "model" | "tools" | "validation" }>();
   const [thinking, setThinking] = useState("");
   const [lastQuestion, setLastQuestion] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -136,6 +145,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
 
   const historyRef = useRef<ConversationHistoryTurn[]>([]);
   const abortRef = useRef<AbortController | null>(null);
+  const turnAttemptRef = useRef(0);
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const requireLocalSpeech = useSettingsStore(state => state.settings.ai.strictLocalOnly === true);
   const sourceLocalOnly = useDocumentStore(state => state.documents.some(document => document.id === request?.documentId && document.isLocalOnly));
@@ -160,6 +170,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
     setQuestion("");
     setSuggestions([]);
     setAnswer(null);
+    setPendingReply(undefined);
       setThinking("");
     setLastQuestion("");
     setError(null);
@@ -203,6 +214,17 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
     return () => controller.abort();
   }, [open]);
 
+  useEffect(() => {
+    if (open) return;
+    turnAttemptRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setPendingReply(undefined);
+    setPhase("compose");
+  }, [open]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
   const submitQuestion = useCallback(
     async (queryText: string, submitScope?: AssistantScope) => {
       const req = requestRef.current;
@@ -213,7 +235,10 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
       abortRef.current?.abort();
       const controller = new AbortController();
       abortRef.current = controller;
+      const attemptId = ++turnAttemptRef.current;
+      const isCurrentAttempt = () => turnAttemptRef.current === attemptId && !controller.signal.aborted;
       setPhase("working");
+      setPendingReply({ text: "", stage: "preparing" });
       setError(null);
     setGenerationFailed(false);
       setExpanded(false);
@@ -224,9 +249,12 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
           scope: activeScope, userQuestion: q, selectionExcerpt: chipText ?? undefined,
           sourceId: req?.documentId, sourceTitle: req?.documentTitle,
           history: historyRef.current, signal: controller.signal,
+          onProgress: (stage) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, stage } : current); },
+          onPreview: (text) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, text } : current); },
         });
         const result = { answer: { answer: turn.answer, evidenceLevel: turn.evidenceLevel ?? "supported" as const, sourceRefs: [] }, sources: turn.citations ?? [], retrievalOnly: turn.retrievalOnly ?? false };
         if (controller.signal.aborted) return;
+        setPendingReply(undefined);
         historyRef.current = [...historyRef.current,
           { role: "user", content: q, scope: activeScope }, { role: "assistant", content: result.answer.answer, scope: activeScope }];
         const parsedAnswer = parseAssistantThinking(result.answer.answer);
@@ -252,6 +280,7 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
         }
       } catch (e) {
         if (controller.signal.aborted) return;
+        setPendingReply(undefined);
         const failure = libraryGenerationFailureMessage(e);
         setGenerationFailed(Boolean(failure));
         setError(failure ?? t("askSheet.askFailed"));
@@ -587,9 +616,23 @@ export function AskSheet({ open, onClose, request }: AskSheetProps) {
 
             <div className="overflow-y-auto overscroll-contain px-4 pb-4">
               {phase === "working" && (
-                <div className="py-6 flex flex-col items-center gap-2 text-muted-foreground">
-                  <div className="h-6 w-6 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin" />
-                  <div className="text-sm">{t("askSheet.answering")}</div>
+                <div data-pending-reply className="py-3 flex flex-col gap-3">
+                  <div className="flex min-h-10 items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite" aria-atomic="true">
+                    <div className="h-4 w-4 rounded-full border-2 border-muted-foreground/30 border-t-primary animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                    <span>{t(CHAT_STATUS_KEYS[pendingReply?.stage ?? "preparing"])}</span>
+                    <button type="button" onClick={() => {
+                      turnAttemptRef.current += 1;
+                      abortRef.current?.abort();
+                      abortRef.current = null;
+                      setPendingReply(undefined);
+                      setPhase("compose");
+                    }} aria-label={t("common.stop")} className="ml-auto inline-flex min-h-10 items-center gap-1 rounded-lg px-3 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                      <Square className="h-3 w-3" weight="fill" aria-hidden="true" />{t("common.stop")}
+                    </button>
+                  </div>
+                  {pendingReply?.text && <div className="rounded-xl bg-muted/50 px-3 py-2">
+                    <AssistantResponseContent content={pendingReply.text} markdown={false} className="text-[15px] text-foreground" />
+                  </div>}
                 </div>
               )}
 

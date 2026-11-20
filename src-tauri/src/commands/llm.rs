@@ -32,7 +32,25 @@ static STREAM_REQUESTS: StreamRequestRegistry =
     StreamRequestRegistry::new(DEFAULT_MAX_STREAM_REQUESTS);
 
 #[inline]
-fn emit_stream_event(app: &AppHandle, event: &str, payload: impl Serialize + Clone) {
+fn stream_event_payload(payload: impl Serialize, request_id: Option<&str>) -> serde_json::Value {
+    let mut payload = serde_json::to_value(payload).unwrap_or(serde_json::Value::Null);
+    if let (Some(request_id), Some(object)) = (request_id, payload.as_object_mut()) {
+        object.insert(
+            "requestId".to_string(),
+            serde_json::Value::String(request_id.to_string()),
+        );
+    }
+    payload
+}
+
+#[inline]
+fn emit_stream_event(
+    app: &AppHandle,
+    event: &str,
+    payload: impl Serialize,
+    request_id: Option<&str>,
+) {
+    let payload = stream_event_payload(payload, request_id);
     if let Err(e) = app.emit(event, payload) {
         tracing::debug!(event, error = %e, "failed to emit LLM stream event");
     }
@@ -53,6 +71,7 @@ fn flush_stream_chunk(
     buf: &mut String,
     last_flush: &mut std::time::Instant,
     done: bool,
+    request_id: Option<&str>,
 ) {
     if !buf.is_empty() {
         emit_stream_event(
@@ -62,6 +81,7 @@ fn flush_stream_chunk(
                 "content": buf.as_str(),
                 "done": done,
             }),
+            request_id,
         );
         buf.clear();
     }
@@ -283,19 +303,46 @@ fn ellipsize_body(body: &str, max_chars: usize) -> String {
 
 #[derive(Debug, Deserialize)]
 struct OpenAIStreamChunk {
+    #[serde(default)]
     id: Option<String>,
+    #[serde(default)]
     choices: Vec<OpenAIStreamChoice>,
+    #[serde(default)]
+    usage: Option<OpenAIUsage>,
 }
 
 #[derive(Debug, Deserialize)]
 struct OpenAIStreamChoice {
+    #[serde(default)]
     delta: OpenAIStreamDelta,
+    #[serde(default)]
     finish_reason: Option<String>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize)]
 struct OpenAIStreamDelta {
+    #[serde(default)]
     content: Option<String>,
+    #[serde(default)]
+    tool_calls: Option<Vec<serde_json::Value>>,
+    #[serde(default)]
+    function_call: Option<serde_json::Value>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
+    #[serde(default)]
+    reasoning: Option<String>,
+    #[serde(default)]
+    refusal: Option<String>,
+}
+
+/// Remove one complete SSE line, retaining an incomplete line across network
+/// reads so a provider record split at any byte boundary is not discarded.
+fn take_complete_sse_line(buffer: &mut Vec<u8>) -> Option<String> {
+    let newline = buffer.iter().position(|byte| *byte == b'\n')?;
+    let bytes = buffer.drain(..=newline).collect::<Vec<_>>();
+    let line = &bytes[..bytes.len().saturating_sub(1)];
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    Some(String::from_utf8_lossy(line).into_owned())
 }
 
 #[derive(Debug, Serialize)]
@@ -588,25 +635,20 @@ pub async fn llm_chat(
     }
 }
 
-#[tauri::command]
-#[allow(clippy::too_many_arguments)]
-pub async fn llm_chat_with_context(
-    app: AppHandle,
+fn prepare_context_chat(
+    app: &AppHandle,
     provider: String,
-    model: Option<String>,
     messages: Vec<LLMMessage>,
-    context: LLMContextRequest,
-    api_key: Option<String>,
-    base_url: Option<String>,
+    context: &LLMContextRequest,
     max_tokens: Option<usize>,
-) -> Result<LLMResponse, String> {
+) -> Result<(Vec<LLMMessage>, LlmRequestPolicy, usize), String> {
     let latest_user_message = messages
         .iter()
         .rev()
         .find(|message| message.role == "user")
         .and_then(|message| extract_text_from_message_content(&message.content));
 
-    let policy = resolve_policy_from_context(&provider, &context, max_tokens);
+    let policy = resolve_policy_from_context(&provider, context, max_tokens);
     let memory_content = if context.memory_enabled.unwrap_or(false) {
         read_memory_file(&app)
     } else {
@@ -662,6 +704,23 @@ pub async fn llm_chat_with_context(
     initial_messages.extend(trailing.iter().filter(|m| m.role != "system").cloned());
 
     let estimated_prompt = assembled.estimated_prompt_tokens;
+    Ok((initial_messages, policy, estimated_prompt))
+}
+
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn llm_chat_with_context(
+    app: AppHandle,
+    provider: String,
+    model: Option<String>,
+    messages: Vec<LLMMessage>,
+    context: LLMContextRequest,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    max_tokens: Option<usize>,
+) -> Result<LLMResponse, String> {
+    let (initial_messages, policy, estimated_prompt) =
+        prepare_context_chat(&app, provider.clone(), messages, &context, max_tokens)?;
     let send = || {
         llm_chat(
             provider.clone(),
@@ -696,6 +755,38 @@ pub async fn llm_chat_with_context(
     }
 }
 
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn llm_stream_chat_with_context(
+    app: AppHandle,
+    provider: String,
+    model: Option<String>,
+    messages: Vec<LLMMessage>,
+    context: LLMContextRequest,
+    api_key: Option<String>,
+    base_url: Option<String>,
+    request_id: Option<String>,
+    max_tokens: Option<usize>,
+    pin_endpoint: Option<bool>,
+) -> Result<(), String> {
+    let (messages, policy, _) =
+        prepare_context_chat(&app, provider.clone(), messages, &context, max_tokens)?;
+    llm_stream_chat(
+        app,
+        provider,
+        model,
+        messages,
+        0.7,
+        policy.max_output_tokens,
+        api_key,
+        base_url,
+        request_id,
+        Some(policy),
+        pin_endpoint,
+    )
+    .await
+}
+
 // Streaming command - emits events to frontend
 #[tauri::command]
 #[allow(clippy::too_many_arguments)]
@@ -710,8 +801,20 @@ pub async fn llm_stream_chat(
     base_url: Option<String>,
     request_id: Option<String>,
     policy: Option<LlmRequestPolicy>,
+    #[allow(unused_variables)] pin_endpoint: Option<bool>,
 ) -> Result<(), String> {
-    let client = Client::new();
+    // Every frontend caller supplies an id so events can be correlated even
+    // when several windows or chat surfaces stream at the same time.
+    let request_id = request_id.filter(|id| !id.trim().is_empty());
+    let client = if pin_endpoint == Some(true) {
+        Client::builder()
+            .redirect(reqwest::redirect::Policy::none())
+            .no_proxy()
+            .build()
+            .map_err(|_| "Could not initialize pinned model connection".to_string())?
+    } else {
+        Client::new()
+    };
     let model = normalize_model(model, &provider);
     let policy = policy_or_default(&provider, max_tokens, policy);
     let max_tokens = policy.max_output_tokens;
@@ -727,6 +830,7 @@ pub async fn llm_stream_chat(
                 serde_json::json!({
                     "error": format!("Base URL not allowed: {}", e)
                 }),
+                request_id.as_deref(),
             );
             format!("Base URL not allowed: {}", e)
         })?;
@@ -739,6 +843,7 @@ pub async fn llm_stream_chat(
             serde_json::json!({
                 "error": "API key is required"
             }),
+            request_id.as_deref(),
         );
         return Err("API key is required".to_string());
     }
@@ -746,7 +851,6 @@ pub async fn llm_stream_chat(
     // Cancellation support (design D7): register the stream so
     // `llm_cancel_stream` can abort it. Blank ids stream without
     // cancellation, matching callers that never pass a request id.
-    let request_id = request_id.filter(|id| !id.trim().is_empty());
     let cancel_token = request_id
         .as_deref()
         .and_then(|id| STREAM_REQUESTS.register(id));
@@ -756,6 +860,7 @@ pub async fn llm_stream_chat(
             "openai" | "gemini" | "deepseek" => {
                 stream_openai(
                     &app,
+                    request_id.as_deref(),
                     &client,
                     &model,
                     messages,
@@ -769,6 +874,7 @@ pub async fn llm_stream_chat(
             "anthropic" => {
                 stream_anthropic(
                     &app,
+                    request_id.as_deref(),
                     &client,
                     &model,
                     messages,
@@ -782,6 +888,7 @@ pub async fn llm_stream_chat(
             "ollama" => {
                 stream_ollama(
                     &app,
+                    request_id.as_deref(),
                     &client,
                     &model,
                     messages,
@@ -794,6 +901,7 @@ pub async fn llm_stream_chat(
             "openrouter" => {
                 stream_openai(
                     &app,
+                    request_id.as_deref(),
                     &client,
                     &model,
                     messages,
@@ -811,6 +919,7 @@ pub async fn llm_stream_chat(
                     serde_json::json!({
                         "error": format!("Unknown provider: {}", provider)
                     }),
+                    request_id.as_deref(),
                 );
                 Err(format!("Unknown provider: {}", provider))
             }
@@ -835,8 +944,8 @@ pub async fn llm_stream_chat(
                     serde_json::json!({
                         "error": "Stream cancelled",
                         "code": "cancelled",
-                        "requestId": id,
                     }),
+                    Some(id),
                 );
                 Ok(())
             }
@@ -868,6 +977,7 @@ pub async fn llm_cancel_stream(request_id: String) -> Result<bool, String> {
 #[allow(clippy::too_many_arguments)]
 async fn stream_openai(
     app: &AppHandle,
+    request_id: Option<&str>,
     client: &Client,
     model: &str,
     messages: Vec<LLMMessage>,
@@ -896,6 +1006,7 @@ async fn stream_openai(
             serde_json::json!({
                 "error": format!("OpenAI API request failed: {}", e)
             }),
+            request_id,
         );
         format!("OpenAI API request failed: {}", e)
     })?;
@@ -909,79 +1020,134 @@ async fn stream_openai(
             serde_json::json!({
                 "error": format!("OpenAI API error ({}): {}", status, error_text)
             }),
+            request_id,
         );
         return Err(format!("OpenAI API error ({}): {}", status, error_text));
     }
 
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
-
-    // Coalesce token deltas before emitting to avoid one IPC event per token.
     let mut chunk_buf = String::new();
     let mut last_flush = std::time::Instant::now();
     let mut finish_reason: Option<String> = None;
+    let mut usage: Option<OpenAIUsage> = None;
+    let mut has_answer = false;
+    let mut has_tool = false;
+    let mut has_reasoning = false;
+    let mut has_refusal = false;
 
-    while let Some(item) = stream.next().await {
+    let mut consume_line = |line: &str| -> bool {
+        let Some(data) = line.trim().strip_prefix("data:").map(str::trim) else {
+            return false;
+        };
+        if data == "[DONE]" {
+            return true;
+        }
+        let Ok(chunk_data) = serde_json::from_str::<OpenAIStreamChunk>(data) else {
+            return false;
+        };
+        if chunk_data.usage.is_some() {
+            usage = chunk_data.usage;
+        }
+        if let Some(choice) = chunk_data.choices.first() {
+            if let Some(reason) = &choice.finish_reason {
+                finish_reason = Some(reason.clone());
+            }
+            if let Some(content) = &choice.delta.content {
+                if !content.is_empty() {
+                    has_answer = true;
+                    chunk_buf.push_str(content);
+                }
+            }
+            has_tool |= choice
+                .delta
+                .tool_calls
+                .as_ref()
+                .is_some_and(|calls| !calls.is_empty())
+                || choice.delta.function_call.is_some();
+            has_reasoning |= choice
+                .delta
+                .reasoning_content
+                .as_ref()
+                .is_some_and(|text| !text.is_empty())
+                || choice
+                    .delta
+                    .reasoning
+                    .as_ref()
+                    .is_some_and(|text| !text.is_empty());
+            has_refusal |= choice
+                .delta
+                .refusal
+                .as_ref()
+                .is_some_and(|text| !text.is_empty());
+            if choice.finish_reason.is_some()
+                || last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
+                || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
+            {
+                flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false, request_id);
+            }
+        }
+        false
+    };
+
+    'stream: while let Some(item) = stream.next().await {
         let chunk = item.map_err(|e| {
             emit_stream_event(
                 app,
                 LLM_STREAM_ERROR,
-                serde_json::json!({
-                    "error": format!("Stream error: {}", e)
-                }),
+                serde_json::json!({ "error": format!("Stream error: {}", e) }),
+                request_id,
             );
             format!("Stream error: {}", e)
         })?;
-
         buffer.extend_from_slice(&chunk);
-        let data = String::from_utf8_lossy(&buffer);
-
-        for line in data.lines() {
-            let line = line.trim();
-            if line.is_empty() || line == "data: [DONE]" {
-                continue;
-            }
-
-            if let Some(json_str) = line.strip_prefix("data: ") {
-                if let Ok(chunk_data) = serde_json::from_str::<OpenAIStreamChunk>(json_str) {
-                    if let Some(choice) = chunk_data.choices.first() {
-                        if let Some(reason) = &choice.finish_reason {
-                            finish_reason = Some(reason.clone());
-                        }
-                        if let Some(content) = &choice.delta.content {
-                            chunk_buf.push_str(content);
-
-                            let finished = choice.finish_reason.is_some();
-                            if finished
-                                || last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
-                                || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
-                            {
-                                flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, finished);
-                            }
-
-                            if finished {
-                                emit_stream_event(
-                                    app,
-                                    LLM_STREAM_DONE,
-                                    serde_json::json!({ "finishReason": finish_reason }),
-                                );
-                                return Ok(());
-                            }
-                        }
-                    }
-                }
+        while let Some(line) = take_complete_sse_line(&mut buffer) {
+            if consume_line(&line) {
+                break 'stream;
             }
         }
-
-        buffer.clear();
     }
+    if !buffer.is_empty() {
+        let final_line = String::from_utf8_lossy(&buffer).into_owned();
+        consume_line(&final_line);
+    }
+    drop(consume_line);
 
-    // Final flush for any remaining buffered text.
-    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
+    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false, request_id);
+    let response_kind = if has_refusal
+        || matches!(
+            finish_reason.as_deref(),
+            Some("refusal" | "content_filter" | "safety")
+        ) {
+        "refusal"
+    } else if has_answer {
+        "final-text"
+    } else if has_tool
+        || matches!(
+            finish_reason.as_deref(),
+            Some("tool_calls" | "function_call")
+        )
+    {
+        "tool-only"
+    } else if has_reasoning {
+        "reasoning-only"
+    } else {
+        "empty"
+    };
+    let usage = usage.map(|usage| {
+        serde_json::json!({
+            "promptTokens": usage.prompt_tokens(),
+            "completionTokens": usage.completion_tokens(),
+            "totalTokens": usage.total_tokens(),
+            "promptCacheHitTokens": usage.prompt_cache_hit_tokens,
+            "promptCacheMissTokens": usage.prompt_cache_miss_tokens,
+        })
+    });
     emit_stream_event(
         app,
         LLM_STREAM_DONE,
-        serde_json::json!({ "finishReason": finish_reason }),
+        serde_json::json!({ "finishReason": normalize_finish_reason(finish_reason), "responseKind": response_kind, "usage": usage }),
+        request_id,
     );
     Ok(())
 }
@@ -989,6 +1155,7 @@ async fn stream_openai(
 #[allow(clippy::too_many_arguments)]
 async fn stream_anthropic(
     app: &AppHandle,
+    request_id: Option<&str>,
     client: &Client,
     model: &str,
     messages: Vec<LLMMessage>,
@@ -1028,6 +1195,7 @@ async fn stream_anthropic(
                 serde_json::json!({
                     "error": format!("Anthropic API request failed: {}", e)
                 }),
+                request_id,
             );
             format!("Anthropic API request failed: {}", e)
         })?;
@@ -1041,108 +1209,112 @@ async fn stream_anthropic(
             serde_json::json!({
                 "error": format!("Anthropic API error ({}): {}", status, error_text)
             }),
+            request_id,
         );
         return Err(format!("Anthropic API error ({}): {}", status, error_text));
     }
 
     let mut stream = response.bytes_stream();
     let mut buffer = Vec::new();
-
-    // Coalesce token deltas before emitting to avoid one IPC event per token.
     let mut chunk_buf = String::new();
     let mut last_flush = std::time::Instant::now();
     let mut finish_reason: Option<String> = None;
+    let mut saw_answer = false;
+    let mut saw_error = false;
+    let mut consume_line = |line: &str| -> bool {
+        let Some(data) = line.trim().strip_prefix("data:").map(str::trim) else {
+            return false;
+        };
+        let Ok(chunk_data) = serde_json::from_str::<AnthropicStreamChunk>(data) else {
+            return false;
+        };
+        match chunk_data.chunk_type.as_str() {
+            "content_block_delta" => {
+                if let Some(delta) = chunk_data.delta {
+                    if delta.delta_type == "text_delta" {
+                        if let Some(text) = delta.text.filter(|text| !text.is_empty()) {
+                            saw_answer = true;
+                            chunk_buf.push_str(&text);
+                            if last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
+                                || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
+                            {
+                                flush_stream_chunk(
+                                    app,
+                                    &mut chunk_buf,
+                                    &mut last_flush,
+                                    false,
+                                    request_id,
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            "message_delta" => {
+                if let Some(reason) = chunk_data.delta.and_then(|delta| delta.stop_reason) {
+                    finish_reason = Some(if reason == "max_tokens" {
+                        "length".to_string()
+                    } else {
+                        reason
+                    });
+                }
+            }
+            "message_stop" => return true,
+            "error" => {
+                flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false, request_id);
+                emit_stream_event(
+                    app,
+                    LLM_STREAM_ERROR,
+                    serde_json::json!({ "error": "Anthropic streaming error" }),
+                    request_id,
+                );
+                saw_error = true;
+                return true;
+            }
+            _ => {}
+        }
+        false
+    };
 
-    while let Some(item) = stream.next().await {
+    'stream: while let Some(item) = stream.next().await {
         let chunk = item.map_err(|e| {
             emit_stream_event(
                 app,
                 LLM_STREAM_ERROR,
-                serde_json::json!({
-                    "error": format!("Stream error: {}", e)
-                }),
+                serde_json::json!({ "error": format!("Stream error: {}", e) }),
+                request_id,
             );
             format!("Stream error: {}", e)
         })?;
-
         buffer.extend_from_slice(&chunk);
-        let data = String::from_utf8_lossy(&buffer);
-
-        for line in data.lines() {
-            let line = line.trim();
-            if line.is_empty() || !line.starts_with("data: ") {
-                continue;
-            }
-
-            let json_str = &line[6..];
-            if let Ok(chunk_data) = serde_json::from_str::<AnthropicStreamChunk>(json_str) {
-                match chunk_data.chunk_type.as_str() {
-                    "content_block_delta" => {
-                        if let Some(delta) = chunk_data.delta {
-                            if let Some(text) = delta.text {
-                                chunk_buf.push_str(&text);
-
-                                if last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
-                                    || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
-                                {
-                                    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
-                                }
-                            }
-                        }
-                    }
-                    "message_delta" => {
-                        if let Some(delta) = chunk_data.delta {
-                            if let Some(reason) = delta.stop_reason {
-                                finish_reason = Some(if reason == "max_tokens" {
-                                    "length".to_string()
-                                } else {
-                                    reason
-                                });
-                            }
-                        }
-                    }
-                    "message_stop" => {
-                        // Stream ended: flush any remaining buffered text.
-                        flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
-                        emit_stream_event(
-                            app,
-                            LLM_STREAM_DONE,
-                            serde_json::json!({ "finishReason": finish_reason }),
-                        );
-                        return Ok(());
-                    }
-                    "error" => {
-                        // Flush any buffered text before surfacing the error.
-                        flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
-                        emit_stream_event(
-                            app,
-                            LLM_STREAM_ERROR,
-                            serde_json::json!({
-                                "error": "Anthropic streaming error"
-                            }),
-                        );
-                        return Err("Anthropic streaming error".to_string());
-                    }
-                    _ => {}
-                }
+        while let Some(line) = take_complete_sse_line(&mut buffer) {
+            if consume_line(&line) {
+                break 'stream;
             }
         }
-
-        buffer.clear();
     }
-
-    // Final flush for any remaining buffered text.
-    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
+    if !buffer.is_empty() {
+        let final_line = String::from_utf8_lossy(&buffer).into_owned();
+        consume_line(&final_line);
+    }
+    drop(consume_line);
+    if saw_error {
+        return Err("Anthropic streaming error".to_string());
+    }
+    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false, request_id);
+    let response_kind = if saw_answer { "final-text" } else { "empty" };
     emit_stream_event(
         app,
         LLM_STREAM_DONE,
-        serde_json::json!({ "finishReason": finish_reason }),
+        serde_json::json!({ "finishReason": finish_reason, "responseKind": response_kind }),
+        request_id,
     );
     Ok(())
 }
 
 async fn stream_ollama(
     app: &AppHandle,
+    request_id: Option<&str>,
     client: &Client,
     model: &str,
     messages: Vec<LLMMessage>,
@@ -1160,6 +1332,7 @@ async fn stream_ollama(
             app,
             LLM_STREAM_ERROR,
             serde_json::json!({ "error": sanitized }),
+            request_id,
         );
         sanitized
     };
@@ -1211,7 +1384,7 @@ async fn stream_ollama(
                     if last_flush.elapsed() >= STREAM_FLUSH_INTERVAL
                         || chunk_buf.chars().count() >= STREAM_FLUSH_SIZE
                     {
-                        flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
+                        flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false, request_id);
                     }
                 }
                 if chunk_data.done {
@@ -1219,11 +1392,12 @@ async fn stream_ollama(
                         .done_reason
                         .clone()
                         .unwrap_or_else(|| "stop".to_string());
-                    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, true);
+                    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, true, request_id);
                     emit_stream_event(
                         app,
                         LLM_STREAM_DONE,
                         serde_json::json!({ "finishReason": finish_reason }),
+                        request_id,
                     );
                     return Ok(());
                 }
@@ -1234,8 +1408,8 @@ async fn stream_ollama(
         }
     }
 
-    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false);
-    emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}));
+    flush_stream_chunk(app, &mut chunk_buf, &mut last_flush, false, request_id);
+    emit_stream_event(app, LLM_STREAM_DONE, serde_json::json!({}), request_id);
     Ok(())
 }
 
@@ -2894,6 +3068,32 @@ pub struct LLMContextRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn stream_event_payload_is_correlated_to_its_request() {
+        let payload = stream_event_payload(
+            serde_json::json!({ "content": "fragment" }),
+            Some("attempt-a"),
+        );
+        assert_eq!(payload["requestId"], "attempt-a");
+        assert_eq!(payload["content"], "fragment");
+
+        let legacy = stream_event_payload(serde_json::json!({ "done": true }), None);
+        assert!(legacy.get("requestId").is_none());
+    }
+
+    #[test]
+    fn sse_line_buffer_preserves_records_split_across_reads() {
+        let mut buffer = b"data: {\"choices\":[".to_vec();
+        assert_eq!(take_complete_sse_line(&mut buffer), None);
+        buffer.extend_from_slice(b"]}\r\n\r\n");
+        assert_eq!(
+            take_complete_sse_line(&mut buffer).as_deref(),
+            Some("data: {\"choices\":[]}")
+        );
+        assert_eq!(take_complete_sse_line(&mut buffer).as_deref(), Some(""));
+        assert!(buffer.is_empty());
+    }
 
     #[test]
     fn finish_reason_normalization_maps_max_tokens_to_length() {

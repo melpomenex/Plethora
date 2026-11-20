@@ -2,6 +2,16 @@ import { libraryGenerationFailureMessage, libraryGenerationFailureContext } from
 import { PinnedCloudProvider } from "../../lib/ai/providers/cloudProvider";
 import { allowsChatCardCreation } from "../../lib/ai/assistant/toolCallParser";
 import { scopedBodyTokenBudget } from "../../utils/scopedContextBudget";
+import {
+  attachPodcastEpisodeView,
+  beginPodcastEpisodeAttempt,
+  finishPodcastEpisodeAttempt,
+  getPodcastEpisodeAttempt,
+  invalidatePodcastEpisodeAttempt,
+  isCurrentPodcastEpisodeAttempt,
+  isPodcastEpisodeConversationId,
+  isPodcastEpisodeOriginViewAttached,
+} from "../../lib/ai/assistant/podcastConversation";
 import { resolveScopedSectionContext } from "../../features/documentQa/sectionContextRequest";
 import { resolveAssistantSource, type FrozenAssistantSource } from "../../lib/ai/assistant/sourceEnvelope";
 import { ContextActionStrip, ContextActionMenu, QuizControls, contextActionsMatch, useTargetLabel, ACTION_CONTROL_CLASS } from "./ContextActions";
@@ -54,6 +64,7 @@ import {
   NotePencil,
   PaperPlaneTilt,
   Plus,
+  Square,
   ShareNetwork,
   SidebarSimple,
   Sparkle,
@@ -76,6 +87,7 @@ import { callAppMCPTool, getAppMCPTools, type MCPTool } from "../../api/mcp";
 import { AssistantResponseContent } from "../common/AssistantResponseContent";
 import { getAssistantAnswer, parseAssistantThinking } from "../../utils/assistantThinking";
 import { useDocumentStore, useSettingsStore, useLLMProvidersStore, useReviewStore, useTabsStore } from "../../stores";
+import { useAccountStore } from "../../stores/accountStore";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { ReviewTab, SettingsTab } from "../tabs/TabRegistry";
 import { ShareMessageDialog } from "./ShareMessageDialog";
@@ -309,6 +321,12 @@ interface Message {
    * component; never parsed as legacy tool calls or dispatched to MCP writes.
    */
   agentRun?: LearningAgentRunView;
+  podcastTurn?: {
+    attemptId: string;
+    status: "pending" | "interrupted" | "failed" | "stopped" | "complete";
+    error?: string;
+  };
+  podcastResponseAttemptId?: string;
 }
 
 interface ToolCall {
@@ -341,6 +359,7 @@ interface AssistantPanelProps {
 const ASSISTANT_POSITION_KEY = "assistant-panel-position";
 const ASSISTANT_WIDTH_KEY = "assistant-panel-width";
 const ASSISTANT_CONVERSATIONS_KEY = "assistant-panel-conversations-v1";
+const PODCAST_CONVERSATION_CHANGED_EVENT = "plethora:podcast-conversation-changed";
 
 /**
  * Split-pane layout constants, shared with the reader hosts so the assistant
@@ -354,6 +373,13 @@ const MAX_ATTACHED_IMAGES = 4;
 const MAX_IMAGE_BYTES = 10 * 1024 * 1024; // 10 MB raw file limit
 const CARD_CREATION_TOOL_NAMES = new Set(["create_qa_card", "create_cloze_card", "batch_create_cards"]);
 const ATTACHABLE_TOOL_NAMES = new Set([...CARD_CREATION_TOOL_NAMES, "create_extract"]);
+const CHAT_STATUS_KEYS = {
+  preparing: "assistant.chatStatus.preparing",
+  sources: "assistant.chatStatus.sources",
+  model: "assistant.chatStatus.model",
+  tools: "assistant.chatStatus.tools",
+  validation: "assistant.chatStatus.validation",
+} as const;
 
 const getDocumentDeckName = (title?: string): string | undefined => {
   const trimmed = title?.trim();
@@ -456,6 +482,12 @@ const readStoredConversations = (): StoredConversationMap => {
 let sqliteWriteInFlight = false;
 let sqlitePendingPayload: string | null = null;
 let sqliteHydrationPromise: Promise<StoredConversationMap | null> | null = null;
+const localConversationRevisions = new Map<string, number>();
+let sqliteHydrationRevisionsAtStart = new Map<string, number>();
+
+const conversationRevision = (key: string) => localConversationRevisions.get(key) ?? 0;
+
+const snapshotConversationRevisions = () => new Map(localConversationRevisions);
 
 const flushAssistantConversationsToSqlite = (payload: string) => {
   if (!isTauri()) return;
@@ -480,6 +512,7 @@ const flushAssistantConversationsToSqlite = (payload: string) => {
 const loadAssistantConversationsFromSqliteOnce = (): Promise<StoredConversationMap | null> => {
   if (!isTauri()) return Promise.resolve(null);
   if (!sqliteHydrationPromise) {
+    sqliteHydrationRevisionsAtStart = snapshotConversationRevisions();
     sqliteHydrationPromise = (async () => {
       try {
         const raw = await invokeCommand<string | null>("assistant_panel_conversations_get");
@@ -496,6 +529,7 @@ const loadAssistantConversationsFromSqliteOnce = (): Promise<StoredConversationM
 
 const writeStoredConversations = (conversations: StoredConversationMap, options?: { skipSqlite?: boolean }) => {
   try {
+    const previous = readStoredConversations();
     // Persist review drafts, not whole source passages: the agent artifact
     // already keeps source references/statuses, and a restored run re-reads
     // its cited records before anything can be saved.
@@ -525,6 +559,12 @@ const writeStoredConversations = (conversations: StoredConversationMap, options?
     }
     const serialized = JSON.stringify(sanitized);
     localStorage.setItem(ASSISTANT_CONVERSATIONS_KEY, serialized);
+    const keys = new Set([...Object.keys(previous), ...Object.keys(sanitized)]);
+    for (const key of keys) {
+      if (JSON.stringify(previous[key]) !== JSON.stringify(sanitized[key])) {
+        localConversationRevisions.set(key, conversationRevision(key) + 1);
+      }
+    }
     if (!options?.skipSqlite) {
       flushAssistantConversationsToSqlite(serialized);
     }
@@ -532,6 +572,59 @@ const writeStoredConversations = (conversations: StoredConversationMap, options?
     console.warn("Failed to persist assistant conversation:", error);
   }
 };
+
+const updateStoredPodcastConversation = (
+  conversationId: string,
+  update: (conversation: StoredConversation) => StoredConversation,
+): StoredConversation => {
+  const conversations = readStoredConversations();
+  const current = conversations[conversationId] ?? {
+    messages: [],
+    scope: "chat" as AssistantScope,
+    input: "",
+    updatedAt: Date.now(),
+  };
+  const next = { ...update(current), updatedAt: Date.now() };
+  conversations[conversationId] = next;
+  writeStoredConversations(conversations);
+  return next;
+};
+
+const notifyPodcastConversationChanged = (conversationId: string) => {
+  window.dispatchEvent(new CustomEvent(PODCAST_CONVERSATION_CHANGED_EVENT, { detail: { conversationId } }));
+};
+
+const updateStoredPodcastTurnStatus = (
+  conversationId: string,
+  userMessageId: string,
+  attemptId: string,
+  status: NonNullable<Message["podcastTurn"]>["status"],
+  error?: string,
+) => updateStoredPodcastConversation(conversationId, (conversation) => ({
+  ...conversation,
+  messages: conversation.messages.map((message) =>
+    message.id === userMessageId && message.podcastTurn?.attemptId === attemptId
+      ? { ...message, podcastTurn: { attemptId, status, ...(error ? { error } : {}) } }
+      : message,
+  ),
+}));
+
+const completeStoredPodcastTurn = (
+  conversationId: string,
+  userMessageId: string,
+  attemptId: string,
+  assistantMessage: Message,
+): Message[] => updateStoredPodcastConversation(conversationId, (conversation) => {
+  const messages = conversation.messages.map((message) =>
+    message.id === userMessageId && message.podcastTurn?.attemptId === attemptId
+      ? { ...message, podcastTurn: { attemptId, status: "complete" as const } }
+      : message,
+  );
+  if (!messages.some((message) => message.podcastResponseAttemptId === attemptId)) {
+    messages.push({ ...assistantMessage, podcastResponseAttemptId: attemptId });
+  }
+  return { ...conversation, messages };
+}).messages;
 
 const getUserInputHistory = (messages: Message[]): string[] => {
   const seen = new Set<string>();
@@ -580,14 +673,24 @@ export function AssistantPanel({
   mobilePresentation,
 }: AssistantPanelProps) {
   const { t, locale } = useI18n();
+  const ownerProfileId = useAccountStore((state) => state.user?.id ?? "local");
   const labelActionTarget = useTargetLabel();
   const paneId = usePaneId();
   const tabId = useTabId();
   const sessionKey = explicitConversationKey ?? getConversationKey(context);
+  const isPodcastSession = isPodcastEpisodeConversationId(sessionKey);
   const isMobileSession = sessionKey === MOBILE_ASSISTANT_CONVERSATION_KEY;
   const isMobilePresentation = Boolean(mobilePresentation);
   const requestEpochRef = useRef(0);
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const podcastAttemptRef = useRef<string | null>(null);
+  const podcastViewIdRef = useRef(`podcast-view-${Date.now()}-${Math.random().toString(36).slice(2)}`);
   const [hydratedSessionKey, setHydratedSessionKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isPodcastSession) return;
+    return attachPodcastEpisodeView(sessionKey, podcastViewIdRef.current);
+  }, [isPodcastSession, sessionKey]);
+
   useEffect(() => {
     if (!isMobileSession) return;
     const background = () => {
@@ -614,7 +717,13 @@ export function AssistantPanel({
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingReply, setPendingReply] = useState<{ attemptId: string; conversationKey: string; text: string; stage: "preparing" | "sources" | "model" | "tools" | "validation" }>();
   const [flashcardGeneratingMessageId, setFlashcardGeneratingMessageId] = useState<string | null>(null);
+  useEffect(() => () => {
+    // Podcast episode turns are persisted and finish in the background after
+    // the panel detaches. Ordinary chat work belongs to this mounted panel.
+    if (!isPodcastSession) chatAbortRef.current?.abort();
+  }, [isPodcastSession]);
   const toolExecutionContextRef = useRef<CapturedDocumentContext>({});
   const cardRetriesRef = useRef(new Set<string>());
   const assistantContextMenu = useContextMenu("assistant-panel-context-menu");
@@ -628,6 +737,23 @@ export function AssistantPanel({
   );
   const [appleFmAvailable, setAppleFmAvailable] = useState(false);
   const [isInputFocused, setIsInputFocused] = useState(false);
+  useEffect(() => {
+    if (!isPodcastSession) return;
+    const handlePodcastConversationChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ conversationId?: string }>).detail;
+      if (detail?.conversationId !== sessionKey) return;
+      const stored = readStoredConversations()[sessionKey];
+      const active = getPodcastEpisodeAttempt(sessionKey);
+      setMessages(stored?.messages ?? []);
+      if (!isInputFocused && stored) {
+        setInput(stored.input);
+        if (stored.scope) setScope(stored.scope);
+      }
+      setIsLoading(Boolean(active && active.ownerProfileId === ownerProfileId));
+    };
+    window.addEventListener(PODCAST_CONVERSATION_CHANGED_EVENT, handlePodcastConversationChange);
+    return () => window.removeEventListener(PODCAST_CONVERSATION_CHANGED_EVENT, handlePodcastConversationChange);
+  }, [isPodcastSession, isInputFocused, ownerProfileId, sessionKey]);
   const [attachedImages, setAttachedImages] = useState<AttachedImage[]>([]);
   const [isDragOver, setIsDragOver] = useState(false);
   const inputContainerRef = useRef<HTMLDivElement>(null);
@@ -1213,6 +1339,9 @@ export function AssistantPanel({
 
   useEffect(() => {
     requestEpochRef.current += 1;
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setPendingReply(undefined);
     actionFlightRef.current = null;
     // A conversation switch stops the run: its frozen envelope belongs to the
     // previous conversation and can never append here or trigger fallback.
@@ -1227,6 +1356,7 @@ export function AssistantPanel({
     setAgentScope(undefined);
     setAgentRevokedSourceIds([]);
     activeConversationKeyRef.current = sessionKey;
+    podcastAttemptRef.current = null;
     const allStored = readStoredConversations();
     let stored = allStored[sessionKey];
     if (!stored || stored.messages.length === 0) {
@@ -1236,8 +1366,21 @@ export function AssistantPanel({
       }
     }
     setHydratedSessionKey(sessionKey);
-    setIsLoading(false);
-    const storedMessages = stored?.messages ?? [];
+    const activePodcastAttempt = isPodcastSession ? getPodcastEpisodeAttempt(sessionKey) : undefined;
+    const hasLivePodcastAttempt = Boolean(activePodcastAttempt && activePodcastAttempt.ownerProfileId === ownerProfileId);
+    setIsLoading(hasLivePodcastAttempt);
+    let storedMessages = stored?.messages ?? [];
+    if (isPodcastSession && !hasLivePodcastAttempt && storedMessages.some((message) => message.podcastTurn?.status === "pending")) {
+      storedMessages = storedMessages.map((message) => message.podcastTurn?.status === "pending"
+        ? { ...message, podcastTurn: { ...message.podcastTurn, status: "interrupted" } }
+        : message);
+      const existing = stored;
+      if (existing) {
+        const conversations = readStoredConversations();
+        conversations[sessionKey] = { ...existing, messages: storedMessages, updatedAt: Date.now() };
+        writeStoredConversations(conversations);
+      }
+    }
     // Restore the optional agent artifact as a STOPPED draft. It is never
     // auto-executed; the proposals component revalidates sources on mount.
     let restoredMessages = storedMessages;
@@ -1303,7 +1446,7 @@ export function AssistantPanel({
     setHistoryIndex(null);
     lastContextSignatureRef.current = null;
     clearAttachedImages();
-  }, [sessionKey]);
+  }, [sessionKey, isPodcastSession, ownerProfileId]);
 
   useEffect(() => {
     if (!isTauri() || isMobileSession) return;
@@ -1315,13 +1458,10 @@ export function AssistantPanel({
       const merged: StoredConversationMap = { ...localMap };
       for (const [key, sqliteConv] of Object.entries(sqliteMap)) {
         const localConv = merged[key];
-        const sqliteHasMessages = sqliteConv.messages.length > 0;
-        const localHasMessages = Boolean(localConv && localConv.messages.length > 0);
-        if (
-          !localConv ||
-          (sqliteHasMessages && !localHasMessages) ||
-          sqliteConv.updatedAt > localConv.updatedAt
-        ) {
+        const changedSinceHydrationStarted =
+          conversationRevision(key) !== (sqliteHydrationRevisionsAtStart.get(key) ?? 0);
+        if (changedSinceHydrationStarted) continue;
+        if (!localConv || sqliteConv.updatedAt > localConv.updatedAt) {
           merged[key] = sqliteConv;
           changed = true;
         }
@@ -1332,17 +1472,22 @@ export function AssistantPanel({
       const activeKey = activeConversationKeyRef.current;
       const siblingKey = getSiblingDocumentVideoKey(context, activeKey);
       const restored =
-        (merged[activeKey]?.messages.length ? merged[activeKey] : undefined) ??
+        merged[activeKey] ??
         (siblingKey && merged[siblingKey]?.messages.length ? merged[siblingKey] : undefined);
-      if (restored && restored.messages.length > 0) {
+      const activeChangedSinceHydrationStarted =
+        conversationRevision(activeKey) !== (sqliteHydrationRevisionsAtStart.get(activeKey) ?? 0);
+      if (restored && !activeChangedSinceHydrationStarted) {
         setMessages((prev) => (prev.length === 0 ? restored.messages : prev));
         setScope((prev) => (prev === "chat" && restored.scope ? restored.scope : prev));
+        if (!isInputFocused) {
+          setInput((prev) => (prev.length === 0 ? restored.input : prev));
+        }
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [sessionKey, isMobileSession]);
+  }, [sessionKey, isMobileSession, isInputFocused]);
 
   useEffect(() => {
     const key = activeConversationKeyRef.current;
@@ -1592,28 +1737,76 @@ export function AssistantPanel({
     skipLocalCommands?: boolean;
     originatingMessageId?: string;
     restoreInputOnError?: string;
+    reuseUserMessageId?: string;
   }
 
-  const isCurrentRequest = (token: string) => token === `${activeConversationKeyRef.current}:${requestEpochRef.current}`;
+  const isCurrentPanelEpoch = (token: string) => token === `${activeConversationKeyRef.current}:${requestEpochRef.current}`;
+  const isCurrentRequest = (token: string) => {
+    if (!isCurrentPanelEpoch(token)) return false;
+    if (!isPodcastSession) return true;
+    const attemptId = podcastAttemptRef.current;
+    if (attemptId) return isCurrentPodcastEpisodeAttempt(
+      sessionKey,
+      attemptId,
+      useAccountStore.getState().user?.id ?? "local",
+    );
+    return !getPodcastEpisodeAttempt(sessionKey);
+  };
 
   const appendMessagesIfSameConversation = (
     conversationKeyAtStart: string,
     updater: (prev: Message[]) => Message[],
   ) => {
+    if (isPodcastSession) {
+      if (!isCurrentRequest(conversationKeyAtStart)) return;
+      const stored = readStoredConversations()[sessionKey];
+      const nextMessages = updater(stored?.messages ?? messages)
+        .map((message) => message.scope ? message : { ...message, scope });
+      updateStoredPodcastConversation(sessionKey, (conversation) => ({ ...conversation, messages: nextMessages }));
+      setMessages(nextMessages);
+      return;
+    }
     setMessages((prev) => {
       if (!isCurrentRequest(conversationKeyAtStart)) return prev;
       return updater(prev).map((message) => message.scope ? message : { ...message, scope });
     });
   };
 
-  const requestInFlight = () => isLoading || actionFlightRef.current !== null;
+  const requestInFlight = () =>
+    isLoading ||
+    actionFlightRef.current !== null ||
+    (isPodcastSession && Boolean(getPodcastEpisodeAttempt(sessionKey)));
   const submitAssistantRequest = async (request: AssistantSubmitRequest) => {
     if (requestInFlight()) return;
     const flightId = crypto.randomUUID();
+    const controller = new AbortController();
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = controller;
     actionFlightRef.current = flightId;
     let action = request.action;
 
     const conversationKeyAtStart = `${activeConversationKeyRef.current}:${requestEpochRef.current}`;
+    setPendingReply({ attemptId: flightId, conversationKey: conversationKeyAtStart, text: "", stage: "preparing" });
+    const reusedUserMessage = request.reuseUserMessageId
+      ? messages.find((message) => message.id === request.reuseUserMessageId)
+      : undefined;
+    const messageId = reusedUserMessage?.id ?? `user-${Date.now()}`;
+    const ownsPodcastTurn = isPodcastSession && !request.requestContent.trim().startsWith("/");
+    const podcastAttempt = ownsPodcastTurn
+      ? beginPodcastEpisodeAttempt({
+          conversationId: sessionKey,
+          userMessageId: messageId,
+          ownerProfileId: useAccountStore.getState().user?.id ?? "local",
+          originViewId: podcastViewIdRef.current,
+        })
+      : null;
+    if (ownsPodcastTurn && !podcastAttempt) {
+      actionFlightRef.current = null;
+      setInput(request.requestContent);
+      setIsLoading(Boolean(getPodcastEpisodeAttempt(sessionKey)));
+      return;
+    }
+    if (podcastAttempt) podcastAttemptRef.current = podcastAttempt.id;
     toolExecutionContextRef.current = request.capturedDocumentContext
       ?? captureDocumentContext(context?.documentId, assistantDocumentTitle);
 
@@ -1627,17 +1820,24 @@ export function AssistantPanel({
     const initialModel = initialProviderSnapshot.find((p) => p.provider === effectiveProvider)?.model;
     const hasImages = (request.images?.length ?? 0) > 0;
     const userMessage: Message = {
+      ...(reusedUserMessage ?? {}),
       action,
       scope: action?.scope,
       provenance: turnProvenance,
-      id: `user-${Date.now()}`,
+      id: messageId,
       role: "user",
       content: request.displayContent ?? request.requestContent,
       timestamp: Date.now(),
       images: hasImages ? [...(request.images ?? [])] : undefined,
+      ...(podcastAttempt ? { podcastTurn: { attemptId: podcastAttempt.id, status: "pending" as const } } : {}),
     };
 
-    appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, userMessage]);
+    appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => reusedUserMessage
+      ? prev.map((message) => message.id === messageId ? userMessage : message)
+      : [...prev, userMessage]);
+    if (podcastAttempt) {
+      updateStoredPodcastConversation(sessionKey, (conversation) => ({ ...conversation, input: "", scope }));
+    }
     let userInput = request.requestContent;
     setIsLoading(true);
 
@@ -1646,7 +1846,7 @@ export function AssistantPanel({
       const sourceEnvelope = captured.sourceEnvelope ?? (!request.capturedDocumentContext ? turnContext?.sourceEnvelope : undefined)
         ?? await resolveAssistantSource({ documentId: captured.documentId, extractId: !request.capturedDocumentContext ? turnContext?.extractId : undefined,
           contextKey: !request.capturedDocumentContext ? turnContext?.contextKey : undefined });
-      if (!isCurrentRequest(conversationKeyAtStart)) return;
+      if (controller.signal.aborted || !isCurrentRequest(conversationKeyAtStart)) return;
       toolExecutionContextRef.current = Object.freeze({ ...captured, documentId: sourceEnvelope?.documentId,
         sourceEnvelope, acceptanceId: flightId });
       if (action) {
@@ -1754,14 +1954,28 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceContentOverride: action?.target.content ?? request.sourceContentOverride,
         action,
         turnProvenance,
+        signal: controller.signal,
+        onProgress: (stage: "sources" | "model" | "tools" | "validation") => {
+          if (controller.signal.aborted || !isCurrentRequest(conversationKeyAtStart) || (podcastAttempt && !isPodcastEpisodeOriginViewAttached(sessionKey, podcastViewIdRef.current))) return;
+          setPendingReply((current) => current?.attemptId === flightId ? { ...current, stage } : current);
+        },
+        onPreview: (text: string) => {
+          if (controller.signal.aborted || !isCurrentRequest(conversationKeyAtStart) || (podcastAttempt && !isPodcastEpisodeOriginViewAttached(sessionKey, podcastViewIdRef.current))) return;
+          setPendingReply((current) => current?.attemptId === flightId ? { ...current, text } : current);
+        },
       };
 
       const isTwentyRules = isTwentyRulesCommand(userInput);
-      const response = await callLLM(userInput, contextData, isTwentyRules, Boolean(action || request.sourceContentOverride));
+      const response = await callLLM(
+        userInput,
+        contextData,
+        isTwentyRules,
+        Boolean(action || request.sourceContentOverride || podcastAttempt),
+      );
       if (request.sourceContentOverride && response.content.startsWith("Error calling LLM:")) {
         throw new Error(response.content.replace(/^Error calling LLM:\s*/, ""));
       }
-      if (!isCurrentRequest(conversationKeyAtStart)) return;
+      if (controller.signal.aborted || !isCurrentRequest(conversationKeyAtStart)) return;
       const parsedResponse = parseAssistantThinking(response.content);
       const { cleanedContent, toolCalls, quiz } = parseSubmittedActionReply(parsedResponse.answer, availableTools, action);
       if (!allowsChatCardCreation(userInput) && action?.actionId !== "flashcards") {
@@ -1795,9 +2009,14 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceCoverage: response.sourceCoverage,
       };
 
-      appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, assistantMessage]);
+      if (podcastAttempt) {
+        setMessages(completeStoredPodcastTurn(sessionKey, userMessage.id, podcastAttempt.id, assistantMessage));
+      } else {
+        appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, assistantMessage]);
+      }
 
-      if (!action && !request.skipMemoryExtraction && useSettingsStore.getState().settings.ai.memoryEnabled) {
+      const podcastOriginAttached = !podcastAttempt || isPodcastEpisodeOriginViewAttached(sessionKey, podcastViewIdRef.current);
+      if (!action && !request.skipMemoryExtraction && useSettingsStore.getState().settings.ai.memoryEnabled && podcastOriginAttached) {
         const chatHistory = [...messages, userMessage, assistantMessage].map((m) => {
           let mappedRole: "System" | "User" | "Assistant" = "System";
           if (m.role === "user") mappedRole = "User";
@@ -1812,10 +2031,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         });
       }
 
-      if (toolCalls.length > 0 && isCurrentRequest(conversationKeyAtStart)) {
-        const results = await executeToolCalls(assistantMessage.id, toolCalls, response.sourceContext, () => isCurrentRequest(conversationKeyAtStart));
+      if (toolCalls.length > 0 && isCurrentRequest(conversationKeyAtStart) && podcastOriginAttached) {
+        const results = await executeToolCalls(assistantMessage.id, toolCalls, response.sourceContext, () =>
+          isCurrentRequest(conversationKeyAtStart) && (!podcastAttempt || isPodcastEpisodeOriginViewAttached(sessionKey, podcastViewIdRef.current)));
         const confirmation = buildConfirmationMessage(results);
-        if (confirmation) {
+        if (confirmation && (!podcastAttempt || isPodcastEpisodeOriginViewAttached(sessionKey, podcastViewIdRef.current))) {
           const confirmationMessage: Message = {
             id: `assistant-confirm-${Date.now()}`,
             role: "assistant",
@@ -1826,6 +2046,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         }
       }
     } catch (error) {
+      if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
+      const errorText = error instanceof Error ? error.message : String(error);
+      if (podcastAttempt && isCurrentRequest(conversationKeyAtStart)) {
+        updateStoredPodcastTurnStatus(sessionKey, userMessage.id, podcastAttempt.id, "failed", errorText);
+      }
       if (request.restoreInputOnError !== undefined && isCurrentRequest(conversationKeyAtStart)) {
         setInput(request.restoreInputOnError);
         historyDraftRef.current = request.restoreInputOnError;
@@ -1841,8 +2066,21 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       };
       appendMessagesIfSameConversation(conversationKeyAtStart, (prev) => [...prev, errorMessage]);
     } finally {
+      if (chatAbortRef.current === controller) chatAbortRef.current = null;
+      setPendingReply((current) => current?.attemptId === flightId ? undefined : current);
       if (actionFlightRef.current === flightId) actionFlightRef.current = null;
-      if (isCurrentRequest(conversationKeyAtStart)) {
+      if (podcastAttempt) {
+        const activeAttempt = getPodcastEpisodeAttempt(sessionKey);
+        if (activeAttempt?.id === podcastAttempt.id) {
+          if (!isCurrentRequest(conversationKeyAtStart)) {
+            updateStoredPodcastTurnStatus(sessionKey, userMessage.id, podcastAttempt.id, "interrupted");
+          }
+          finishPodcastEpisodeAttempt(sessionKey, podcastAttempt.id);
+          notifyPodcastConversationChanged(sessionKey);
+        }
+        if (podcastAttemptRef.current === podcastAttempt.id) podcastAttemptRef.current = null;
+      }
+      if (isCurrentPanelEpoch(conversationKeyAtStart)) {
         toolExecutionContextRef.current = {};
         setFlashcardGeneratingMessageId(null);
         setIsLoading(false);
@@ -1864,8 +2102,15 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       skipLocalCommands: true, skipMemoryExtraction: true,
     });
   };
-  const stopContextAction = () => {
+  const stopAssistantTurn = () => {
+    if (isPodcastSession) {
+      stopPodcastTurn();
+      return;
+    }
     const action = [...messages].reverse().find(m => m.role === 'user')?.action;
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setPendingReply(undefined);
     requestEpochRef.current += 1; actionFlightRef.current = null; setIsLoading(false);
     if (action) setMessages(prev => [...prev, { id: `stopped-${Date.now()}`, role: 'system', content: t('assistant.actions.stopped'), action, actionError: true, timestamp: Date.now() }]);
   };
@@ -2421,7 +2666,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
   const callLLM = async (
     prompt: string,
-    contextData: Record<string, unknown>,
+    contextData: Record<string, unknown> & {
+      signal?: AbortSignal;
+      onProgress?: (stage: "sources" | "model" | "tools" | "validation") => void;
+      onPreview?: (text: string) => void;
+    },
     isTwentyRules?: boolean,
     throwOnLlmError?: boolean,
   ): Promise<{ content: string; toolCalls?: ToolCall[]; imagesStripped?: boolean; modelName?: string; sourceContext?: SectionSourceReference; diagnostics?: StructuredTurnDiagnostics; sourceCoverage?: "full" | "window" | "chunks" | "hierarchical-full" | "none" }> => {
@@ -2684,6 +2933,9 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           : effectivePrompt;
         const fmResponse = await runAssistantTurn({
           action,
+          signal: contextData.signal as AbortSignal,
+          onProgress: contextData.onProgress,
+          onPreview: contextData.onPreview,
           scope: turnScope, userQuestion: appleFmUserPrompt, sourceType: llmContext?.type,
           sourceId: toolExecutionContextRef.current.sourceEnvelope?.documentId ?? llmContext?.documentId, sourceEnvelope: toolExecutionContextRef.current.sourceEnvelope, sourceTitle: action?.target.title ?? llmContext?.metadata?.title ?? assistantDocumentTitle,
           sourceContent: contextContent, sourceCoverage: sourceCoverageForRequest,
@@ -2693,11 +2945,13 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           provider: "apple-foundation", isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
           documentsForPrivacyCheck: privacyDocuments ?? (llmContext?.documentId ? [await getDocument(llmContext.documentId)] : []),
           strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
-          chatExecutor: async ({ messages, context: source }) => runAssistantAppleFmChat({
+          chatExecutor: async ({ messages, context: source, signal, onChunk }) => runAssistantAppleFmChat({
             systemInstruction: String(messages[0].content),
             conversationHistory: messages.slice(1, -1).map((m) => ({ role: m.role, content: String(m.content) })),
             userPrompt: String(messages.at(-1)?.content ?? appleFmUserPrompt), documentContext: source.content,
             maxOutputTokens: contextWindowTokens,
+            signal,
+            onChunk,
           }),
         });
         setSuggestSwitchToChat(Boolean(fmResponse.suggestSwitchToChat));
@@ -2742,6 +2996,9 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       const imagesStripped = Boolean(currentUserImages?.length && !supportsVision(effectiveProvider, modelName));
       const response = await runAssistantTurn({
         action,
+        signal: contextData.signal as AbortSignal,
+        onProgress: contextData.onProgress,
+        onPreview: contextData.onPreview,
         scope: turnScope, userQuestion: resolvedUserPrompt, history: (contextData.conversationHistory as Message[]).map((m) => ({
           ...m, content: m.role === "assistant" ? getAssistantAnswer(m.content) : m.content,
           images: m.images?.map((image) => image.dataUrl),
@@ -2768,7 +3025,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         tools: turnTools, isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
         systemInstruction: [provider.systemPrompt, toolInstruction].filter(Boolean).join("\n\n"),
         userImages: imagesStripped ? undefined : currentUserImages?.map((image) => image.dataUrl),
-        libraryExecutor: async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k }) => {
+        libraryExecutor: async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k, signal, onProgress, onAnswerPreview }) => {
           const [{ askLibrary }, { resolveEmbeddingConfigForRag }, guards] = await Promise.all([
             import("../../lib/ai/tasks/definitions/libraryTask"), import("./ragConfig"),
             import("../../lib/ai/assistant/retrievalGuards"),
@@ -2799,6 +3056,9 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
             config,
             filters,
             evidenceScope: scope === "library" ? "library" : "document",
+            signal,
+            onProgress,
+            onAnswerPreview,
           });
         },
       });
@@ -2813,6 +3073,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceCoverage: response.sourceCoverage,
       };
     } catch (error) {
+      if (contextData.signal?.aborted || (error instanceof Error && error.name === "AbortError")) throw error;
       if (libraryGenerationFailureMessage(error)) throw error;
       console.error("LLM API error:", error);
       if (hasSectionMentions || throwOnLlmError) throw error;
@@ -3603,6 +3864,18 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     }
   };
 
+  const handleRetryPodcastTurn = (targetMessage: Message) => {
+    if (!isPodcastSession || isLoading || !targetMessage.podcastTurn ||
+      !["failed", "interrupted", "stopped"].includes(targetMessage.podcastTurn.status)) return;
+    setInput("");
+    historyDraftRef.current = "";
+    void submitAssistantRequest({
+      requestContent: targetMessage.content,
+      displayContent: targetMessage.content,
+      reuseUserMessageId: targetMessage.id,
+    });
+  };
+
   const handleCopyEntireChat = async () => {
     if (messages.length === 0) return;
     const conversationMessages = getConversationMessages();
@@ -3644,6 +3917,19 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     }
   }, [isMobileSession, activeMobileChatId, messages, scope, input, agentDraft, t]);
 
+  const stopPodcastTurn = () => {
+    if (!isPodcastSession) return;
+    const attempt = invalidatePodcastEpisodeAttempt(sessionKey);
+    if (!attempt) return;
+    updateStoredPodcastTurnStatus(sessionKey, attempt.userMessageId, attempt.id, "stopped");
+    setMessages(readStoredConversations()[sessionKey]?.messages ?? []);
+    if (podcastAttemptRef.current === attempt.id) podcastAttemptRef.current = null;
+    requestEpochRef.current += 1;
+    actionFlightRef.current = null;
+    setIsLoading(false);
+    notifyPodcastConversationChanged(sessionKey);
+  };
+
   const handleClearChat = () => {
     const hadVisibleMessages = isMobileSession && (messages.some((m) => m.role !== "system") || Boolean(agentDraft));
     if (isMobileSession) {
@@ -3657,6 +3943,20 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
     setAgentProgress(null);
     setAgentDraft(undefined);
     setIsLoading(false);
+    if (isPodcastSession) {
+      invalidatePodcastEpisodeAttempt(sessionKey);
+      podcastAttemptRef.current = null;
+      updateStoredPodcastConversation(sessionKey, (conversation) => ({
+        ...conversation,
+        messages: [],
+        input: "",
+        scope: "chat",
+        agentDraft: undefined,
+      }));
+      setInput("");
+      setScope("chat");
+      notifyPodcastConversationChanged(sessionKey);
+    }
     setMessages([]);
     const siblingKey = getSiblingDocumentVideoKey(context, sessionKey);
     if (siblingKey) {
@@ -4509,8 +4809,28 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                       })()}
                     </>
                   )}
+                  {message.podcastTurn?.status === "pending" && !isLoading && (
+                    <div className="mt-1 text-xs opacity-75" role="status">Waiting for the reply to finish</div>
+                  )}
                 </div>
               )}
+
+              {message.role === "user" && message.podcastTurn &&
+                ["failed", "interrupted", "stopped"].includes(message.podcastTurn.status) && (
+                  <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>
+                      {message.podcastTurn.status === "failed"
+                        ? "Reply failed"
+                        : message.podcastTurn.status === "interrupted"
+                          ? "Reply interrupted"
+                          : "Reply stopped"}
+                    </span>
+                    <button type="button" disabled={isLoading} className={ACTION_CONTROL_CLASS}
+                      onClick={() => handleRetryPodcastTurn(message)}>
+                      {t("assistant.actions.retry")}
+                    </button>
+                  </div>
+                )}
 
               {message.generationFailure && <div className="flex flex-wrap gap-1">
                 <button type="button" disabled={isLoading} className={ACTION_CONTROL_CLASS} onClick={() => handleRetryMessage(message)}>{t("assistant.actions.retry")}</button>
@@ -4648,10 +4968,25 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
           })
         )}
         {isLoading && (
-          <div className="flex items-center gap-2 self-start text-xs text-muted-foreground" role="status">
-            <CircleNotch className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-            <span>{t("assistant.thinkingInProgress")}</span>
-            {actionFlightRef.current && <button type="button" className={ACTION_CONTROL_CLASS} onClick={stopContextAction}>{t('common.stop')}</button>}
+          <div data-pending-reply className="flex max-w-[85%] min-w-0 flex-col gap-2 self-start text-sm">
+            <div className="flex min-h-10 items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite" aria-atomic="true">
+              <CircleNotch className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              <span>{t(CHAT_STATUS_KEYS[pendingReply?.stage ?? "preparing"])}</span>
+              {isPodcastSession && getPodcastEpisodeAttempt(sessionKey) ? (
+                <button type="button" aria-label={t("assistant.chatStatus.stopResponse")} className={ACTION_CONTROL_CLASS} onClick={stopPodcastTurn}>
+                  {t("common.stop")}
+                </button>
+              ) : chatAbortRef.current ? (
+                <button type="button" aria-label={t("common.stop")} className={ACTION_CONTROL_CLASS} onClick={stopAssistantTurn}>
+                  {t("common.stop")}
+                </button>
+              ) : null}
+            </div>
+            {pendingReply?.conversationKey === `${activeConversationKeyRef.current}:${requestEpochRef.current}` && pendingReply.text && (
+              <div className="max-w-full rounded-xl bg-muted px-3 py-2 text-foreground">
+                <AssistantResponseContent content={pendingReply.text} className="text-sm" />
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -5064,13 +5399,13 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                 {(input.trim().length > 0 || attachedImages.length > 0 || isLoading) && (
                   <button
                     type="button"
-                    onClick={handleSendMessage}
-                    disabled={!canSend}
-                    aria-label={translateRecentFeature("i18nAudit.ui.send-message.8345772a")}
+                    onClick={isLoading ? stopAssistantTurn : handleSendMessage}
+                    disabled={isLoading ? false : !canSend}
+                    aria-label={isLoading ? t("common.stop") : translateRecentFeature("i18nAudit.ui.send-message.8345772a")}
                     className="md-state flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
                   >
                     {isLoading ? (
-                      <CircleNotch className="w-5 h-5 animate-spin" aria-hidden="true" />
+                      <Square className="w-4 h-4" weight="fill" aria-hidden="true" />
                     ) : (
                       <PaperPlaneTilt className="w-5 h-5" aria-hidden="true" />
                     )}
@@ -5088,14 +5423,14 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   <Images className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={handleSendMessage}
-                  disabled={!canSend}
-                  aria-label={translateRecentFeature("i18nAudit.ui.send-message.8345772a")}
+                  onClick={isLoading ? stopAssistantTurn : handleSendMessage}
+                  disabled={isLoading ? false : !canSend}
+                  aria-label={isLoading ? t("common.stop") : translateRecentFeature("i18nAudit.ui.send-message.8345772a")}
                   data-agent-send
                   className="px-2 py-1 bg-primary text-primary-foreground rounded-lg hover:bg-primary/90 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                 >
                   {isLoading ? (
-                    <CircleNotch className="w-4 h-4 animate-spin" />
+                    <Square className="w-3.5 h-3.5" weight="fill" />
                   ) : (
                     <PaperPlaneTilt className="w-4 h-4" />
                   )}

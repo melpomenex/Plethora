@@ -18,6 +18,7 @@ import {
   detectTopicDrift,
   distillSummary,
   extractKeyTerms,
+  extractStreamingJsonStringField,
   extractStreamingTutorContent,
   topicSignature,
 } from "../context";
@@ -202,5 +203,16 @@ describe("extractStreamingTutorContent", () => {
   it("returns empty before the content key arrives and on a broken escape", () => {
     expect(extractStreamingTutorContent('{"move":"hi')).toBe("");
     expect(extractStreamingTutorContent('{"content":"trailing backslash \\')).toBe("");
+  });
+
+  it("reads only the top-level answer and holds split JSON escapes", () => {
+    expect(extractStreamingJsonStringField('{"extra":{"answer":"wrong"},"answer":"right', "answer")).toBe("right");
+    expect(extractStreamingJsonStringField('{"answer":"first \\', "answer")).toBe("first ");
+    expect(extractStreamingJsonStringField('{"answer":"first \\n second"}', "answer")).toBe("first \n second");
+  });
+
+  it("accepts an explicit JSON code fence while keeping other prefixes opaque", () => {
+    expect(extractStreamingJsonStringField('```json\n{"answer":"visible', "answer")).toBe("visible");
+    expect(extractStreamingJsonStringField('Example: {"answer":"not a protocol preview"}', "answer")).toBe("");
   });
 });

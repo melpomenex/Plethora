@@ -58,6 +58,9 @@ export async function askQaKnowledge(options: {
   loadDocumentText?: (documentId: string) => Promise<string>;
   /** Test seam for provider execution (matches the orchestrator contract). */
   chatExecutor?: AssistantTurnRequest["chatExecutor"];
+  signal?: AbortSignal;
+  onProgress?: AssistantTurnRequest["onProgress"];
+  onPreview?: AssistantTurnRequest["onPreview"];
 }): Promise<Message> {
   const [{ askLibrary }, { resolveLibraryRagComposition }, { resolveEmbeddingConfigForRag }, { useDocumentStore }, { useCollectionStore }, { useSettingsStore }] = await Promise.all([
     import("../../lib/ai/tasks/definitions/libraryTask"), import("../../lib/ai/resolveLibraryRag"),
@@ -124,6 +127,9 @@ export async function askQaKnowledge(options: {
   }
 
   const turn = await runAssistantTurn({
+    signal: options.signal,
+    onProgress: options.onProgress,
+    onPreview: options.onPreview,
     scope: turnScope,
     userQuestion: options.question,
     history: options.history,
@@ -153,10 +159,11 @@ export async function askQaKnowledge(options: {
     strictLocalOnly: settings.ai.strictLocalOnly,
     documentsForPrivacyCheck: documents,
     chatExecutor: options.chatExecutor,
-    libraryExecutor: async ({ rewrittenQuery, history, contextBudgetTokens, k }) => {
+    libraryExecutor: async ({ rewrittenQuery, history, contextBudgetTokens, k, signal, onProgress, onAnswerPreview }) => {
       libraryResult = await askLibrary({ query: rewrittenQuery, history, contextBudgetTokens, k, config, composition,
         provider: composition.generatorKind === "cloud" && configured ? new PinnedCloudProvider(configured) : undefined,
         filters: { documentIds }, contextPassage: options.contextPassage,
+        signal, onProgress, onAnswerPreview,
         evidenceScope: turnScope === "document" ? "document" : "library" });
       return libraryResult;
     },

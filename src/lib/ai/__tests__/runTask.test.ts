@@ -206,6 +206,85 @@ describe("text tasks through runTask", () => {
     expect(getInFlightTaskCount()).toBe(0);
   });
 
+  it("replays current preview to a late subscriber and broadcasts later chunks", async () => {
+    let release!: () => void;
+    let announceFirstChunk!: () => void;
+    const firstChunk = new Promise<void>((resolve) => { announceFirstChunk = resolve; });
+    const provider = new FakeAIProvider();
+    provider.generateStream = (_request, options = {}) => new Promise((resolve, reject) => {
+      options.onChunk?.("first ");
+      announceFirstChunk();
+      const onAbort = () => reject(Object.assign(new Error("cancelled"), { name: "AbortError" }));
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+      release = () => {
+        options.signal?.removeEventListener("abort", onAbort);
+        options.onChunk?.("second");
+        resolve(aiResponse("first second"));
+      };
+    });
+    const task = textTask();
+    const firstChunks: string[] = [];
+    const lateChunks: string[] = [];
+    const first = runTask(task, { q: "same" }, {
+      provider, targetId: "late-subscriber", onChunk: (chunk) => firstChunks.push(chunk),
+    });
+    await firstChunk;
+    const late = runTask(task, { q: "same" }, {
+      provider, targetId: "late-subscriber", onChunk: (chunk) => lateChunks.push(chunk),
+    });
+    expect(lateChunks).toEqual(["first "]);
+    release();
+    await Promise.all([first, late]);
+    expect(firstChunks).toEqual(["first ", "second"]);
+    expect(lateChunks).toEqual(["first ", "second"]);
+  });
+
+  it("cancels one subscriber without cancelling the shared run", async () => {
+    let release!: () => void;
+    let started!: () => void;
+    const hasStarted = new Promise<void>((resolve) => { started = resolve; });
+    const provider = new FakeAIProvider();
+    let providerSignal: AbortSignal | undefined;
+    provider.generateStream = (_request, options = {}) => new Promise((resolve, reject) => {
+      providerSignal = options.signal;
+      started();
+      const onAbort = () => reject(Object.assign(new Error("cancelled"), { name: "AbortError" }));
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+      release = () => {
+        options.signal?.removeEventListener("abort", onAbort);
+        options.onChunk?.("answer");
+        resolve(aiResponse("answer"));
+      };
+    });
+    const task = textTask();
+    const firstController = new AbortController();
+    const first = runTask(task, { q: "same" }, {
+      provider, targetId: "subscriber-cancel", signal: firstController.signal,
+    });
+    const second = runTask(task, { q: "same" }, {
+      provider, targetId: "subscriber-cancel",
+    });
+    await hasStarted;
+    firstController.abort();
+    await expect(first).rejects.toMatchObject({ category: "Cancelled" });
+    expect(providerSignal?.aborted).toBe(false);
+    release();
+    await expect(second).resolves.toMatchObject({ output: "answer" });
+  });
+
+  it("does not share a target across different provider instances", async () => {
+    const firstProvider = new FakeAIProvider({ responses: [aiResponse("first")] });
+    const secondProvider = new FakeAIProvider({ responses: [aiResponse("second")] });
+    const task = textTask();
+    const [first, second] = await Promise.all([
+      runTask(task, { q: "same" }, { provider: firstProvider, targetId: "provider-scope" }),
+      runTask(task, { q: "same" }, { provider: secondProvider, targetId: "provider-scope" }),
+    ]);
+    expect([first.output, second.output]).toEqual(["first", "second"]);
+    expect(firstProvider.callCount).toBe(1);
+    expect(secondProvider.callCount).toBe(1);
+  });
+
   it("does not coalesce different targets", async () => {
     const provider = new FakeAIProvider({ responses: [aiResponse("a"), aiResponse("b")] });
     const task = textTask();

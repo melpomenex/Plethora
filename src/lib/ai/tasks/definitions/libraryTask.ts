@@ -42,6 +42,7 @@ import {
 } from "../../../../api/ai-learning";
 import { UNTRUSTED_CONTAINMENT_CLAUSE, wrapUntrustedBlock } from "../containment";
 import { runTask } from "../runTask";
+import { extractStreamingJsonStringField } from "../../tutor/context";
 import { registerTasks } from "../registry";
 import type { AITaskDefinition, AITaskResult } from "../types";
 import { DEFAULT_LIBRARY_RAG, type RagComposition } from "../../ragComposition";
@@ -280,6 +281,9 @@ export interface AskLibraryOptions {
    */
   evidenceScope?: "library" | "document" | "passage";
   signal?: AbortSignal;
+  /** Progress and answer-only preview callbacks; neither receives validated history data. */
+  onProgress?: (stage: "sources" | "model") => void;
+  onAnswerPreview?: (answer: string) => void;
   /** Explicit provider injection (tests / FakeAIProvider eval runs). */
   provider?: AIProvider;
   /** Pins the provider kind when the caller already resolved availability. */
@@ -361,6 +365,7 @@ async function prepareLibraryBudget(options: AskLibraryOptions, composition: Rag
 }
 
 export async function askLibrary(options: AskLibraryOptions): Promise<AskLibraryResult> {
+  options.onProgress?.("sources");
   const composition = options.composition ?? DEFAULT_LIBRARY_RAG;
   if (composition.namespace === RAG_NAMESPACE_HELP && !options.retriever && !options.retrieve) {
     throw new AIError(
@@ -509,6 +514,8 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
     text: result.text,
   }));
 
+  options.onProgress?.("model");
+  let streamedEnvelope = "";
   let run: AITaskResult<LibraryAnswer>;
   try {
     if (!provider) throw new AIError("ModelUnavailable", "No AI provider is available for this question.", { code: "model_unavailable", taskId: ASK_LIBRARY_TASK_ID });
@@ -517,6 +524,14 @@ export async function askLibrary(options: AskLibraryOptions): Promise<AskLibrary
       { query: options.query, sources, contextPassage: options.contextPassage, history: options.history },
       {
         signal: options.signal,
+        streaming: Boolean(options.onAnswerPreview),
+        onChunk: options.onAnswerPreview
+          ? (chunk) => {
+              streamedEnvelope += chunk;
+              const answer = extractStreamingJsonStringField(streamedEnvelope, "answer");
+              if (answer) options.onAnswerPreview?.(answer);
+            }
+          : undefined,
         provider: options.provider ? provider : undefined,
         resolvedProvider: provider,
         maxOutputTokens: policy.maxOutputTokens,

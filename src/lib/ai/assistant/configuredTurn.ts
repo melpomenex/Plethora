@@ -53,18 +53,18 @@ export async function runConfiguredAssistantTurn(options: Omit<AssistantTurnRequ
     memoryEnabled: settings.ai.memoryEnabled, strictLocalOnly: settings.ai.strictLocalOnly,
     documentsForPrivacyCheck: documents,
     sourceType: documents[0]?.fileType === "youtube" || documents[0]?.fileType === "video" ? "video" : options.sourceType,
-    chatExecutor: path === "ondevice" || path === "none" ? async ({ messages, context, maxTokens }) => {
+    chatExecutor: path === "ondevice" || path === "none" ? async ({ messages, context, maxTokens, signal, onChunk }) => {
       const systemInstruction = messages.filter((message) => message.role === "system").map((message) => String(message.content)).join("\n\n");
       const text = [context.content, ...messages.filter((message) => message.role !== "system").map((message) => `${message.role}: ${String(message.content)}`)].filter(Boolean).join("\n\n");
       const task = {
         id: "assistant-conversation", taskType: "prompt" as const, modelClass: "full" as const,
         systemInstruction, buildInput: (input: string) => ({ text: input }), outputKind: "text" as const,
-        maxOutputTokens: maxTokens ?? 1200, timeoutMs: 60000, streaming: false, requirement: "prompt" as const,
+        maxOutputTokens: maxTokens ?? 1200, timeoutMs: 60000, streaming: Boolean(onChunk), requirement: "prompt" as const,
       };
-      const run = await runTask(task, text, { signal: options.signal, kind: "ondevice" });
+      const run = await runTask(task, text, { signal: signal ?? options.signal, onChunk, kind: "ondevice" });
       return { content: String(run.output ?? run.text) };
     } : undefined,
-    libraryExecutor: options.scope === "library" || (options.scope === "document" && ids.length > 0) ? async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k }) => {
+    libraryExecutor: options.scope === "library" || (options.scope === "document" && ids.length > 0) ? async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k, signal, onProgress, onAnswerPreview }) => {
       const [{ askLibrary }, { resolveLibraryRagComposition }, { resolveEmbeddingConfigForRag }] = await Promise.all([
         import("../tasks/definitions/libraryTask"), import("../resolveLibraryRag"), import("../../../components/assistant/ragConfig"),
       ]);
@@ -72,7 +72,7 @@ export async function runConfiguredAssistantTurn(options: Omit<AssistantTurnRequ
       return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, composition, config,
         provider: path === "cloud" && configured ? new PinnedCloudProvider(configured) : undefined,
         kind: path === "ondevice" ? "ondevice" : undefined,
-        filters: ids.length ? { documentIds: ids } : undefined, signal: options.signal,
+        filters: ids.length ? { documentIds: ids } : undefined, signal: signal ?? options.signal, onProgress, onAnswerPreview,
         evidenceScope: options.scope === "document" ? "document" : "library" });
     } : undefined,
   });

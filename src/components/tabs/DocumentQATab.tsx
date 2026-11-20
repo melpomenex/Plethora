@@ -43,6 +43,7 @@ import {
   Globe,
   List,
   PaperPlaneTilt,
+  Square,
   DotsThree,
   WarningCircle,
   Plus,
@@ -118,6 +119,13 @@ const MENTION_REGEX = /@{([^}]+)}/g;
 const SECTION_REGEX = /#{([^}]+)}/g;
 const CARD_CREATION_TOOL_NAMES = new Set(["create_qa_card", "create_cloze_card", "batch_create_cards"]);
 const ATTACHABLE_TOOL_NAMES = new Set([...CARD_CREATION_TOOL_NAMES, "create_extract"]);
+const CHAT_STATUS_KEYS = {
+  preparing: "assistant.chatStatus.preparing",
+  sources: "assistant.chatStatus.sources",
+  model: "assistant.chatStatus.model",
+  tools: "assistant.chatStatus.tools",
+  validation: "assistant.chatStatus.validation",
+} as const;
 
 const getDocumentDeckName = (title?: string): string | undefined => {
   const trimmed = title?.trim();
@@ -152,6 +160,9 @@ export function DocumentQATab() {
   const [sourcePickerOpen, setSourcePickerOpen] = useState(false);
   const [summaryAfterPick, setSummaryAfterPick] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [pendingReply, setPendingReply] = useState<{ text: string; stage: "preparing" | "sources" | "model" | "tools" | "validation" }>();
+  const qaAbortRef = useRef<AbortController | null>(null);
+  const qaAttemptRef = useRef(0);
   const cardRetriesRef = useRef(new Set<string>());
   const [retryTurnId, setRetryTurnId] = useState<string | null>(null);
   const restoreRetryRef = useRef<(() => void) | null>(null);
@@ -292,6 +303,7 @@ export function DocumentQATab() {
   const { t } = useI18n();
 
   const qaTurnSourceRef = useRef<FrozenAssistantSource | undefined>(undefined);
+  useEffect(() => () => qaAbortRef.current?.abort(), []);
   const targetDocument = useMemo(
     () => documents.find((document) => document.id === targetDocId)
       ?? (currentDocument?.id === targetDocId ? currentDocument : undefined),
@@ -1438,6 +1450,15 @@ export function DocumentQATab() {
     }
   };
 
+  const stopAssistantTurn = () => {
+    qaAttemptRef.current += 1;
+    qaAbortRef.current?.abort();
+    qaAbortRef.current = null;
+    setPendingReply(undefined);
+    setIsProcessing(false);
+    restoreRetryRef.current?.();
+  };
+
   const handleSendMessage = async () => {
     if (!rawInput.trim() || isProcessing) return;
 
@@ -1511,6 +1532,13 @@ export function DocumentQATab() {
       return;
     }
 
+    const attemptId = ++qaAttemptRef.current;
+    const controller = new AbortController();
+    qaAbortRef.current?.abort();
+    qaAbortRef.current = controller;
+    setPendingReply({ text: "", stage: "preparing" });
+    const isCurrentAttempt = () => qaAttemptRef.current === attemptId && !controller.signal.aborted;
+
     if (isTwentyRules) {
       userQuestion = stripTwentyRulesCommand(userQuestion) || "Create atomic flashcards from the provided content strictly following Dr. Piotr Wozniak's 20 Rules of Knowledge Formulation.";
     }
@@ -1520,7 +1548,12 @@ export function DocumentQATab() {
       if (!hasSectionMentions && !chapterRef && !toolIntent && !webSearchEnabled) {
         if (assistantScope !== "chat" && !(assistantScope === "document" && mentionedDocumentIds.length === 0)) {
           const message = await askQaKnowledge({ question: userQuestion, scope: submittedScope, collectionId: activeCollectionId, contextPassage,
-            history: messages.filter((message) => message.role !== "system").map((message) => ({ ...message, scope: message.submittedScope?.conversationScope })) });
+            history: messages.filter((message) => message.role !== "system").map((message) => ({ ...message, scope: message.submittedScope?.conversationScope })),
+            signal: controller.signal,
+            onProgress: (stage) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, stage } : current); },
+            onPreview: (text) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, text } : current); },
+          });
+          if (!isCurrentAttempt()) return;
           setSuggestSwitchToChat(message.evidence?.level === "none");
           const parsed = parseAssistantThinking(message.content);
           addMessage({ ...message, content: parsed.answer, thinking: parsed.thinking || undefined });
@@ -1530,7 +1563,11 @@ export function DocumentQATab() {
         const result = await runConfiguredAssistantTurn({ scope: assistantScope, userQuestion,
           documentIds: mentionedDocumentIds, sourceId: mentionedDocumentIds[0], sourceTitle: sourceLabel,
           selectionExcerpt: contextPassage, history: messages.filter((message) => message.role !== "system").map((message) => ({ ...message, scope: message.submittedScope?.conversationScope })),
+          signal: controller.signal,
+          onProgress: (stage) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, stage } : current); },
+          onPreview: (text) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, text } : current); },
         });
+        if (!isCurrentAttempt()) return;
         const parsed = parseAssistantThinking(result.answer);
         setSuggestSwitchToChat(Boolean(result.suggestSwitchToChat));
         addMessage({ id: `assistant-${Date.now()}`, role: "assistant", timestamp: Date.now(), submittedScope,
@@ -1695,6 +1732,9 @@ export function DocumentQATab() {
       qaTurnSourceRef.current = sourceDocument ? freezeAssistantSource(sourceDocument) : undefined;
       // Call LLM with conversation history
       const response = await runAssistantTurn({
+        signal: controller.signal,
+        onProgress: (stage) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, stage } : current); },
+        onPreview: (text) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, text } : current); },
         sourceEnvelope: qaTurnSourceRef.current,
         scope: assistantScope, userQuestion: String(userPrompt.content),
         sourceContent: requestContent.contextContent, sourceId: mentionedDocumentIds[0], sourceTitle: sourceLabel,
@@ -1706,11 +1746,12 @@ export function DocumentQATab() {
         strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
         documentsForPrivacyCheck: eligible, tools: mcpTools, isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
         systemInstruction: provider.systemPrompt,
-        libraryExecutor: assistantScope === "library" ? async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k }) => {
+        libraryExecutor: assistantScope === "library" ? async ({ rewrittenQuery, history, contextPassage, contextBudgetTokens, k, signal, onProgress, onAnswerPreview }) => {
           const [{ askLibrary }, { resolveEmbeddingConfigForRag }] = await Promise.all([import("../../lib/ai/tasks/definitions/libraryTask"), import("../assistant/ragConfig")]);
-          return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, provider: new PinnedCloudProvider(provider), config: await resolveEmbeddingConfigForRag().catch(() => undefined), filters: { documentIds: eligible.map((doc) => doc.id) }, evidenceScope: "library" });
+          return askLibrary({ query: rewrittenQuery, history, contextPassage, contextBudgetTokens, k, provider: new PinnedCloudProvider(provider), config: await resolveEmbeddingConfigForRag().catch(() => undefined), filters: { documentIds: eligible.map((doc) => doc.id) }, evidenceScope: "library", signal, onProgress, onAnswerPreview });
         } : undefined,
       });
+      if (!isCurrentAttempt()) return;
       setSuggestSwitchToChat(Boolean(response.suggestSwitchToChat));
 
       const parsedResponse = parseAssistantThinking(response.rawContent);
@@ -1736,6 +1777,7 @@ export function DocumentQATab() {
         await executeToolCalls(assistantMessage.id, toolCalls, focusedSectionContext?.ok ? focusedSectionContext.source : undefined);
       }
     } catch (error) {
+      if (controller.signal.aborted || (error instanceof Error && error.name === "AbortError")) return;
       const generationFailure = libraryGenerationFailureMessage(error);
       const reason = generationFailure ?? (error instanceof Error ? error.message : String(error));
       setProviderError(generationFailure ?? (reason.startsWith("qaWorkspace.") ? t(reason) : t("qaWorkspace.requestFailed", { reason })));
@@ -1749,7 +1791,11 @@ export function DocumentQATab() {
       };
       addMessage(errorMessage);
     } finally {
-      setIsProcessing(false);
+      if (qaAttemptRef.current === attemptId) {
+        qaAbortRef.current = null;
+        setPendingReply(undefined);
+        setIsProcessing(false);
+      }
     }
   };
 
@@ -2109,10 +2155,25 @@ export function DocumentQATab() {
                 )}
               </div>
             ))}
-            {isProcessing && (
+            {pendingReply && (
+              <div data-pending-reply className="flex flex-col items-start gap-2">
+                <div className="flex min-h-9 items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite" aria-atomic="true">
+                  <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  <span>{t(CHAT_STATUS_KEYS[pendingReply.stage])}</span>
+                  <Button variant="text" size="sm" className="min-h-9 px-3" onClick={stopAssistantTurn} aria-label={t("common.stop")}>
+                    <Square className="mr-1 h-3 w-3" weight="fill" aria-hidden="true" />{t("common.stop")}
+                  </Button>
+                </div>
+                {pendingReply.text && <div className="max-w-[85%] rounded-xl bg-surface-container-low px-3 py-2 text-on-surface">
+                  <AssistantResponseContent content={pendingReply.text} className="text-sm" />
+                </div>}
+              </div>
+            )}
+            {isProcessing && !pendingReply && (
               <div className="flex items-center gap-2 text-xs text-muted-foreground" role="status">
                 <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
                 <span>{t("qaWorkspace.processing")}</span>
+                <Button variant="text" size="sm" className="min-h-9 px-3" onClick={stopAssistantTurn}>{t("common.stop")}</Button>
               </div>
             )}
             <div ref={messagesEndRef} />

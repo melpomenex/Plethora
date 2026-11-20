@@ -19,12 +19,23 @@ import {
   CircleNotch,
   Lightning,
   PaperPlaneRight,
+  Square,
   Sparkle,
   X,
 } from "@phosphor-icons/react";
 import { defaultHelpRetrieval } from "./helpRetrieval";
 import { dispatchRegisteredHelpAction } from "./registeredHelpActions";
 import { renderMarkdown } from "../../utils/markdown";
+import { AssistantResponseContent } from "../../components/common/AssistantResponseContent";
+import { useI18n } from "../../lib/i18n";
+
+const CHAT_STATUS_KEYS = {
+  preparing: "assistant.chatStatus.preparing",
+  sources: "assistant.chatStatus.sources",
+  model: "assistant.chatStatus.model",
+  tools: "assistant.chatStatus.tools",
+  validation: "assistant.chatStatus.validation",
+} as const;
 
 export interface AskPlethoraModalProps {
   isOpen: boolean;
@@ -57,13 +68,17 @@ export const AskPlethoraModal: React.FC<AskPlethoraModalProps> = ({
   initialQuery = "",
   context = {},
 }) => {
+  const { t } = useI18n();
   const [query, setQuery] = useState(initialQuery);
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingReply, setPendingReply] = useState<{ text: string; stage: "preparing" | "sources" | "model" | "tools" | "validation" }>();
   const [selectedDocId, setSelectedDocId] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const attemptRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     if (isOpen) {
@@ -76,9 +91,36 @@ export const AskPlethoraModal: React.FC<AskPlethoraModalProps> = ({
 
   useEffect(() => {
     scrollRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, isLoading]);
+  }, [messages, isLoading, pendingReply?.text]);
+
+  useEffect(() => {
+    if (isOpen) return;
+    attemptRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setPendingReply(undefined);
+    setIsLoading(false);
+  }, [isOpen]);
+
+  useEffect(() => {
+    attemptRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setPendingReply(undefined);
+    setIsLoading(false);
+  }, [context.activeView, context.documentFormat, context.ttsActive]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
 
   if (!isOpen) return null;
+
+  const stopReply = () => {
+    attemptRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setPendingReply(undefined);
+    setIsLoading(false);
+  };
 
   const handleSend = async (textToSend?: string) => {
     const q = (textToSend ?? query).trim();
@@ -94,12 +136,22 @@ export const AskPlethoraModal: React.FC<AskPlethoraModalProps> = ({
     setMessages((prev) => [...prev, userMsg]);
     setQuery("");
     setIsLoading(true);
+    const attemptId = ++attemptRef.current;
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
+    setPendingReply({ text: "", stage: "preparing" });
+    const isCurrentAttempt = () => attemptRef.current === attemptId && !controller.signal.aborted;
 
     try {
       const res = await askPlethora({
         query: q,
         context,
+        signal: controller.signal,
+        onProgress: (stage) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, stage } : current); },
+        onAnswerPreview: (text) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, text } : current); },
       });
+      if (!isCurrentAttempt()) return;
 
       // Map citations to HelpCitationRef objects
       const citations: HelpCitationRef[] = (res.answer.sourceRefs || []).map((ref, idx) => {
@@ -127,6 +179,7 @@ export const AskPlethoraModal: React.FC<AskPlethoraModalProps> = ({
 
       setMessages((prev) => [...prev, plethoraMsg]);
     } catch (err) {
+      if (controller.signal.aborted || (err instanceof Error && err.name === "AbortError")) return;
       const errorMsg: MessageItem = {
         id: `err-${Date.now()}`,
         sender: "plethora",
@@ -135,7 +188,11 @@ export const AskPlethoraModal: React.FC<AskPlethoraModalProps> = ({
       };
       setMessages((prev) => [...prev, errorMsg]);
     } finally {
-      setIsLoading(false);
+      if (attemptRef.current === attemptId) {
+        abortRef.current = null;
+        setPendingReply(undefined);
+        setIsLoading(false);
+      }
     }
   };
 
@@ -176,7 +233,7 @@ export const AskPlethoraModal: React.FC<AskPlethoraModalProps> = ({
 
             <button
               type="button"
-              onClick={onClose}
+              onClick={() => { stopReply(); onClose(); }}
               className="p-2 rounded-lg hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
               aria-label="Close Ask Plethora modal"
             >
@@ -257,9 +314,17 @@ export const AskPlethoraModal: React.FC<AskPlethoraModalProps> = ({
             )}
 
             {isLoading && (
-              <div className="flex items-center gap-2 text-xs text-muted-foreground py-2">
-                <CircleNotch className="w-4 h-4 animate-spin text-primary-400" />
-                <span>Searching canonical product documentation...</span>
+              <div data-pending-reply className="flex flex-col gap-2 py-2">
+                <div className="flex min-h-10 items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite" aria-atomic="true">
+                  <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none text-primary-400" aria-hidden="true" />
+                  <span>{t(CHAT_STATUS_KEYS[pendingReply?.stage ?? "preparing"])}</span>
+                  <button type="button" onClick={stopReply} aria-label={t("common.stop")} className="ml-auto rounded-md px-3 py-2 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                    <Square className="mr-1 inline h-3 w-3" weight="fill" aria-hidden="true" />{t("common.stop")}
+                  </button>
+                </div>
+                {pendingReply?.text && <div className="max-w-[90%] rounded-xl border border-border bg-card px-3 py-2 text-foreground">
+                  <AssistantResponseContent content={pendingReply.text} className="text-sm" />
+                </div>}
               </div>
             )}
 

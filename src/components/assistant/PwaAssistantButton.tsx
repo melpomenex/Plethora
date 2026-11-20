@@ -5,11 +5,11 @@ import {
   Microphone,
   MicrophoneSlash,
   PaperPlaneTilt,
+  Square,
   Gear as SettingsIcon,
   Sparkle,
   X,
 } from "@phosphor-icons/react";
-import { chatWithContext, type LLMMessage } from "../../api/llm";
 import { useI18n } from "../../lib/i18n";
 import { AssistantResponseContent } from "../common/AssistantResponseContent";
 import { getAssistantAnswer, parseAssistantThinking } from "../../utils/assistantThinking";
@@ -40,6 +40,13 @@ type ChatMessage = {
 const MIN_SHEET_HEIGHT = 48;
 const DEFAULT_SHEET_HEIGHT = 72;
 const MAX_SHEET_HEIGHT = 94;
+const CHAT_STATUS_KEYS = {
+  preparing: "assistant.chatStatus.preparing",
+  sources: "assistant.chatStatus.sources",
+  model: "assistant.chatStatus.model",
+  tools: "assistant.chatStatus.tools",
+  validation: "assistant.chatStatus.validation",
+} as const;
 
 function clampSheetHeight(height: number): number {
   return Math.min(MAX_SHEET_HEIGHT, Math.max(MIN_SHEET_HEIGHT, height));
@@ -123,12 +130,15 @@ export function PwaAssistantButton({
   const [input, setInput] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingReply, setPendingReply] = useState<{ text: string; stage: "preparing" | "sources" | "model" | "tools" | "validation" }>();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [lastUsedProviderLabel, setLastUsedProviderLabel] = useState<string>("");
   const [_isExtractingContent, setIsExtractingContent] = useState(false);
   const [sheetHeight, setSheetHeight] = useState(DEFAULT_SHEET_HEIGHT);
 
   const recognitionRef = useRef<any | null>(null);
+  const attemptRef = useRef(0);
+  const abortRef = useRef<AbortController | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const sheetDragRef = useRef<{ pointerId: number; startY: number; startHeight: number } | null>(
     null
@@ -150,9 +160,28 @@ export function PwaAssistantButton({
   useEffect(() => {
     if (!isOpen) return;
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [isOpen, messages, isLoading]);
+  }, [isOpen, messages, isLoading, pendingReply?.text]);
+
+  useEffect(() => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    attemptRef.current += 1;
+    setPendingReply(undefined);
+    setIsLoading(false);
+  }, [context.documentId, context.type, context.content, context.selection, context.url]);
+
+  useEffect(() => () => abortRef.current?.abort(), []);
+
+  const stopReply = () => {
+    attemptRef.current += 1;
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setPendingReply(undefined);
+    setIsLoading(false);
+  };
 
   const close = () => {
+    stopReply();
     setIsOpen(false);
     setError(null);
     setInterim("");
@@ -313,6 +342,12 @@ export function PwaAssistantButton({
 
     setError(null);
     setIsLoading(true);
+    const attemptId = ++attemptRef.current;
+    const controller = new AbortController();
+    abortRef.current?.abort();
+    abortRef.current = controller;
+    setPendingReply({ text: "", stage: "preparing" });
+    const isCurrentAttempt = () => attemptRef.current === attemptId && !controller.signal.aborted;
 
     const now = Date.now();
     const userMessage: ChatMessage = {
@@ -332,8 +367,12 @@ export function PwaAssistantButton({
       }
 
       const resolvedContext = context.resolveForPrompt ? await context.resolveForPrompt(trimmed) : { content: context.content };
+      if (!isCurrentAttempt()) return;
       const provider = resolved.provider;
       const response = await runAssistantTurn({
+        signal: controller.signal,
+        onProgress: (stage) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, stage } : current); },
+        onPreview: (text) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, text } : current); },
         scope: "chat", userQuestion: trimmed, sourceType: context.type, sourceId: context.documentId,
         sourceTitle: context.metadata?.title, sourceContent: resolvedContext.content,
         selectionExcerpt: context.selection, playbackTimeSeconds: context.position?.currentTime,
@@ -347,12 +386,15 @@ export function PwaAssistantButton({
         memoryEnabled: settings.ai.memoryEnabled, strictLocalOnly: settings.ai.strictLocalOnly,
         documentsForPrivacyCheck: context.documentId ? [await documentsApi.getDocument(context.documentId)] : [],
         systemInstruction: provider?.systemPrompt,
-        chatExecutor: resolved.useAppleFm ? async ({ messages, context: source, maxTokens }) => runAssistantAppleFmChat({
+        chatExecutor: resolved.useAppleFm ? async ({ messages, context: source, maxTokens, signal, onChunk }) => runAssistantAppleFmChat({
           systemInstruction: String(messages[0].content), userPrompt: String(messages.at(-1)?.content ?? trimmed),
           conversationHistory: messages.slice(1, -1).map((message) => ({ role: message.role, content: String(message.content) })),
           documentContext: source.content, maxOutputTokens: maxTokens,
+          signal,
+          onChunk,
         }) : undefined,
       });
+      if (!isCurrentAttempt()) return;
       setLastUsedProviderLabel(resolved.useAppleFm ? "Apple Intelligence • on-device" : `${provider.name || provider.provider} • ${provider.model}`);
 
       const parsedResponse = parseAssistantThinking(response.rawContent);
@@ -365,11 +407,16 @@ export function PwaAssistantButton({
       };
       setMessages((prev) => [...prev, assistant]);
     } catch (e) {
+      if (controller.signal.aborted || (e instanceof Error && e.name === "AbortError")) return;
       const msg =
         e instanceof Error ? e.message : typeof e === "string" ? e : "Failed to get response";
       setError(msg);
     } finally {
-      setIsLoading(false);
+      if (attemptRef.current === attemptId) {
+        abortRef.current = null;
+        setPendingReply(undefined);
+        setIsLoading(false);
+      }
     }
   };
 
@@ -616,10 +663,26 @@ export function PwaAssistantButton({
                 );
               })}
 
-              {isLoading && (
-                <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                  <CircleNotch className="w-4 h-4 animate-spin" />
-                  {t("assistant.thinkingInProgress")}
+              {pendingReply && (
+                <div data-pending-reply className="flex justify-start">
+                  <div className="max-w-[92%] rounded-2xl border border-border bg-card px-3 py-2 text-sm text-foreground">
+                    <div className="mb-1 flex min-h-8 items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite" aria-atomic="true">
+                      <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                      <span>{t(CHAT_STATUS_KEYS[pendingReply.stage])}</span>
+                      <button type="button" className="ml-auto rounded-md px-2 py-1 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary" onClick={stopReply} aria-label={t("common.stop")}>
+                        <Square className="mr-1 inline h-3 w-3" weight="fill" aria-hidden="true" />{t("common.stop")}
+                      </button>
+                    </div>
+                    {pendingReply.text && <AssistantResponseContent content={pendingReply.text} className="prose prose-sm max-w-none" />}
+                  </div>
+                </div>
+              )}
+
+              {isLoading && !pendingReply && (
+                <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite">
+                  <CircleNotch className="w-4 h-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                  <span>{t("assistant.chatStatus.preparing")}</span>
+                  <button type="button" onClick={stopReply} aria-label={t("common.stop")} className="rounded-md px-2 py-1 hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">{t("common.stop")}</button>
                 </div>
               )}
               <div ref={messagesEndRef} />

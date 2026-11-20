@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { AssistantPanel } from "../AssistantPanel";
 import { ThemeProvider } from "../../../contexts/ThemeContext";
@@ -24,6 +24,45 @@ function deferredTurn() {
   return (text: string) => finish({ rawContent: text } as Awaited<ReturnType<typeof runAssistantTurn>>);
 }
 describe("mobile conversation frozen turn and request epoch", () => {
+  it.each([
+    ["desktop", { ...props, mobilePresentation: undefined }],
+    ["narrow mobile", props],
+  ] as const)("shows a live reply and stops the %s turn", async (_surface, panelProps) => {
+    let finish!: (value: Awaited<ReturnType<typeof runAssistantTurn>>) => void;
+    let signal!: AbortSignal;
+    let turnCount = 0;
+    const result = new Promise<Awaited<ReturnType<typeof runAssistantTurn>>>(resolve => { finish = resolve; });
+    vi.mocked(runAssistantTurn).mockImplementation(async request => {
+      turnCount += 1;
+      signal = request.signal!;
+      if (turnCount === 1) {
+        request.onProgress?.("model");
+        request.onPreview?.("Visible fragment");
+        return result;
+      }
+      return { rawContent: "Retry final response" } as Awaited<ReturnType<typeof runAssistantTurn>>;
+    });
+
+    render(<ThemeProvider><AssistantPanel {...panelProps} context={{ type: "general" }} /></ThemeProvider>);
+    submit();
+    await waitFor(() => expect(runAssistantTurn).toHaveBeenCalledOnce());
+    expect(document.querySelector("[data-pending-reply]")).toHaveTextContent("Waiting for the model…");
+    expect(screen.getByText("Visible fragment")).toBeInTheDocument();
+
+    const pendingReply = document.querySelector("[data-pending-reply]");
+    expect(pendingReply).not.toBeNull();
+    fireEvent.click(within(pendingReply as HTMLElement).getByRole("button", { name: "Stop" }));
+    expect(signal.aborted).toBe(true);
+    await act(async () => { finish({ rawContent: "Late final response" } as Awaited<ReturnType<typeof runAssistantTurn>>); });
+    expect(screen.queryByText("Late final response")).not.toBeInTheDocument();
+    expect(document.querySelector("[data-pending-reply]")).toBeNull();
+
+    submit("Retry question");
+    await waitFor(() => expect(runAssistantTurn).toHaveBeenCalledTimes(2));
+    expect(await screen.findByText("Retry final response")).toBeInTheDocument();
+    expect(screen.getAllByText("Retry final response")).toHaveLength(1);
+  });
+
   it("New conversation rejects a late response and preserves the new draft", async () => {
     const finish = deferredTurn(); render(<ThemeProvider><AssistantPanel {...props} context={{ type: "general" }} /></ThemeProvider>); submit();
     await waitFor(() => expect(runAssistantTurn).toHaveBeenCalledOnce());

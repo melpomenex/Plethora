@@ -60,6 +60,7 @@ import {
   PencilSimple,
   Plus,
   Quotes,
+  Square,
   Sparkle,
   Tag,
   TextAa,
@@ -75,7 +76,8 @@ import {
   type CreateLearningItemInput,
 } from "../../api/learning-items";
 import { getExtracts, type Extract } from "../../api/extracts";
-import { chatWithContext, type LLMMessage } from "../../api/llm";
+import { streamChatWithContext, type LLMMessage } from "../../api/llm";
+import { AssistantAnswerStreamFilter } from "../../lib/ai/assistant/answerStreamFilter";
 import {
   notebooklmGenerateArtifact,
   notebooklmGetSettings,
@@ -268,6 +270,13 @@ interface GenerationHistoryItem {
 }
 
 const HISTORY_KEY = "flashcard-studio-history";
+const CHAT_STATUS_KEYS = {
+  preparing: "assistant.chatStatus.preparing",
+  sources: "assistant.chatStatus.sources",
+  model: "assistant.chatStatus.model",
+  tools: "assistant.chatStatus.tools",
+  validation: "assistant.chatStatus.validation",
+} as const;
 const NOTEBOOKLM_PROVIDER_ID = "__notebooklm__";
 
 // Cost per 1K tokens (approximate for GPT-4)
@@ -1018,6 +1027,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [isSending, setIsSending] = useState(false);
+  const [pendingReply, setPendingReply] = useState<{ text: string; stage: "preparing" | "sources" | "model" | "tools" | "validation" }>();
   const [draftCards, setDraftCards] = useState<DraftCard[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("chat");
@@ -1065,6 +1075,18 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const draftCardsContainerRef = useRef<HTMLDivElement>(null);
   const shouldAutoScrollRef = useRef(true);
   const saveInFlightRef = useRef(false);
+  const chatAbortRef = useRef<AbortController | null>(null);
+  const chatAttemptRef = useRef(0);
+  const activePromptRef = useRef("");
+
+  useEffect(() => () => chatAbortRef.current?.abort(), []);
+  useEffect(() => {
+    chatAttemptRef.current += 1;
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setPendingReply(undefined);
+    setIsSending(false);
+  }, [activeSessionId, isOpen]);
 
   const preferredOnDeviceProviderId = useSettingsStore(
     (state) => state.settings.ai.preferredOnDeviceProviderId
@@ -1269,6 +1291,11 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         flashcardTargetOverride: sessionTargetOverride,
       });
     }
+    chatAttemptRef.current += 1;
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setPendingReply(undefined);
+    setIsSending(false);
     persistActiveSessionId(targetId);
     setActiveSessionId(targetId);
     const target = getSession(targetId);
@@ -1282,6 +1309,11 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
    * chooses "Keep drafts" in the discard confirmation).
    */
   const startFreshSession = useCallback((opts: { carryDrafts?: boolean } = {}) => {
+    chatAttemptRef.current += 1;
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setPendingReply(undefined);
+    setIsSending(false);
     const carriedDrafts = opts.carryDrafts ? draftCards : [];
     const fresh = createStudioSession({
       draftCards: carriedDrafts,
@@ -1416,7 +1448,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         container.scrollTo({ top: container.scrollHeight, behavior: "smooth" });
       }
     });
-  }, [messages, isOpen]);
+  }, [messages, isOpen, pendingReply?.text]);
 
   const handleMessagesScroll = useCallback(() => {
     const el = messagesContainerRef.current;
@@ -1741,6 +1773,13 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     if (!isOpen) return;
     const previous = previousDocumentIdRef.current;
     previousDocumentIdRef.current = selectedDocumentId;
+    if (previous !== null && previous !== selectedDocumentId) {
+      chatAttemptRef.current += 1;
+      chatAbortRef.current?.abort();
+      chatAbortRef.current = null;
+      setPendingReply(undefined);
+      setIsSending(false);
+    }
     if (previous && previous !== selectedDocumentId) {
       if (seededDocumentIdRef.current === selectedDocumentId) {
         seededDocumentIdRef.current = null;
@@ -2047,14 +2086,23 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     setInput("");
     setIsSending(true);
     setViewMode("chat");
+    const attemptId = ++chatAttemptRef.current;
+    const controller = new AbortController();
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = controller;
+    activePromptRef.current = promptText.trim();
+    setPendingReply({ text: "", stage: "sources" });
+    const isCurrentAttempt = () => chatAttemptRef.current === attemptId && !controller.signal.aborted;
 
     try {
       const capturedSource = await resolveAssistantSource({ documentId: selectedDocument?.id ?? seed?.documentId ?? undefined,
         extractId: seededExtractIdRef.current ?? seed?.linkedExtractId });
+      if (!isCurrentAttempt()) return;
       const gate = await enforceAssistantPrivacyAndConsent({ documents: capturedSource ? [await getDocument(capturedSource.documentId)] : [],
         providerId: isNotebookProviderSelected ? "notebooklm" : isOnDeviceProviderSelected ? selectedProviderId ?? "ondevice" : currentProvider!.provider,
         baseUrl: currentProvider?.baseUrl, strictLocalOnly: useSettingsStore.getState().settings.ai.strictLocalOnly,
         attachingSourceContent: Boolean(capturedSource) });
+      if (!isCurrentAttempt()) return;
       if (!gate.allowed) throw new Error(gate.message || "This source is unavailable for the selected provider.");
       const generationPolicy = resolveRequestPolicy({ provider: currentProvider?.provider, providerContextTokens: isOnDeviceProviderSelected ? 3072 : currentProvider?.contextWindowTokens ?? maxTokens + (currentProvider?.maxTokens ?? 2048), providerMaxOutput: isOnDeviceProviderSelected ? 512 : currentProvider?.maxTokens });
       const bodyTokens = scopedBodyTokenBudget({ promptBudgetTokens: Math.min(maxTokens, generationPolicy.promptBudgetTokens), instructions: buildSystemPrompt(extractExplicitCardCount(promptText) ?? effectiveFlashcardTarget.count, isTwentyRulesCommand(promptText)), userPrompt: promptText,
@@ -2115,15 +2163,27 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         const explicit = extractExplicitCardCount(promptText);
         const target = explicit ?? resolveFlashcardTarget(aiControls, sourceText).count;
 
-        const generated = await withOnDeviceRun("Flashcard generation", ({ signal, onProgress }) =>
-          generateFlashcardsWithRouter(sourceText, {
-            count: target,
-            tags: [ON_DEVICE_TAG],
-            signal,
-            onProgress,
-            providerId: selectedProviderId ?? undefined,
-          }),
-        );
+        setPendingReply((current) => current ? { ...current, stage: "model" } : current);
+        const generated = await withOnDeviceRun("Flashcard generation", async ({ signal, onProgress }) => {
+          const linkedController = new AbortController();
+          const abortLinked = () => linkedController.abort();
+          signal.addEventListener("abort", abortLinked, { once: true });
+          controller.signal.addEventListener("abort", abortLinked, { once: true });
+          if (signal.aborted || controller.signal.aborted) linkedController.abort();
+          try {
+            return await generateFlashcardsWithRouter(sourceText, {
+              count: target,
+              tags: [ON_DEVICE_TAG],
+              signal: linkedController.signal,
+              onProgress,
+              providerId: selectedProviderId ?? undefined,
+            });
+          } finally {
+            signal.removeEventListener("abort", abortLinked);
+            controller.signal.removeEventListener("abort", abortLinked);
+          }
+        });
+        if (!isCurrentAttempt()) return;
 
         const assistantId = `assistant-${Date.now()}`;
         const cards: DraftCard[] = generated.map((card, index) => ({
@@ -2177,6 +2237,8 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       }
 
       if (isNotebookProviderSelected) {
+        if (!isCurrentAttempt()) return;
+        setPendingReply((current) => current ? { ...current, stage: "model" } : current);
         const notebookTitle = notebooks.find((n) => n.id === selectedNotebookId)?.title || "NotebookLM";
         const contextBlocks: string[] = [promptText.trim()];
         if (selectedDocument?.title) {
@@ -2194,11 +2256,13 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
           artifactType: "flashcards",
           instructions: contextBlocks.join("\n\n"),
         });
+        if (!isCurrentAttempt()) return;
         if (job.status === "failed" || job.status === "expired-auth") {
           throw new Error(job.error || `NotebookLM job failed with status ${job.status}`);
         }
 
         const previewItems = await notebooklmPreviewFlashcards(job.id);
+        if (!isCurrentAttempt()) return;
         const generated = previewItems.map((item, index) => ({
           id: `notebooklm-${job.id}-${index}-${Date.now()}`,
           type: "qa" as const,
@@ -2325,7 +2389,11 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       // A bare excerpt (e.g. selected EPUB text via right-click → Create Flashcard)
       // is enough to use document context even if the full document isn't loaded.
       const hasDocumentContent = !!(effectiveContextContent?.trim());
-      const response = await chatWithContext(
+      if (!isCurrentAttempt()) return;
+      const previewFilter = new AssistantAnswerStreamFilter(["create_qa_card", "create_cloze_card", "batch_create_cards"]);
+      let responseContent = "";
+      setPendingReply((current) => current ? { ...current, stage: "model" } : current);
+      await streamChatWithContext(
         currentProvider.provider,
         currentProvider.model,
         llmMessages,
@@ -2338,6 +2406,14 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
           configuredContextTokens: currentProvider.contextWindowTokens ?? maxTokens,
           maxOutputTokens: currentProvider.maxTokens,
         },
+        {
+          signal: controller.signal,
+          onChunk: (chunk) => {
+            responseContent += chunk;
+            const preview = previewFilter.push(chunk);
+            if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, text: preview } : current);
+          },
+        },
         currentProvider.apiKey,
         currentProvider.baseUrl?.trim() || undefined,
         currentProvider.temperature,
@@ -2346,17 +2422,20 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         sectionSourceContext ? false : aiControls.contextFromRelatedCards,
         aiControls.documentSnippetLength
       );
+      if (!isCurrentAttempt()) return;
 
       const assistantId = `assistant-${Date.now()}`;
-      const parsedResponse = parseAssistantThinking(response.content);
+      const parsedResponse = parseAssistantThinking(responseContent);
+      setPendingReply((current) => current ? { ...current, stage: "validation" } : current);
       const { cards, cleaned } = parseCardsFromResponse(parsedResponse.answer, assistantId);
+      const safeVisibleAnswer = previewFilter.finish(cleaned || parsedResponse.answer);
 
       const assistantMessage: ChatMessage = {
         id: assistantId,
         role: "assistant",
         content: sectionTruncatedNote
-          ? `${sectionTruncatedNote}\n\n${cleaned || parsedResponse.answer}`
-          : cleaned || parsedResponse.answer,
+          ? `${sectionTruncatedNote}\n\n${safeVisibleAnswer}`
+          : safeVisibleAnswer,
         thinking: parsedResponse.thinking || undefined,
         timestamp: Date.now(),
         cardsGenerated: cards.length,
@@ -2384,6 +2463,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         localStorage.setItem(HISTORY_KEY, JSON.stringify([historyItem, ...generationHistory.slice(0, 19)]));
       }
     } catch (error) {
+      if (controller.signal.aborted || chatAttemptRef.current !== attemptId) return;
       toast.error(t("flashcardStudio.generationFailed"), error instanceof Error ? error.message : t("flashcardStudio.failedReachLlm"));
       setMessages((prev) => [
         ...prev,
@@ -2395,8 +2475,21 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         },
       ]);
     } finally {
-      setIsSending(false);
+      if (chatAttemptRef.current === attemptId) {
+        chatAbortRef.current = null;
+        setPendingReply(undefined);
+        setIsSending(false);
+      }
     }
+  };
+
+  const stopAssistantTurn = () => {
+    chatAttemptRef.current += 1;
+    chatAbortRef.current?.abort();
+    chatAbortRef.current = null;
+    setPendingReply(undefined);
+    setIsSending(false);
+    if (activePromptRef.current) setInput(activePromptRef.current);
   };
 
   const handleSaveSelected = async () => {
@@ -3382,9 +3475,17 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                     ))
                   )}
                   {isSending && (
-                    <div className="flex items-center gap-2 px-1 text-sm text-muted-foreground" role="status">
-                      <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                      <span>{t("assistant.thinkingInProgress")}</span>
+                    <div data-pending-reply className="flex max-w-[85%] flex-col gap-2 px-1">
+                      <div className="flex min-h-10 items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite" aria-atomic="true">
+                        <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+                        <span>{t(CHAT_STATUS_KEYS[pendingReply?.stage ?? "preparing"])}</span>
+                        <button type="button" onClick={stopAssistantTurn} aria-label={t("common.stop")} className="ml-auto inline-flex min-h-10 items-center gap-1 rounded-lg px-3 text-foreground hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                          <Square className="h-3 w-3" weight="fill" aria-hidden="true" />{t("common.stop")}
+                        </button>
+                      </div>
+                      {pendingReply?.text && <div className="rounded-xl border border-border bg-muted px-3 py-2 text-foreground">
+                        <AssistantResponseContent content={pendingReply.text} className="prose prose-sm max-w-none" />
+                      </div>}
                     </div>
                   )}
                   <div ref={messagesEndRef} />
@@ -3429,12 +3530,13 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                       className="w-full resize-none rounded-xl border border-border bg-background px-4 py-3 pr-12 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50 transition-all"
                     />
                     <button
-                      onClick={() => handleSend()}
-                      disabled={isSending || !input.trim() || (isNotebookProviderSelected && !selectedNotebookId)}
+                      onClick={isSending ? stopAssistantTurn : () => handleSend()}
+                      disabled={isSending ? false : !input.trim() || (isNotebookProviderSelected && !selectedNotebookId)}
+                      aria-label={isSending ? t("common.stop") : t("common.sendMessage")}
                       className="absolute right-3 bottom-3 p-2 rounded-lg bg-primary text-primary-foreground disabled:opacity-40 disabled:cursor-not-allowed hover:opacity-90 transition-opacity"
                     >
                       {isSending ? (
-                        <CircleNotch className="h-4 w-4 animate-spin" />
+                        <Square className="h-4 w-4" weight="fill" />
                       ) : (
                         <PaperPlaneTilt className="h-4 w-4" />
                       )}

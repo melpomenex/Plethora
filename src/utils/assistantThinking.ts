@@ -58,7 +58,10 @@ export function parseAssistantThinking(value: string): ParsedAssistantThinking {
     }
 
     const partialLength = possibleDelimiterSuffixLength(remaining, delimiter);
-    if (partialLength > 0) {
+    // A complete delimiter earlier in `remaining` must be parsed before a
+    // later partial suffix is buffered. Otherwise reasoning text can be
+    // emitted when a chunk ends on a second delimiter prefix.
+    if (partialLength > 0 && remaining.indexOf(delimiter) < 0) {
       hasPendingDelimiter = true;
       hasThinking ||= inThinking || delimiter === OPEN_THINK;
       const visible = remaining.slice(0, -partialLength);

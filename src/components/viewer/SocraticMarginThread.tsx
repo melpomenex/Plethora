@@ -1,11 +1,13 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import {
   ChatCircleText,
+  CircleNotch,
   PaperPlaneRight,
   Quotes,
   Sparkle,
   Cards,
   X,
+  Square,
 } from "@phosphor-icons/react";
 import { answerQuestion } from "../../api/ai";
 import {
@@ -13,6 +15,15 @@ import {
   classifyAiError,
   type AiFailureKind,
 } from "../common/GracefulAiFallbackCard";
+import { useI18n } from "../../lib/i18n";
+
+const CHAT_STATUS_KEYS = {
+  preparing: "assistant.chatStatus.preparing",
+  sources: "assistant.chatStatus.sources",
+  model: "assistant.chatStatus.model",
+  tools: "assistant.chatStatus.tools",
+  validation: "assistant.chatStatus.validation",
+} as const;
 
 export interface SocraticMessage {
   id: string;
@@ -38,7 +49,7 @@ const QUICK_PROMPTS = [
 
 export function SocraticMarginThread({
   isOpen,
-  documentId: _documentId,
+  documentId,
   selectedText,
   onClose,
   onConvertToExtract,
@@ -47,12 +58,24 @@ export function SocraticMarginThread({
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<SocraticMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingStage, setPendingStage] = useState<"preparing" | "sources" | "model" | "tools" | "validation">();
   const [aiFailure, setAiFailure] = useState<{
     kind: AiFailureKind;
     message: string;
     prompt: string;
   } | null>(null);
   const [convertedIds, setConvertedIds] = useState<Record<string, "extract" | "flashcard">>({});
+  const attemptRef = useRef(0);
+  const activePromptRef = useRef("");
+  const { t } = useI18n();
+
+  useEffect(() => {
+    attemptRef.current += 1;
+    setIsLoading(false);
+    setPendingStage(undefined);
+  }, [documentId, selectedText]);
+
+  useEffect(() => () => { attemptRef.current += 1; }, []);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -68,6 +91,13 @@ export function SocraticMarginThread({
 
   if (!isOpen) return null;
 
+  const stopReply = () => {
+    attemptRef.current += 1;
+    setIsLoading(false);
+    setPendingStage(undefined);
+    if (activePromptRef.current) setPrompt(activePromptRef.current);
+  };
+
   const submitPrompt = async (questionText: string, contextScale = 1.0) => {
     const trimmed = questionText.trim();
     if (!trimmed || isLoading) return;
@@ -80,12 +110,17 @@ export function SocraticMarginThread({
     setMessages((prev) => [...prev, userMsg]);
     setPrompt("");
     setIsLoading(true);
+    const attemptId = ++attemptRef.current;
+    activePromptRef.current = trimmed;
+    setPendingStage("preparing");
     try {
       const scaledQuote =
         contextScale < 1 && selectedText.length > 0
           ? selectedText.slice(0, Math.max(1, Math.floor(selectedText.length * contextScale)))
           : selectedText;
+      setPendingStage("model");
       const answer = await answerQuestion(trimmed, scaledQuote);
+      if (attemptRef.current !== attemptId) return;
       const assistantMsg: SocraticMessage = {
         id: `a-${Date.now()}`,
         role: "assistant",
@@ -94,6 +129,7 @@ export function SocraticMarginThread({
       };
       setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
+      if (attemptRef.current !== attemptId) return;
       const message =
         err instanceof Error
           ? err.message
@@ -105,7 +141,10 @@ export function SocraticMarginThread({
       });
       setPrompt(trimmed);
     } finally {
-      setIsLoading(false);
+      if (attemptRef.current === attemptId) {
+        setIsLoading(false);
+        setPendingStage(undefined);
+      }
     }
   };
 
@@ -148,7 +187,7 @@ export function SocraticMarginThread({
         </div>
         <button
           type="button"
-          onClick={onClose}
+          onClick={() => { stopReply(); onClose(); }}
           aria-label="Close Socratic Margin"
           className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
         >
@@ -228,6 +267,18 @@ export function SocraticMarginThread({
             )}
           </div>
         ))}
+
+        {isLoading && (
+          <div data-pending-reply className="flex flex-col gap-2">
+            <div className="flex min-h-9 items-center gap-2 text-xs text-muted-foreground" role="status" aria-live="polite" aria-atomic="true">
+              <CircleNotch className="h-3.5 w-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+              <span>{t(CHAT_STATUS_KEYS[pendingStage ?? "preparing"])}</span>
+              <button type="button" onClick={stopReply} aria-label={t("common.stop")} className="ml-auto inline-flex min-h-9 items-center gap-1 rounded-md px-2 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                <Square className="h-3 w-3" weight="fill" aria-hidden="true" />{t("common.stop")}
+              </button>
+            </div>
+          </div>
+        )}
 
         {aiFailure && (
           <GracefulAiFallbackCard

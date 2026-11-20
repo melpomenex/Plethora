@@ -17,6 +17,7 @@ import {
 } from "../../schemas/libraryAnswer";
 import { UNTRUSTED_CONTAINMENT_CLAUSE, wrapUntrustedBlock } from "../containment";
 import { runTask } from "../runTask";
+import { extractStreamingJsonStringField } from "../../tutor/context";
 import { registerTasks } from "../registry";
 import type { AITaskDefinition, AITaskResult } from "../types";
 import { defaultHelpRetrieval, type RetrievalOptions } from "../../../../features/help/helpRetrieval";
@@ -98,6 +99,8 @@ export interface AskPlethoraOptions {
   context?: Partial<HelpAppContext>;
   retrievalOptions?: RetrievalOptions;
   signal?: AbortSignal;
+  onProgress?: (stage: "sources" | "model") => void;
+  onAnswerPreview?: (answer: string) => void;
   provider?: AIProvider;
   kind?: "ondevice" | "cloud";
 }
@@ -115,6 +118,7 @@ export interface AskPlethoraResult {
  */
 export async function askPlethora(options: AskPlethoraOptions): Promise<AskPlethoraResult> {
   const query = options.query.trim();
+  options.onProgress?.("sources");
 
   // 1. Check direct zero-latency canonical lookup first
   const direct = defaultHelpRetrieval.resolveDirectLookup(query);
@@ -189,12 +193,22 @@ export async function askPlethora(options: AskPlethoraOptions): Promise<AskPleth
     text: r.chunk.content,
   }));
 
+  options.onProgress?.("model");
+  let streamedEnvelope = "";
   try {
     const run = await runTask(
       askPlethoraTask,
       { query, sources, appContext: options.context },
       {
         signal: options.signal,
+        streaming: Boolean(options.onAnswerPreview),
+        onChunk: options.onAnswerPreview
+          ? (chunk) => {
+              streamedEnvelope += chunk;
+              const answer = extractStreamingJsonStringField(streamedEnvelope, "answer");
+              if (answer) options.onAnswerPreview?.(answer);
+            }
+          : undefined,
         provider: options.provider,
         kind: options.kind,
         targetId: `help:${query}`,
@@ -213,6 +227,7 @@ export async function askPlethora(options: AskPlethoraOptions): Promise<AskPleth
       run,
     };
   } catch (error) {
+    if (options.signal?.aborted) throw error;
     // Graceful offline fallback: construct structured answer from top retrieval chunk
     const topChunk = searchResults[0].chunk;
     const fallbackAnswer: LibraryAnswer = {

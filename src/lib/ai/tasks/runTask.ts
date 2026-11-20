@@ -55,10 +55,145 @@ function taskLayerProviderKind(kind: AIProvider["kind"]): "ondevice" | "cloud" {
 // In-flight coalescing (design D7)
 // ──────────────────────────────────────────────────────────────────────────
 
-const inFlightTasks = new Map<string, Promise<AITaskResult<unknown>>>();
+interface TaskSubscriber {
+  onChunk?: (chunk: string) => void;
+  onRetry?: (attempt: number, delayMs: number) => void;
+  signal?: AbortSignal;
+  resolve: (result: AITaskResult<unknown>) => void;
+  reject: (error: unknown) => void;
+  onAbort?: () => void;
+  active: boolean;
+}
 
-function coalescingKey(taskId: string, targetId: string): string {
-  return `${taskId}\u0000${targetId}`;
+interface InFlightTask {
+  controller: AbortController;
+  subscribers: Map<symbol, TaskSubscriber>;
+  preview: string;
+  settled: boolean;
+}
+
+const inFlightTasks = new Map<string, InFlightTask>();
+const objectIds = new WeakMap<object, number>();
+let nextObjectId = 1;
+
+function objectIdentity(value: object): number {
+  const existing = objectIds.get(value);
+  if (existing !== undefined) return existing;
+  const identity = nextObjectId++;
+  objectIds.set(value, identity);
+  return identity;
+}
+
+function coalescingKey<I, O>(
+  task: AITaskDefinition<I, O>,
+  targetId: string,
+  built: ReturnType<AITaskDefinition<I, O>["buildInput"]>,
+  options: AITaskRunOptions,
+): string {
+  const providers = options.provider || options.resolvedProvider
+    ? [options.provider ?? options.resolvedProvider!]
+    : getRoutingProviders().filter((provider) => !options.kind || provider.kind === options.kind);
+  const providerIdentity = providers.map(objectIdentity).join(",");
+  const requestIdentity = JSON.stringify({
+    input: fnv1aHash(`${built.text}\u0000${built.image?.mimeType ?? ""}\u0000${built.image?.data ?? ""}`),
+    providerIdentity,
+    kind: options.kind,
+    policy: options.requestPolicy,
+    maxOutputTokens: options.maxOutputTokens,
+    streaming: options.streaming ?? task.streaming ?? true,
+    timeoutMs: options.timeoutMs ?? task.timeoutMs,
+    observation: options.observation,
+    retrieval: options.retrieval,
+  });
+  return `${objectIdentity(task)}\u0000${task.id}\u0000${targetId}\u0000${requestIdentity}`;
+}
+
+function notifySafely(callback: (() => void) | undefined): void {
+  try {
+    callback?.();
+  } catch {
+    // A consumer's rendering callback must not fail the shared model request.
+  }
+}
+
+function cancelledSubscriberError(taskId: string): AIError {
+  return new AIError("Cancelled", `Task ${taskId} was cancelled.`, {
+    code: "cancelled",
+    taskId,
+  });
+}
+
+function detachSubscriber(entry: InFlightTask, subscriber: TaskSubscriber): void {
+  subscriber.active = false;
+  if (subscriber.onAbort) subscriber.signal?.removeEventListener("abort", subscriber.onAbort);
+  subscriber.onAbort = undefined;
+}
+
+function subscribeToTask<O>(
+  entry: InFlightTask,
+  taskId: string,
+  options: AITaskRunOptions,
+): Promise<AITaskResult<O>> {
+  return new Promise((resolve, reject) => {
+    if (options.signal?.aborted) {
+      reject(cancelledSubscriberError(taskId));
+      return;
+    }
+    const token = Symbol(taskId);
+    const subscriber: TaskSubscriber = {
+      onChunk: options.onChunk,
+      onRetry: options.onRetry,
+      signal: options.signal,
+      resolve: (result) => resolve(result as AITaskResult<O>),
+      reject,
+      active: true,
+    };
+    entry.subscribers.set(token, subscriber);
+
+    subscriber.onAbort = () => {
+      if (!subscriber.active) return;
+      detachSubscriber(entry, subscriber);
+      entry.subscribers.delete(token);
+      reject(cancelledSubscriberError(taskId));
+      if (!entry.settled && entry.subscribers.size === 0) entry.controller.abort();
+    };
+    options.signal?.addEventListener("abort", subscriber.onAbort, { once: true });
+    if (options.signal?.aborted) {
+      subscriber.onAbort();
+      return;
+    }
+    if (entry.preview) notifySafely(() => subscriber.onChunk?.(entry.preview));
+  });
+}
+
+function publishChunk(entry: InFlightTask, chunk: string): void {
+  entry.preview += chunk;
+  for (const subscriber of entry.subscribers.values()) {
+    if (subscriber.active) notifySafely(() => subscriber.onChunk?.(chunk));
+  }
+}
+
+function publishRetry(entry: InFlightTask, attempt: number, delayMs: number): void {
+  for (const subscriber of entry.subscribers.values()) {
+    if (subscriber.active) notifySafely(() => subscriber.onRetry?.(attempt, delayMs));
+  }
+}
+
+function settleTask(
+  key: string,
+  entry: InFlightTask,
+  result: AITaskResult<unknown> | undefined,
+  error: unknown,
+): void {
+  entry.settled = true;
+  if (inFlightTasks.get(key) === entry) inFlightTasks.delete(key);
+  for (const [token, subscriber] of entry.subscribers) {
+    entry.subscribers.delete(token);
+    if (!subscriber.active) continue;
+    detachSubscriber(entry, subscriber);
+    if (result) subscriber.resolve(result);
+    else subscriber.reject(error);
+  }
 }
 
 /** Introspection for tests. */
@@ -79,20 +214,33 @@ export async function runTask<I, O>(
   const targetId =
     options.targetId ??
     fnv1aHash(
-      `${task.id}\u0000${builtPreview?.text.slice(0, 4096) ?? ""}\u0000${builtPreview?.image?.mimeType ?? ""}${
-        builtPreview?.image ? builtPreview.image.data.length : 0
-      }`
+      `${task.id}\u0000${builtPreview?.text ?? ""}\u0000${builtPreview?.image?.mimeType ?? ""}\u0000${builtPreview?.image?.data ?? ""}`
     );
-  const key = coalescingKey(task.id, targetId);
+  if (options.signal?.aborted || !builtPreview) return executeTask(task, input, options);
 
+  const key = coalescingKey(task, targetId, builtPreview, options);
   const existing = inFlightTasks.get(key);
-  if (existing) return existing as Promise<AITaskResult<O>>;
+  if (existing) return subscribeToTask<O>(existing, task.id, options);
 
-  const execution = executeTask(task, input, options);
-  inFlightTasks.set(key, execution as Promise<AITaskResult<unknown>>);
-  const cleanup = () => inFlightTasks.delete(key);
-  execution.then(cleanup, cleanup);
-  return execution;
+  const entry: InFlightTask = {
+    controller: new AbortController(),
+    subscribers: new Map(),
+    preview: "",
+    settled: false,
+  };
+  inFlightTasks.set(key, entry);
+  const subscriberPromise = subscribeToTask<O>(entry, task.id, options);
+  const execution = executeTask(task, input, {
+    ...options,
+    signal: entry.controller.signal,
+    onChunk: (chunk) => publishChunk(entry, chunk),
+    onRetry: (attempt, delayMs) => publishRetry(entry, attempt, delayMs),
+  });
+  execution.then(
+    (result) => settleTask(key, entry, result as AITaskResult<unknown>, undefined),
+    (error: unknown) => settleTask(key, entry, undefined, error),
+  );
+  return subscriberPromise;
 }
 
 function safeBuildInput<I, O>(
@@ -113,17 +261,16 @@ async function executeTask<I, O>(
 ): Promise<AITaskResult<O>> {
   const started = Date.now();
   let firstTokenAt: number | undefined;
+  const throwIfCancelled = () => {
+    if (!options.signal?.aborted) return;
+    const cancelled = cancelledSubscriberError(task.id);
+    recordFailure(task, options, started, cancelled, undefined, undefined);
+    throw cancelled;
+  };
 
   // A run whose owner already cancelled must not resolve a provider, probe
   // capabilities or send content anywhere.
-  if (options.signal?.aborted) {
-    const cancelled = new AIError("Cancelled", `Task ${task.id} was cancelled before it started.`, {
-      code: "cancelled",
-      taskId: task.id,
-    });
-    recordFailure(task, options, started, cancelled, undefined, undefined);
-    throw cancelled;
-  }
+  throwIfCancelled();
 
   // ── Resolve provider (router; reasoning fallback per design D3) ──────────
   const selectedProvider = options.provider ?? options.resolvedProvider;
@@ -136,6 +283,7 @@ async function executeTask<I, O>(
         fallbackPath: "none" as const,
       }
     : await resolveTaskRoute(task, { kind: options.kind });
+  throwIfCancelled();
 
   if (!route) {
     const error = new AIError("ModelUnavailable", "No AI provider is available for this task.", {
@@ -152,6 +300,7 @@ async function executeTask<I, O>(
 
   const provider: AIProvider = route.provider;
   const capabilities = await provider.getCapabilities().catch(() => undefined);
+  throwIfCancelled();
   const capabilityHash = capabilities ? hashCapabilities(capabilities) : undefined;
 
   const built = task.buildInput(input);
@@ -169,6 +318,7 @@ async function executeTask<I, O>(
 
   const policy = boundedRequestPolicy(options.requestPolicy, provider.getRequestPolicy?.());
   const maxOutputTokens = Math.min(options.maxOutputTokens ?? task.maxOutputTokens, policy?.maxOutputTokens ?? Infinity);
+  throwIfCancelled();
 
   // ── Token budget (estimation only — no blocking token-count IPC, keeping
   //    the nano fast-path finding intact) ───────────────────────────────────
@@ -218,9 +368,11 @@ async function executeTask<I, O>(
   };
   try {
     let response = await generateWithFallbacks(task, input, options, ctx);
+    throwIfCancelled();
     Object.assign(ctx.recovery, completionMetadata(response));
     ctx.recovery.outputLimitObserved = response.finishReason === "length";
     const validated = await validateOutput(task, input, response, options, ctx);
+    throwIfCancelled();
     const { value, validationOutcome } = validated;
     response = validated.response;
 

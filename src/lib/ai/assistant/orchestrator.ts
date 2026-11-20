@@ -14,6 +14,7 @@ import type { VideoSegment } from "./videoContextPlanner";
 
 import {
   chatWithContext,
+  streamChatWithContext,
   type LLMMessage,
   type LLMProvider,
   type LLMResponse,
@@ -28,6 +29,7 @@ import {
   type PrivacySubjectDocument,
 } from "./privacyGate";
 import { resolveDestination } from "./turnPolicy";
+import { AssistantAnswerStreamFilter } from "./answerStreamFilter";
 import {
   type AssistantRequestDiagnostics,
   type AssistantScope,
@@ -49,6 +51,10 @@ export interface AssistantTurnRequest {
   systemInstruction?: string;
   cloudFallback?: boolean;
   userQuestion: string;
+  /** Attempt-scoped cancellation and ephemeral progress/answer preview events. */
+  signal?: AbortSignal;
+  onProgress?: (stage: "sources" | "model" | "tools" | "validation") => void;
+  onPreview?: (text: string) => void;
   history?: ReadonlyArray<ConversationHistoryTurn>;
   rollingSummary?: string;
   sourceType?: "document" | "video" | "web" | "general";
@@ -119,6 +125,8 @@ export interface AssistantTurnRequest {
     baseUrl?: string;
     temperature?: number;
     maxTokens?: number;
+    signal?: AbortSignal;
+    onChunk?: (chunk: string) => void;
   }) => Promise<LLMResponse>;
   /** Injectable library RAG executor for `Library` scope (or grounded `Document` RAG). */
   libraryExecutor?: (args: {
@@ -128,6 +136,9 @@ export interface AssistantTurnRequest {
     contextPassage?: string;
     contextBudgetTokens: number;
     k: number;
+    signal?: AbortSignal;
+    onProgress?: (stage: "sources" | "model") => void;
+    onAnswerPreview?: (answer: string) => void;
   }) => Promise<AskLibraryResult>;
 }
 
@@ -171,6 +182,12 @@ export function resolveDynamicRagBudget(promptBudgetTokens: number): {
 export async function runAssistantTurn(
   request: AssistantTurnRequest,
 ): Promise<AssistantTurnResult> {
+  const throwIfAborted = () => {
+    if (request.signal?.aborted) {
+      throw Object.assign(new Error("Assistant turn cancelled."), { name: "AbortError", code: "cancelled" });
+    }
+  };
+  throwIfAborted();
   if (request.action) {
     const { target, scope, actionId } = request.action;
     const isWholeDocument = target.kind === 'document';
@@ -187,6 +204,13 @@ export async function runAssistantTurn(
       isTwentyRules: actionId === 'flashcards',
     };
   }
+  const previewFilter = new AssistantAnswerStreamFilter(request.tools ?? []);
+  const previewChunk = request.onPreview
+    ? (chunk: string) => request.onPreview?.(previewFilter.push(chunk))
+    : undefined;
+  const previewSnapshot = request.onPreview
+    ? (text: string) => request.onPreview?.(previewFilter.setSnapshot(text))
+    : undefined;
   const normalizedSourceContent =
     typeof request.sourceContent === "string"
       ? request.sourceContent
@@ -215,6 +239,7 @@ export async function runAssistantTurn(
       baseUrl: request.baseUrl,
     }),
   });
+  throwIfAborted();
 
   if (!privacy.allowed) {
     throw new Error(privacy.message || "Request blocked by privacy settings.");
@@ -269,7 +294,7 @@ export async function runAssistantTurn(
           context: { type: "video" as const, scope: "document" as const,
             content: `<untrusted_source>\n${text.replace(/<\/untrusted_source/gi, "&lt;/untrusted_source")}\n</untrusted_source>`,
             promptBudgetTokens: policy.promptBudgetTokens, configuredContextTokens: policy.configuredContextTokens },
-          apiKey: request.apiKey, baseUrl: request.baseUrl, maxTokens: maxOutputTokens,
+          apiKey: request.apiKey, baseUrl: request.baseUrl, maxTokens: maxOutputTokens, signal: request.signal,
         };
         const result = request.chatExecutor ? await request.chatExecutor(args)
           : await chatWithContext(args.provider, args.model, args.messages, args.context, args.apiKey, args.baseUrl, 0.2, maxOutputTokens);
@@ -356,6 +381,7 @@ export async function runAssistantTurn(
       (request.scope === "document" && !hasSourceContent));
 
   if (needsRetrievalGrounding && request.libraryExecutor && !wantsToolExecution) {
+    request.onProgress?.("sources");
     const rewrittenQuery = rewriteFollowUpQueryWithHistory(
       request.userQuestion,
       request.history,
@@ -370,7 +396,12 @@ export async function runAssistantTurn(
       contextPassage: request.selectionExcerpt,
       contextBudgetTokens,
       k,
+      signal: request.signal,
+      onProgress: request.onProgress,
+      onAnswerPreview: previewSnapshot,
     });
+    throwIfAborted();
+    request.onPreview?.(previewFilter.finish(ragResult.answer.answer));
 
     const parsedTools = parseAssistantToolCalls(
       ragResult.answer.answer,
@@ -434,6 +465,7 @@ export async function runAssistantTurn(
     wantsToolExecution &&
     request.libraryExecutor
   ) {
+    request.onProgress?.("sources");
     const rewrittenQuery = rewriteFollowUpQueryWithHistory(
       request.userQuestion,
       request.history,
@@ -448,7 +480,10 @@ export async function runAssistantTurn(
       contextPassage: request.selectionExcerpt,
       contextBudgetTokens,
       k,
+      signal: request.signal,
+      onProgress: request.onProgress,
     });
+    throwIfAborted();
     citedSources = ragResult.sources;
     effectiveSourceContent = ragResult.sources
       .map(
@@ -470,24 +505,29 @@ export async function runAssistantTurn(
   });
 
   // 7. Execute model call
-  const executor =
-    request.chatExecutor ??
-    (async (args) =>
-      chatWithContext(
-        args.provider,
-        args.model,
-        args.messages,
-        args.context,
-        args.apiKey,
-        args.baseUrl,
-        args.temperature,
-        args.maxTokens,
-      ));
+  const executor = request.chatExecutor ?? (async (args) => {
+    if (!args.onChunk) {
+      return chatWithContext(
+        args.provider, args.model, args.messages, args.context, args.apiKey,
+        args.baseUrl, args.temperature, args.maxTokens,
+      );
+    }
+    let content = "";
+    let completion: Pick<LLMResponse, "finishReason" | "responseKind" | "usage"> = {};
+    await streamChatWithContext(
+      args.provider, args.model, args.messages, args.context,
+      { signal: args.signal, onChunk: (chunk) => { content += chunk; args.onChunk?.(chunk); }, onDone: (info) => { completion = info; } },
+      args.apiKey, args.baseUrl, args.temperature, args.maxTokens,
+    );
+    return { content, ...completion };
+  });
 
   const contextType =
     request.sourceType ??
     (effectiveSourceContent?.trim() ? "document" : "general");
 
+  throwIfAborted();
+  request.onProgress?.("model");
   const llmResponse = await executor({
     provider: request.provider as LLMProvider,
     model: request.model,
@@ -511,12 +551,20 @@ export async function runAssistantTurn(
     baseUrl: request.baseUrl,
     temperature: request.temperature,
     maxTokens: policy.maxOutputTokens,
+    signal: request.signal,
+    onChunk: previewChunk,
   });
+  throwIfAborted();
 
+  request.onProgress?.("validation");
   const parsedTools = parseAssistantToolCalls(llmResponse.content, request.tools ?? []);
   if (!wantsToolExecution) parsedTools.toolCalls = [];
+  const safeAnswer = previewFilter.finish(llmResponse.content);
+  request.onPreview?.(safeAnswer);
   if (request.executeTool) {
     for (const call of parsedTools.toolCalls) {
+      throwIfAborted();
+      request.onProgress?.("tools");
       call.parameters = normalizeAssistantToolParameters(call.name, request.action ? isolateCardActionParameters(call.parameters) : call.parameters, { documentId: request.sourceId, documentTitle: request.sourceTitle, sourceEnvelope: request.sourceEnvelope });
       try { call.result = await request.executeTool(call.name, call.parameters); call.status = "success"; }
       catch (error) { call.result = String(error); call.status = "error"; }
@@ -553,8 +601,8 @@ export async function runAssistantTurn(
 
   return {
     scope: request.scope,
-    answer: parsedTools.cleanedContent,
-    rawContent: wantsToolExecution ? llmResponse.content : parsedTools.cleanedContent,
+    answer: safeAnswer,
+    rawContent: wantsToolExecution ? llmResponse.content : safeAnswer,
     toolCalls: parsedTools.toolCalls,
     citations: citedSources,
     evidenceLevel: hasSourceContent ? "supported" : undefined,

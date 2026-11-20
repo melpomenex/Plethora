@@ -177,22 +177,130 @@ export function deriveTopicFromMaterial(material: string): string {
  * decodable has arrived yet (the UI shows its generic thinking label).
  */
 export function extractStreamingTutorContent(streamText: string): string {
-  const match = /"content"\s*:\s*"((?:[^"\\]|\\.)*)/s.exec(streamText);
-  if (!match) return "";
-  const afterMatch = streamText.slice(match.index + match[0].length);
-  if (afterMatch.startsWith("\\")) return "";
-  try {
-    return JSON.parse(`"${match[1]}"`) as string;
-  } catch {
-    try {
-      const sanitized = match[1]
-        .replace(/\r/g, "\\r")
-        .replace(/\n/g, "\\n")
-        .replace(/\t/g, "\\t");
-      return JSON.parse(`"${sanitized}"`) as string;
-    } catch {
-      // Truncated escape sequence at the chunk boundary — wait for more text.
-      return "";
-    }
+  return extractStreamingJsonStringField(streamText, "content", { emptyOnIncompleteEscape: true });
+}
+
+/**
+ * Safely exposes a partial top-level JSON string field. It skips complete
+ * sibling values, so an unknown nested `answer` field cannot become a preview.
+ * Incomplete JSON escapes stay buffered until the next chunk completes them.
+ */
+export function extractStreamingJsonStringField(
+  streamText: string,
+  fieldName: string,
+  options: { emptyOnIncompleteEscape?: boolean } = {},
+): string {
+  let source = streamText.trimStart();
+  if (source.startsWith("```")) {
+    const newline = source.indexOf("\n");
+    if (newline < 0 || !/^```(?:json)?\s*$/i.test(source.slice(0, newline).trim())) return "";
+    source = source.slice(newline + 1).trimStart();
   }
+  if (!source.startsWith("{")) return "";
+
+  const readString = (start: number): { end: number; raw: string } | undefined => {
+    if (source[start] !== '"') return undefined;
+    for (let index = start + 1; index < source.length; index += 1) {
+      if (source[index] === "\\") index += 1;
+      else if (source[index] === '"') return { end: index + 1, raw: source.slice(start, index + 1) };
+    }
+    return undefined;
+  };
+  const skipSpace = (index: number) => {
+    while (/\s/.test(source[index] ?? "")) index += 1;
+    return index;
+  };
+
+  let index = 1;
+  while (index < source.length) {
+    index = skipSpace(index);
+    if (source[index] === ",") { index += 1; continue; }
+    if (source[index] === "}" || index >= source.length) return "";
+
+    const key = readString(index);
+    if (!key) return "";
+    let decodedKey: unknown;
+    try { decodedKey = JSON.parse(key.raw); } catch { return ""; }
+    index = skipSpace(key.end);
+    if (source[index] !== ":") return "";
+    index = skipSpace(index + 1);
+
+    if (decodedKey === fieldName) {
+      if (source[index] !== '"') return "";
+      const start = index + 1;
+      let end = start;
+      for (; end < source.length; end += 1) {
+        if (source[end] === "\\") end += 1;
+        else if (source[end] === '"') break;
+      }
+      const raw = source.slice(start, Math.min(end, source.length));
+      if (options.emptyOnIncompleteEscape && hasIncompleteJsonEscape(raw)) return "";
+      return decodeJsonStringPrefix(raw);
+    }
+
+    // Skip the sibling value while honoring quoted separators and nested
+    // containers. No value other than the requested top-level string is read.
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (; index < source.length; index += 1) {
+      const char = source[index];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (char === "\\") escaped = true;
+        else if (char === '"') inString = false;
+        continue;
+      }
+      if (char === '"') inString = true;
+      else if (char === "{" || char === "[") depth += 1;
+      else if (char === "}" || char === "]") {
+        if (depth === 0) return "";
+        depth -= 1;
+      } else if (char === "," && depth === 0) break;
+    }
+    if (index >= source.length) return "";
+  }
+  return "";
+}
+
+function hasIncompleteJsonEscape(raw: string): boolean {
+  for (let index = 0; index < raw.length; index += 1) {
+    if (raw[index] !== "\\") continue;
+    const escaped = raw[index + 1];
+    if (escaped == null) return true;
+    if (escaped === "u" && !/^[0-9a-f]{4}$/i.test(raw.slice(index + 2, index + 6))) return true;
+    index += escaped === "u" ? 5 : 1;
+  }
+  return false;
+}
+
+function decodeJsonStringPrefix(raw: string): string {
+  let output = "";
+  for (let index = 0; index < raw.length; index += 1) {
+    const char = raw[index];
+    if (char !== "\\") {
+      if (char.charCodeAt(0) < 0x20) break;
+      output += char;
+      continue;
+    }
+    const escaped = raw[index + 1];
+    if (escaped == null) break;
+    const simple: Record<string, string> = {
+      '"': '"', "\\": "\\", "/": "/", b: "\b", f: "\f", n: "\n", r: "\r", t: "\t",
+    };
+    if (escaped in simple) {
+      output += simple[escaped];
+      index += 1;
+      continue;
+    }
+    if (escaped === "u") {
+      const hex = raw.slice(index + 2, index + 6);
+      if (hex.length < 4 || !/^[0-9a-f]{4}$/i.test(hex)) break;
+      output += String.fromCharCode(Number.parseInt(hex, 16));
+      index += 5;
+      continue;
+    }
+    break;
+  }
+  return output;
 }

@@ -55,6 +55,53 @@ describe("themes query through the production generation pipeline", () => {
   });
 });
 
+describe("validated Library answer previews", () => {
+  it("streams only the decoded answer field and returns citations only after validation", async () => {
+    const answer = 'A careful answer with an escaped quote: "review" [1].';
+    const provider = new FakeAIProvider({ responses: [{
+      requestId: "library-preview",
+      text: JSON.stringify({
+        answer,
+        evidenceLevel: "supported",
+        sourceRefs: [{ refId: "preview-source", quote: CHUNK_A }],
+      }),
+    }] });
+    const previews: string[] = [];
+    const result = await askLibrary({
+      query: "Explain the source",
+      provider,
+      onAnswerPreview: (value) => previews.push(value),
+      retrieve: async () => ({ results: [chunk("preview-source", CHUNK_A)], mode: "semantic", candidatesScanned: 1 }),
+    });
+
+    expect(previews.at(-1)).toBe(answer);
+    expect(previews.every((value) => !value.includes("sourceRefs") && !value.includes("evidenceLevel"))).toBe(true);
+    expect(result.answer.answer).toBe(answer);
+    expect(result.sources.map((source) => source.chunkId)).toEqual(["preview-source"]);
+    expect(result.run.validationOutcome).toBe("strict-json");
+  });
+
+  it("does not accept citations from an invalid final envelope", async () => {
+    const provider = new FakeAIProvider({ responses: [{ requestId: "library-invalid", text: JSON.stringify({
+      answer: "A plausible preview [2].",
+      evidenceLevel: "supported",
+      sourceRefs: [{ refId: "missing-source", quote: "fabricated evidence" }],
+    }) }] });
+    const previews: string[] = [];
+
+    const result = await askLibrary({
+      query: "Explain the source",
+      provider,
+      onAnswerPreview: (value) => previews.push(value),
+      retrieve: async () => ({ results: [chunk("preview-source", CHUNK_A)], mode: "semantic", candidatesScanned: 1 }),
+    });
+    expect(previews.at(-1)).toBe("A plausible preview [2].");
+    expect(result.sources).toEqual([]);
+    expect(result.answer.sourceRefs).toEqual([]);
+    expect(result.answer.evidenceLevel).toBe("none");
+  });
+});
+
 describe("selected-generator source and correction budgets", () => {
   const valid = JSON.stringify({ answer: "From the retrieved sources, review matters [1].", sourceRefs: [{ refId: "a", quote: CHUNK_A }], evidenceLevel: "supported" });
   it.each([4096, 8192, 16384])("fits both full requests in a %i-token on-device context", async contextTokens => {

@@ -35,10 +35,10 @@ mod mcp;
 mod media_control;
 mod migrations;
 pub mod models;
-pub mod study_trail;
 mod notebooklm;
 mod notifications;
 mod ocr;
+pub mod study_trail;
 // `pub` (visibility only, no behavior change) so the dev-only diagnostic bin
 // `src/bin/pdf-reflow-diag.rs` can call `pdf::analysis::analyze_page`
 // directly without a Tauri runtime.
@@ -96,7 +96,10 @@ use anyhow::Context;
 use database::Database;
 use std::collections::HashSet;
 use std::io::Write;
-use std::sync::{atomic::{AtomicBool, Ordering}, Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use tauri::{Emitter, Manager};
 use tokio::sync::Notify;
 use url::Url;
@@ -416,7 +419,8 @@ async fn start_optional_runtime(
     sync::scheduler::init(app.clone());
     startup_trace::mark("sync-scheduler-initialized");
     if let Err(error) =
-        browser_sync_server::initialize_if_enabled(Arc::new(repository.inner().clone()), app, None).await
+        browser_sync_server::initialize_if_enabled(Arc::new(repository.inner().clone()), app, None)
+            .await
     {
         tracing::warn!("Browser sync server initialization failed: {error}");
     }
@@ -2464,6 +2468,7 @@ pub fn run() {
             commands::llm::llm_chat,
             commands::llm::llm_chat_with_context,
             commands::llm::llm_stream_chat,
+            commands::llm::llm_stream_chat_with_context,
             commands::llm::llm_cancel_stream,
             commands::llm::llm_get_models,
             commands::llm::llm_test_connection,

@@ -1,5 +1,5 @@
 import { compareManualQueueOrder, resolveDisplaySlider } from "../utils/queueManualOrder";
-import { parseOpenAICompletion, parseAnthropicCompletion } from "../api/llm/response";
+import { browserChatCompletion, prepareBrowserContextRequest } from "./browserLlmTransport";
 /**
  * Browser backend command handlers
  * Maps Tauri command names to IndexedDB operations
@@ -4942,207 +4942,30 @@ const commandHandlers: Record<string, CommandHandler> = {
 
     // LLM commands
     llm_chat: async (args) => {
-        const provider = args.provider as string;
-        const model = args.model as string | undefined;
-        const messages = args.messages as Array<{ role: string; content: string }>;
-        const temperature = (args.temperature as number) ?? 0.7;
-        const maxTokens = (args.maxTokens as number) || 2000;
-        const apiKey = args.apiKey as string | undefined;
-        const baseUrl = args.baseUrl as string | undefined;
-
-        if (providerRequiresApiKey(provider as 'openai' | 'anthropic' | 'gemini' | 'deepseek' | 'ollama' | 'openrouter', baseUrl) && !apiKey) {
-            throw new Error('API key is required');
-        }
-
-        // In browser mode, we support OpenRouter and OpenAI-compatible APIs
-        const providerConfig: Record<string, { url: string; defaultModel: string }> = {
-            openrouter: { url: baseUrl || 'https://openrouter.ai/api/v1', defaultModel: 'anthropic/claude-3.5-sonnet' },
-            openai: { url: baseUrl || 'https://api.openai.com/v1', defaultModel: 'gpt-4o' },
-            gemini: { url: baseUrl || 'https://generativelanguage.googleapis.com/v1beta/openai', defaultModel: 'gemini-3.5-flash' },
-            deepseek: { url: baseUrl || 'https://api.deepseek.com/v1', defaultModel: 'deepseek-chat' },
-            anthropic: { url: baseUrl || 'https://api.anthropic.com/v1', defaultModel: 'claude-3-5-sonnet-20241022' },
-        };
-
-        const config = providerConfig[provider];
-        if (!config) {
-            throw new Error(`Provider '${provider}' is not supported in browser mode. Supported: openrouter, openai, gemini, deepseek, anthropic`);
-        }
-
-        const actualModel = model || config.defaultModel;
-
-        if (provider === 'anthropic') {
-            const response = await fetch(`${config.url}/messages`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'x-api-key': apiKey!,
-                    'anthropic-version': '2023-06-01',
-                    'anthropic-dangerous-direct-browser-access': 'true',
-                },
-                body: JSON.stringify({
-                    model: actualModel,
-                    max_tokens: maxTokens,
-                    temperature,
-                    messages: messages.filter(m => m.role !== 'system').map(m => ({
-                        role: m.role,
-                        content: m.content,
-                    })),
-                    system: messages.find(m => m.role === 'system')?.content,
-                }),
-            });
-
-            if (!response.ok) {
-                const errorText = await response.text();
-                throw new Error(`Anthropic API error (${response.status}): ${errorText}`);
-            }
-
-            const data = await response.json();
-            return parseAnthropicCompletion(data);
-        }
-
-        // OpenAI-compatible API (OpenAI, OpenRouter)
-        const headers: Record<string, string> = {
-            'Content-Type': 'application/json',
-        };
-        if (apiKey) {
-            headers['Authorization'] = `Bearer ${apiKey}`;
-        }
-
-        // Add OpenRouter-specific headers
-        if (provider === 'openrouter') {
-            headers['HTTP-Referer'] = 'https://plethora.app';
-            headers['X-Title'] = 'Plethora';
-        }
-
-        const response = await fetch(`${config.url}/chat/completions`, {
-            method: 'POST',
-            headers,
-            body: JSON.stringify({
-                model: actualModel,
-                messages: messages.map(m => ({ role: m.role, content: m.content })),
-                temperature,
-                max_tokens: maxTokens,
-            }),
+        return browserChatCompletion({
+            provider: args.provider as import('../api/llm').LLMProvider,
+            model: args.model as string | undefined,
+            messages: args.messages as import('../api/llm').LLMMessage[],
+            temperature: args.temperature as number | undefined,
+            maxTokens: args.maxTokens as number | undefined,
+            apiKey: args.apiKey as string | undefined,
+            baseUrl: args.baseUrl as string | undefined,
+            policy: args.policy as import('../api/llm').LlmRequestPolicy | undefined,
         });
-
-        if (!response.ok) {
-            const errorText = await response.text();
-            throw new Error(`${provider} API error (${response.status}): ${errorText}`);
-        }
-
-        const data = await response.json();
-        return parseOpenAICompletion(data);
     },
 
     llm_chat_with_context: async (args) => {
-        const provider = args.provider as string;
-        const model = args.model as string | undefined;
-        const messages = args.messages as Array<{ role: string; content: string }>;
-        const context = args.context as {
-          type: string;
-          documentId?: string;
-          content?: unknown;
-          selection?: string;
-          contextWindowTokens?: number;
-          promptBudgetTokens?: number;
-          configuredContextTokens?: number;
-          maxOutputTokens?: number;
-        };
-        const apiKey = args.apiKey as string | undefined;
-        const baseUrl = args.baseUrl as string | undefined;
-
-        const decodeByteString = (value: string): string => {
-            const bytes = value.split(",").map((part) => parseInt(part.trim(), 10));
-            if (bytes.some((byte) => Number.isNaN(byte))) {
-                return value;
-            }
-            try {
-                return new TextDecoder("utf-8").decode(Uint8Array.from(bytes));
-            } catch {
-                return value;
-            }
-        };
-
-        const normalizeContextContent = (value: unknown): string | undefined => {
-            if (value == null) return undefined;
-            if (typeof value === "string") {
-                const trimmed = value.trim();
-                const bytePattern = /^\d{1,3}(?:,\s*\d{1,3})+$/;
-                return bytePattern.test(trimmed) ? decodeByteString(trimmed) : trimmed;
-            }
-            if (value instanceof Uint8Array) {
-                return new TextDecoder("utf-8").decode(value);
-            }
-            if (Array.isArray(value) && value.every((entry) => typeof entry === "number")) {
-                try {
-                    return new TextDecoder("utf-8").decode(Uint8Array.from(value));
-                } catch {
-                    return value.join(",");
-                }
-            }
-            return String(value);
-        };
-
-        const trimContext = (value: string | undefined, maxTokens?: number): string | undefined => {
-            if (!value) return undefined;
-            const tokenLimit = maxTokens && maxTokens > 0 ? maxTokens : 2000;
-            const maxChars = tokenLimit * 4;
-            if (value.length <= maxChars) return value;
-            return value.slice(0, maxChars);
-        };
-
-        const promptBudget = context.promptBudgetTokens
-            ?? context.contextWindowTokens;
-        const maxOutput = context.maxOutputTokens
-            && context.maxOutputTokens > 0
-            ? context.maxOutputTokens
-            : 2000;
-
-        const normalizedContent = trimContext(
-            normalizeContextContent(context.content),
-            promptBudget
-        );
-
-        let contextPrompt = '';
-        if (context.type === 'document' && normalizedContent) {
-            contextPrompt = `You are a helpful assistant analyzing the following document content:\n\n${normalizedContent}\n\nAnswer questions based on this document.`;
-            if (context.selection && context.selection.trim().length > 0) {
-                contextPrompt += `\n\nSelected text:\n${context.selection}`;
-            }
-        } else if (context.type === 'video' && normalizedContent) {
-            contextPrompt = `You are a helpful assistant analyzing the following video transcript:\n\n${normalizedContent}\n\nAnswer questions based on this transcript.`;
-            if (context.selection && context.selection.trim().length > 0) {
-                contextPrompt += `\n\nSelected text:\n${context.selection}`;
-            }
-        } else if (context.type === 'web') {
-            if (normalizedContent) {
-                contextPrompt = `You are a helpful assistant analyzing the following web page content:\n\n${normalizedContent}\n\nAnswer questions based on this page.`;
-                if (context.selection && context.selection.trim().length > 0) {
-                    contextPrompt += `\n\nSelected text:\n${context.selection}`;
-                }
-            } else {
-                contextPrompt = 'You are a helpful assistant that can search the web for information.';
-            }
-        } else {
-            contextPrompt = 'You are a helpful assistant.';
-        }
-
-        // Prepend context as system message
-        const messagesWithContext = [
-            { role: 'system', content: contextPrompt },
-            ...messages,
-        ];
-
-        // Call llm_chat with the enhanced messages
-        return await commandHandlers.llm_chat({
-            provider,
-            model,
-            messages: messagesWithContext,
-            temperature: 0.7,
-            maxTokens: maxOutput,
-            apiKey,
-            baseUrl,
+        const prepared = prepareBrowserContextRequest({
+            provider: args.provider as import('../api/llm').LLMProvider,
+            model: args.model as string | undefined,
+            messages: args.messages as import('../api/llm').LLMMessage[],
+            context: args.context as Parameters<typeof prepareBrowserContextRequest>[0]['context'],
+            apiKey: args.apiKey as string | undefined,
+            baseUrl: args.baseUrl as string | undefined,
+            maxTokens: args.maxTokens as number | undefined,
+            policy: args.policy as import('../api/llm').LlmRequestPolicy | undefined,
         });
+        return browserChatCompletion(prepared);
     },
 
     llm_get_models: async (args) => {

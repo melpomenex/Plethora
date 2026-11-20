@@ -9,6 +9,7 @@ import {
   FloppyDisk,
   PaperPlaneTilt,
   Sparkle,
+  Square,
   ThumbsDown,
   ThumbsUp,
 } from "@phosphor-icons/react";
@@ -33,6 +34,14 @@ interface NotebookLMChatProps {
   notebookId: string;
   notebookTitle: string;
 }
+
+const CHAT_STATUS_KEYS = {
+  preparing: "assistant.chatStatus.preparing",
+  sources: "assistant.chatStatus.sources",
+  model: "assistant.chatStatus.model",
+  tools: "assistant.chatStatus.tools",
+  validation: "assistant.chatStatus.validation",
+} as const;
 
 const SUGGESTED_PROMPTS = [
   "Summarize the key points from my sources",
@@ -70,16 +79,27 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [pendingStage, setPendingStage] = useState<"preparing" | "sources" | "model" | "tools" | "validation">();
   const [showSuggestions, setShowSuggestions] = useState(true);
   const [savingMessageIds, setSavingMessageIds] = useState<Set<string>>(new Set());
   const [savedMessageIds, setSavedMessageIds] = useState<Set<string>>(new Set());
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const attemptRef = useRef(0);
+  const activePromptRef = useRef("");
   const toast = useToast();
 
   useEffect(() => {
     scrollToBottom();
-  }, [messages]);
+  }, [messages, pendingStage]);
+
+  useEffect(() => {
+    attemptRef.current += 1;
+    setPendingStage(undefined);
+    setIsLoading(false);
+  }, [notebookId]);
+
+  useEffect(() => () => { attemptRef.current += 1; }, []);
 
   useEffect(() => {
     let active = true;
@@ -172,10 +192,15 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
     setMessages((prev) => [...prev, userMessage]);
     setInput("");
     setIsLoading(true);
+    const attemptId = ++attemptRef.current;
+    activePromptRef.current = userMessage.content;
+    setPendingStage("preparing");
     setShowSuggestions(false);
 
     try {
+      setPendingStage("model");
       const response = await notebooklmAsk(userMessage.content, notebookId);
+      if (attemptRef.current !== attemptId) return;
       const parsedResponse = parseAssistantThinking(response.answer);
       
       const assistantMessage: Message = {
@@ -189,6 +214,7 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error: any) {
+      if (attemptRef.current !== attemptId) return;
       const errorMessage: Message = {
         id: `msg-${Date.now() + 1}`,
         role: "assistant",
@@ -197,7 +223,10 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
-      setIsLoading(false);
+      if (attemptRef.current === attemptId) {
+        setIsLoading(false);
+        setPendingStage(undefined);
+      }
     }
   };
 
@@ -216,6 +245,9 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
     const researchQuery = input.trim();
     setInput("");
     setIsLoading(true);
+    const attemptId = ++attemptRef.current;
+    activePromptRef.current = researchQuery;
+    setPendingStage("sources");
     setShowSuggestions(false);
 
     try {
@@ -225,6 +257,7 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
         mode: "deep",
         from: "web",
       });
+      if (attemptRef.current !== attemptId) return;
 
       const assistantMessage: Message = {
         id: `msg-${Date.now() + 1}`,
@@ -236,6 +269,7 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
 
       setMessages((prev) => [...prev, assistantMessage]);
     } catch (error: any) {
+      if (attemptRef.current !== attemptId) return;
       const errorMessage: Message = {
         id: `msg-${Date.now() + 1}`,
         role: "assistant",
@@ -245,8 +279,18 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
       };
       setMessages((prev) => [...prev, errorMessage]);
     } finally {
-      setIsLoading(false);
+      if (attemptRef.current === attemptId) {
+        setIsLoading(false);
+        setPendingStage(undefined);
+      }
     }
+  };
+
+  const stopReply = () => {
+    attemptRef.current += 1;
+    setPendingStage(undefined);
+    setIsLoading(false);
+    if (activePromptRef.current) setInput(activePromptRef.current);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -593,9 +637,12 @@ export function NotebookLMChat({ notebookId, notebookTitle }: NotebookLMChatProp
               </div>
             ))}
             {isLoading && (
-              <div className="flex items-center gap-2 text-sm text-muted-foreground" role="status">
+              <div data-pending-reply className="flex items-center gap-2 text-sm text-muted-foreground" role="status" aria-live="polite" aria-atomic="true">
                 <CircleNotch className="h-4 w-4 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-                <span>{t("assistant.thinkingInProgress")}</span>
+                <span>{t(CHAT_STATUS_KEYS[pendingStage ?? "preparing"])}</span>
+                <button type="button" onClick={stopReply} aria-label={t("common.stop")} className="ml-auto inline-flex min-h-10 items-center gap-1 rounded-md px-2 text-foreground hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary">
+                  <Square className="h-3 w-3" weight="fill" aria-hidden="true" />{t("common.stop")}
+                </button>
               </div>
             )}
             <div ref={messagesEndRef} />

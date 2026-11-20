@@ -232,6 +232,8 @@ export class CloudProvider implements AIProvider {
     // Streaming path.
     let text = "";
     let finishReason: string | undefined;
+    let responseKind: LLMResponse["responseKind"];
+    let usage: LLMResponse["usage"];
     let aborted = false;
     let streamError: string | null = null;
     const signal = opts.signal;
@@ -248,6 +250,7 @@ export class CloudProvider implements AIProvider {
 
     try {
       await this.transport.streamChat!(request, {
+        signal,
         onChunk: (chunk) => {
           if (aborted || signal?.aborted) return;
           text += chunk;
@@ -255,6 +258,8 @@ export class CloudProvider implements AIProvider {
         },
         onDone: (info) => {
           if (info?.finishReason) finishReason = info.finishReason;
+          responseKind = info?.responseKind;
+          usage = info?.usage;
         },
         onError: (error) => {
           streamError = error;
@@ -280,7 +285,14 @@ export class CloudProvider implements AIProvider {
       requestId: req.requestId,
       text,
       finishReason,
+      responseKind,
       baseModelName: config.model,
+      usage: usage
+        ? {
+            inputTokens: usage.promptTokens,
+            outputTokens: usage.completionTokens,
+          }
+        : undefined,
     };
   }
 

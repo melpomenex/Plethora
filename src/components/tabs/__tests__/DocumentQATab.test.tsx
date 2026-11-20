@@ -17,7 +17,7 @@ const sectionHookState = vi.hoisted(() => ({
 }));
 
 // Real session store (pure localStorage) is exercised directly via imports.
-vi.mock("../../../api/llm", () => ({ chatWithContext: vi.fn() }));
+vi.mock("../../../api/llm", () => ({ chatWithContext: vi.fn(), streamChatWithContext: vi.fn() }));
 vi.mock("../../../api/documents", () => ({
   getDocument: vi.fn().mockResolvedValue(null),
   extractDocumentText: vi.fn().mockResolvedValue({ content: "" }),
@@ -78,7 +78,7 @@ vi.mock("../../../hooks/useDocumentSections", () => ({
 // Seed a single document so the tab renders past the empty-documents guard.
 import { copyToClipboard } from "../../../api/integrations";
 import { getDocument, extractDocumentText } from "../../../api/documents";
-import { chatWithContext } from "../../../api/llm";
+import { streamChatWithContext } from "../../../api/llm";
 import { callAppMCPTool } from "../../../api/mcp";
 import { useDocumentQAStore, useLLMProvidersStore, useReviewStore, useStudyDeckStore, useTabsStore } from "../../../stores";
 import { useDocumentStore } from "../../../stores/documentStore";
@@ -102,8 +102,16 @@ beforeEach(() => {
   });
   vi.mocked(copyToClipboard).mockClear();
   vi.mocked(callAppMCPTool).mockReset();
-  vi.mocked(chatWithContext).mockReset();
+  vi.mocked(streamChatWithContext).mockReset();
+  mockStreamReply("ok");
 });
+
+function mockStreamReply(content: string) {
+  vi.mocked(streamChatWithContext).mockImplementation(async (_provider, _model, _messages, _context, options) => {
+    options.onChunk(content);
+    options.onDone?.({ finishReason: "stop", responseKind: "final-text" });
+  });
+}
 
 import { DocumentQATab } from "../DocumentQATab";
 import {
@@ -513,7 +521,7 @@ describe("DocumentQATab audiobook section parity", () => {
         maxTokens: 1000,
       }],
     });
-    vi.mocked(chatWithContext).mockResolvedValue({ content: "Created cards." } as never);
+    mockStreamReply("Created cards.");
 
     render(<DocumentQATab />);
     selectFocusDocument();
@@ -525,8 +533,8 @@ describe("DocumentQATab audiobook section parity", () => {
     fireEvent.change(composer, { target: { value: prompt, selectionStart: prompt.length } });
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
 
-    await waitFor(() => expect(chatWithContext).toHaveBeenCalledTimes(1));
-    const request = JSON.stringify(vi.mocked(chatWithContext).mock.calls[0]);
+    await waitFor(() => expect(streamChatWithContext).toHaveBeenCalledTimes(1));
+    const request = JSON.stringify(vi.mocked(streamChatWithContext).mock.calls[0]);
     expect(request).toContain("CORTICAL_COLUMN_CONTENT");
     expect(request).not.toContain("FOREWORD_ONLY");
   });
@@ -554,15 +562,15 @@ describe("DocumentQATab audiobook section parity", () => {
         maxTokens: 1000,
       }],
     });
-    vi.mocked(chatWithContext).mockResolvedValue({ content: "Created cards." } as never);
+    mockStreamReply("Created cards.");
 
     render(<DocumentQATab />);
     const composer = screen.getByRole("textbox", { name: "Your question" });
     fireEvent.change(composer, { target: { value: "@{doc-1} /20rules create cards" } });
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
 
-    await waitFor(() => expect(chatWithContext).toHaveBeenCalledTimes(1));
-    const callArgs = vi.mocked(chatWithContext).mock.calls[0];
+    await waitFor(() => expect(streamChatWithContext).toHaveBeenCalledTimes(1));
+    const callArgs = vi.mocked(streamChatWithContext).mock.calls[0];
     const systemPrompt = callArgs[2][0]?.content as string;
     expect(systemPrompt).toContain("20 Rules of Knowledge Formulation");
     expect(systemPrompt).toContain("MINIMUM INFORMATION PRINCIPLE");
@@ -600,7 +608,7 @@ describe("DocumentQATab audiobook section parity", () => {
         maxTokens: 1000,
       }],
     });
-    vi.mocked(chatWithContext).mockResolvedValue({ content: "Created atomic cards." } as never);
+    mockStreamReply("Created atomic cards.");
 
     render(<DocumentQATab />);
     selectFocusDocument();
@@ -612,8 +620,8 @@ describe("DocumentQATab audiobook section parity", () => {
     fireEvent.change(composer, { target: { value: prompt, selectionStart: prompt.length } });
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
 
-    await waitFor(() => expect(chatWithContext).toHaveBeenCalledTimes(1));
-    const callArgs = vi.mocked(chatWithContext).mock.calls[0];
+    await waitFor(() => expect(streamChatWithContext).toHaveBeenCalledTimes(1));
+    const callArgs = vi.mocked(streamChatWithContext).mock.calls[0];
     const systemPrompt = callArgs[2][0]?.content as string;
     const userPrompt = callArgs[2][1]?.content as string;
 
@@ -656,7 +664,7 @@ describe("DocumentQATab audiobook section parity", () => {
         maxTokens: 1000,
       }],
     });
-    vi.mocked(chatWithContext).mockResolvedValue({ content: "ok" } as never);
+    mockStreamReply("ok");
 
     render(<DocumentQATab />);
     selectFocusDocument();
@@ -677,7 +685,7 @@ describe("DocumentQATab audiobook section parity", () => {
     // Send, then restore via history: the raw token history brings the chip
     // back with its section selected.
     fireEvent.keyDown(composer, { key: "Enter", code: "Enter" });
-    await waitFor(() => expect(chatWithContext).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(streamChatWithContext).toHaveBeenCalledTimes(1));
     fireEvent.keyDown(composer, { key: "ArrowUp" });
     await waitFor(() => expect(composer.value).toContain("#{sec-001}"));
     expect(screen.getByText("Transcript > 001")).toBeInTheDocument();
@@ -708,7 +716,7 @@ describe("Document Q&A workspace entry", () => {
     view.unmount();
     render(<DocumentQATab />);
     expect(questionInput().value).toBe("@{doc-1} #{cells} Explain this");
-    expect(chatWithContext).not.toHaveBeenCalled(); expect(askLibrary).not.toHaveBeenCalled();
+    expect(streamChatWithContext).not.toHaveBeenCalled(); expect(askLibrary).not.toHaveBeenCalled();
   });
 
   it("prefills a complete document suggestion exactly once under Strict Mode", async () => {
@@ -717,7 +725,7 @@ describe("Document Q&A workspace entry", () => {
     await waitFor(() => expect(questionInput().value).toBe("Explain cell division"));
     expect(screen.getByRole("button", { name: "Choose sources" })).toHaveTextContent("Biology Textbook");
     expect(loadSessions()).toHaveLength(2);
-    expect(askLibrary).not.toHaveBeenCalled(); expect(chatWithContext).not.toHaveBeenCalled();
+    expect(askLibrary).not.toHaveBeenCalled(); expect(streamChatWithContext).not.toHaveBeenCalled();
   });
 
   it("dismisses a source picker before focusing a palette handoff", async () => {
@@ -802,7 +810,7 @@ describe("Document Q&A workspace entry", () => {
     fireEvent.click(screen.getByRole("button", { name: "Ask" }));
     await screen.findByText("Cells share a common structure [1].");
     expect(useDocumentQAStore.getState().messages.filter((message) => message.role === "user")).toHaveLength(1);
-    expect(chatWithContext).not.toHaveBeenCalled();
+    expect(streamChatWithContext).not.toHaveBeenCalled();
   });
 
   it.each([
@@ -862,7 +870,7 @@ describe("Document Q&A workspace entry", () => {
     expect(questionInput().value).toContain("agree or disagree");
     expect(screen.getByRole("button", { name: "Find connections" })).toBeDisabled();
     fireEvent.keyDown(questionInput(), { key: "Enter", isComposing: true });
-    expect(askLibrary).not.toHaveBeenCalled(); expect(chatWithContext).not.toHaveBeenCalled();
+    expect(askLibrary).not.toHaveBeenCalled(); expect(streamChatWithContext).not.toHaveBeenCalled();
   });
 
   it("prepares a summary only after choosing a document and focuses the editable question", async () => {
