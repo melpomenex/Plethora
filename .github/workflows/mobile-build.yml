@@ -67,13 +67,21 @@ jobs:
           # signal"). Match the desktop release build's 32 GB swapfile,
           # systemd-oomd mask, and runner OOM protection so the large Android
           # link can finish under memory pressure.
+          # Free disk space occupied by unused tooling (.NET, Haskell, Boost)
+          # so swap allocation and target artifacts never exhaust the filesystem.
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/share/boost 2>/dev/null || true
+          # Compiling the final plethora-tauri lib needs memory headroom.
+          # Allocate up to 24G swap (falling back to 16G/8G if space is tight),
+          # set low swappiness (20) so the kernel prefers keeping hot working set
+          # in RAM without thrashing disk I/O, mask systemd-oomd, and protect
+          # runner processes from OOM kill.
           sudo swapoff -a || true
           sudo rm -f /swapfile
-          sudo fallocate -l 32G /swapfile
+          sudo fallocate -l 24G /swapfile || sudo fallocate -l 16G /swapfile || sudo fallocate -l 8G /swapfile
           sudo chmod 600 /swapfile
           sudo mkswap /swapfile
           sudo swapon /swapfile
-          sudo sysctl -w vm.swappiness=80
+          sudo sysctl -w vm.swappiness=20
           sudo sysctl -w vm.vfs_cache_pressure=50
           sudo systemctl stop systemd-oomd 2>/dev/null || true
           sudo systemctl disable --now systemd-oomd 2>/dev/null || true
@@ -82,6 +90,7 @@ jobs:
             echo -1000 | sudo tee "/proc/$pid/oom_score_adj" >/dev/null 2>&1 || true
           done
           free -m
+          df -h /
 
       - name: Set up Java (Temurin 17)
         uses: actions/setup-java@v4
@@ -315,13 +324,12 @@ jobs:
 
       - name: Build Android APK (arm64)
         env:
-          # Bound memory: the heavy Rust release build (LTO, codegen-units=1)
-          # runs alongside Gradle's JVM. Disabling the Gradle daemon and capping
-          # the Kotlin daemon heap keeps memory usage bounded on the 7GB runner.
+          # Bound memory: the heavy Rust release build runs alongside Gradle's JVM.
+          # Disabling the Gradle daemon and capping the Kotlin daemon heap keeps
+          # memory usage bounded. Running 2 parallel cargo jobs balances speed
+          # with memory stability, preventing swap thrashing and runner starvation.
           GRADLE_OPTS: "-Dorg.gradle.daemon=false -Dorg.gradle.workers.max=2 -Dkotlin.daemon.jvm.options=-Xmx1g"
-          # Serialize cargo jobs so the linker/LTO pass doesn't compound memory
-          # pressure on top of Gradle's JVM.
-          CARGO_BUILD_JOBS: "4"
+          CARGO_BUILD_JOBS: "2"
           CARGO_PROFILE_RELEASE_CODEGEN_UNITS: "16"
           CARGO_PROFILE_RELEASE_LTO: "off"
           # The tauri CLI already cargo-builds the Rust lib and symlinks it into
