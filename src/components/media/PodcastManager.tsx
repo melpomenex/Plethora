@@ -61,6 +61,7 @@ import { isTauri, isNativeMobile, listen } from "../../lib/tauri";
 import { useCollectionStore } from "../../stores/collectionStore";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useQueueStore } from "../../stores/queueStore";
+import { useAccountStore } from "../../stores/accountStore";
 import { useTabsStore } from "../../stores";
 import {
   useContextMenu,
@@ -84,6 +85,7 @@ import { cn } from "../../utils";
 import { podcastFeedSearch } from "../../utils/podcastSearch";
 import { ConfirmDialog, useConfirmDialog } from "../common/ConfirmDialog";
 import { AssistantPanel } from "../assistant/AssistantPanel";
+import { createPodcastChatOpenIntent, podcastEpisodeConversationId } from "../../lib/ai/assistant/podcastConversation";
 import { resolveGenericAssistantContext, type ResolvedAssistantContext } from "../../utils/assistantContext";
 import { usePaletteActionListener, usePaletteContextProvider } from "../../commandPalette/paletteActionEvents";
 import { useIsActiveTab } from "../common/Tabs";
@@ -113,6 +115,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   const { t } = useI18n();
   const isMobile = useMobileShell();
   const toast = useToast();
+  const ownerProfileId = useAccountStore((state) => state.user?.id ?? "local");
   const configuredTranscriptionResolution = useTranscriptionResolution();
   const configuredEngine = describeResolution(configuredTranscriptionResolution);
 
@@ -126,8 +129,14 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
 
   const chatSwipe = useSwipeGestures(
     {
-      onSwipeLeft: () => setChattingTranscript(null),
-      onSwipeRight: () => setChattingTranscript(null),
+      onSwipeLeft: () => {
+        podcastChatOpenIntentRef.current?.invalidate();
+        setChattingTranscript(null);
+      },
+      onSwipeRight: () => {
+        podcastChatOpenIntentRef.current?.invalidate();
+        setChattingTranscript(null);
+      },
     },
     { disabled: !isMobile }
   );
@@ -444,6 +453,8 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
   const [transcriptTotalMatches, setTranscriptTotalMatches] = useState(0);
   const [transcriptCopied, setTranscriptCopied] = useState(false);
   const [chattingTranscript, setChattingTranscript] = useState<{ episode: PodcastEpisode; text: string } | null>(null);
+  const podcastChatOpenIntentRef = useRef<ReturnType<typeof createPodcastChatOpenIntent> | null>(null);
+  if (!podcastChatOpenIntentRef.current) podcastChatOpenIntentRef.current = createPodcastChatOpenIntent();
   const [downloadedEpisodes, setDownloadedEpisodes] = useState<Map<string, string>>(new Map());
   const [downloadProgress, setDownloadProgress] = useState<Map<string, number>>(new Map());
   const [downloadingEpisodes, setDownloadingEpisodes] = useState<Set<string>>(new Set());
@@ -1143,9 +1154,13 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
     }
   };
 
-  const handleChatAboutThis = async (episode: PodcastEpisode, _feed: PodcastFeed) => {
+  const handleChatAboutThis = async (episode: PodcastEpisode, _feed: PodcastFeed, transcriptOverride?: string) => {
+    const openIntent = podcastChatOpenIntentRef.current!.begin();
     try {
-      const transcriptText = episode.transcriptText || (await getPodcastTranscript(episode.id)).text;
+      const transcriptText = transcriptOverride?.trim()
+        || episode.transcriptText
+        || (await getPodcastTranscript(episode.id)).text;
+      if (!podcastChatOpenIntentRef.current!.isCurrent(openIntent)) return;
       if (!transcriptText) {
         toast.error("No transcript available", "Transcribe the episode first");
         return;
@@ -1153,8 +1168,15 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
       setChattingTranscript({ episode, text: transcriptText });
       setViewingTranscript(null);
     } catch (error) {
-      toast.error("Failed to load transcript", error instanceof Error ? error.message : "Unknown error");
+      if (podcastChatOpenIntentRef.current!.isCurrent(openIntent)) {
+        toast.error("Failed to load transcript", error instanceof Error ? error.message : "Unknown error");
+      }
     }
+  };
+
+  const closeChatAboutThis = () => {
+    podcastChatOpenIntentRef.current?.invalidate();
+    setChattingTranscript(null);
   };
 
   const handleDownloadEpisode = async (episode: PodcastEpisode) => {
@@ -1357,7 +1379,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                       onClick={() => setSelectedFeedId(feed.id)}
                       onContextMenu={(e) => handleFeedContextMenu(e, feed)}
                       className={`w-full p-3 text-left hover:bg-muted transition-all duration-200 border-b border-border/40 group relative overflow-hidden ${
-                        selectedFeedId === feed.id ? "bg-muted/55 font-medium border-l-4 border-l-primary" : "border-l-4 border-l-transparent"
+                        selectedFeedId === feed.id ? "bg-muted/55 font-medium" : ""
                       }`}
                     >
                       <div className="flex items-start gap-3 font-normal">
@@ -2362,7 +2384,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
                 onClick={() => {
                   const feed = feeds.find((f) => f.id === viewingTranscript.episode.feedId);
                   if (feed) {
-                    handleChatAboutThis(viewingTranscript.episode, feed);
+                    handleChatAboutThis(viewingTranscript.episode, feed, viewingTranscript.transcript.text);
                   }
                 }}
                 className="px-3 py-1.5 text-xs bg-secondary text-secondary-foreground hover:bg-secondary/80 rounded-lg flex items-center gap-1 transition-colors"
@@ -2488,7 +2510,7 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
             <div className="p-4 border-b border-border flex items-center gap-3">
               {isMobile && (
                 <button
-                  onClick={() => setChattingTranscript(null)}
+                  onClick={closeChatAboutThis}
                   className="p-1 hover:bg-muted rounded transition-colors flex-shrink-0"
                   aria-label="Back"
                 >
@@ -2505,8 +2527,9 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
               </div>
               {!isMobile && (
                 <button
-                  onClick={() => setChattingTranscript(null)}
+                  onClick={closeChatAboutThis}
                   className="p-1 hover:bg-muted rounded transition-colors flex-shrink-0"
+                  aria-label="Close chat"
                 >
                   <X className="w-4 h-4 text-muted-foreground" />
                 </button>
@@ -2516,8 +2539,11 @@ export function PodcastManager({ onPlayEpisode }: PodcastManagerProps) {
             {/* Assistant Panel */}
             <div className="flex-1 min-h-0">
               <AssistantPanel
+                conversationKey={podcastEpisodeConversationId(chattingTranscript.episode.id, ownerProfileId)}
+                conversationId={podcastEpisodeConversationId(chattingTranscript.episode.id, ownerProfileId)}
                 context={{
                   type: "document",
+                  conversationId: podcastEpisodeConversationId(chattingTranscript.episode.id, ownerProfileId),
                   content: chattingTranscript.text,
                   status: "ready",
                   source: "document",

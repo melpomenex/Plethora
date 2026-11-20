@@ -36,6 +36,8 @@ const podcastApiMocks = vi.hoisted(() => ({
   getPodcastTranscript: vi.fn(async () => ({ status: "none", text: "", segments: [] })),
 }));
 
+const mobileShellState = vi.hoisted(() => ({ isMobile: false }));
+
 const toastMocks = vi.hoisted(() => ({
   success: vi.fn(),
   info: vi.fn(),
@@ -86,7 +88,7 @@ vi.mock("../../common/Tabs/TabContent", () => ({
 }));
 
 vi.mock("../../../hooks/useMobileShell", () => ({
-  useMobileShell: () => false,
+  useMobileShell: () => mobileShellState.isMobile,
 }));
 
 vi.mock("../../../commandPalette/paletteActionEvents", () => ({
@@ -107,7 +109,22 @@ vi.mock("../../../stores/useTranscriptionStore", () => ({
 }));
 
 vi.mock("../../assistant/AssistantPanel", () => ({
-  AssistantPanel: () => null,
+  AssistantPanel: ({
+    conversationKey,
+    conversationId,
+    context,
+  }: {
+    conversationKey?: string;
+    conversationId?: string;
+    context?: { content?: string };
+  }) => (
+    <div
+      data-testid="podcast-assistant-panel"
+      data-conversation-key={conversationKey}
+      data-conversation-id={conversationId}
+      data-source-text={context?.content}
+    />
+  ),
 }));
 
 vi.mock("../../viewer/localMediaSource", () => ({
@@ -253,7 +270,8 @@ describe("Entry-point migration & podcast continuation (task 5.4)", () => {
     fileSize: null,
     link: null,
     dateAdded: "2026-01-02T00:00:00.000Z",
-    transcriptStatus: "none",
+    transcriptStatus: "done",
+    transcriptText: "episode one transcript",
   };
 
   const ep2: PodcastEpisode = {
@@ -295,6 +313,7 @@ describe("Entry-point migration & podcast continuation (task 5.4)", () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mobileShellState.isMobile = false;
     localStorage.clear();
     podcastApiMocks.feeds = [feed];
     podcastApiMocks.episodes = [ep1, ep2];
@@ -383,6 +402,85 @@ describe("Entry-point migration & podcast continuation (task 5.4)", () => {
     });
 
     remount.unmount();
+  });
+
+  it("opens one episode conversation from the list, player, and loaded transcript", async () => {
+    podcastApiMocks.getPodcastTranscript.mockResolvedValue({
+      status: "done",
+      text: "fresh transcript from the viewer",
+      segments: [],
+    } as any);
+    const h = createFakeOwnerHarness();
+    await resetAudioRuntimeForTests(h.controller);
+    render(<PodcastManager />);
+
+    const feedButton = await screen.findByText("Systems Radio");
+    await act(async () => {
+      fireEvent.click(feedButton);
+    });
+    await screen.findByText("Episode One");
+
+    const rowChat = screen.getAllByTitle("Chat About This")[0];
+    fireEvent.click(rowChat);
+    const expectedConversationId = "podcast:episode:ep-1";
+    expect(await screen.findByTestId("podcast-assistant-panel")).toHaveAttribute(
+      "data-conversation-key",
+      expectedConversationId,
+    );
+    expect(screen.getByTestId("podcast-assistant-panel")).toHaveAttribute(
+      "data-conversation-id",
+      expectedConversationId,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close chat" }));
+
+    await act(async () => {
+      fireEvent.click(screen.getAllByTitle("Play episode")[0]);
+    });
+    const chatButtons = screen.getAllByTitle("Chat About This");
+    fireEvent.click(chatButtons[chatButtons.length - 1]);
+    expect(await screen.findByTestId("podcast-assistant-panel")).toHaveAttribute(
+      "data-conversation-key",
+      expectedConversationId,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Close chat" }));
+
+    fireEvent.click(screen.getAllByTitle("View Transcript")[0]);
+    await screen.findByText("Chat About This", { selector: "button" });
+    const transcriptChatButtons = screen.getAllByText("Chat About This", { selector: "button" });
+    fireEvent.click(transcriptChatButtons[transcriptChatButtons.length - 1]);
+    expect(await screen.findByTestId("podcast-assistant-panel")).toHaveAttribute(
+      "data-conversation-key",
+      expectedConversationId,
+    );
+    expect(screen.getByTestId("podcast-assistant-panel")).toHaveAttribute(
+      "data-source-text",
+      "fresh transcript from the viewer",
+    );
+  });
+
+  it("closes the mobile episode chat with Back and reopens the same conversation", async () => {
+    mobileShellState.isMobile = true;
+    const h = createFakeOwnerHarness();
+    await resetAudioRuntimeForTests(h.controller);
+    render(<PodcastManager />);
+
+    fireEvent.click(await screen.findByText("Systems Radio"));
+    await screen.findByText("Episode One");
+    fireEvent.click(screen.getAllByTitle("Chat About This")[0]);
+
+    const expectedConversationId = "podcast:episode:ep-1";
+    expect(await screen.findByTestId("podcast-assistant-panel")).toHaveAttribute(
+      "data-conversation-key",
+      expectedConversationId,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.queryByTestId("podcast-assistant-panel")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByTitle("Chat About This")[0]);
+    expect(await screen.findByTestId("podcast-assistant-panel")).toHaveAttribute(
+      "data-conversation-key",
+      expectedConversationId,
+    );
   });
 
   it("preserves episode identity separate from promoted document.id when opened via DocumentViewer/QueueScroll entry props", async () => {
