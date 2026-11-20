@@ -1134,6 +1134,61 @@ Exportieren Sie Ihre Daten zur Analyse:
 
 ---
 
+## Schlaftracking & Lern-Insights (Learning Insights)
+
+Verbinden Sie Ihre Schlafmuster, zirkadianen Rhythmen und physiologischen Messwerte direkt mit Ihrer Lernleistung im Tab **Learning Insights** (zugänglich über das HeartPulse-Symbol in der Symbolleiste oder der mobilen Navigation).
+
+Inspiriert von Dr. Piotr Woźniaks klassischem SleepChart in SuperMemo modernisiert Plethora das Schlaftracking für Lernende, indem es objektive Schlafdaten mit FSRS-7-Erinnerungswahrscheinlichkeiten, Lesesitzungen und dem Lernfortschritt in Studienplänen verknüpft.
+
+### Dashboard & Interaktives Sleep Chart
+
+Das **Sleep Chart** visualisiert Ihre Schlaf- und Lernhistorie auf einer einheitlichen, mehrmonatigen interaktiven Zeitleiste:
+
+- **Biologische Aufwachdatum-Verankerung**: Schlafphasen werden am biologischen Aufwachdatum verankert (zeitzonen- und sommerzeitsicher), sodass Nachtschlaf und Nickerchen dem richtigen kognitiven Lerntag zugeordnet werden.
+- **Schlafphasen & Nickerchen**: Zeigt detaillierte Schlafphasen (Tiefschlaf, REM, Leichtschlaf und Wachphasen) sowie Tagesschlaf und Schlafunterbrechungen an.
+- **Lernsitzungs-Overlays**: Blendet Karteikarten-Wiederholungen, Leseeinheiten und Prüfungsversuche direkt auf der Zeitleiste ein, um genau zu sehen, wann Sie im Verhältnis zu Ihren Schlafblöcken und Ihrer zirkadianen Phase gelernt haben.
+- **Datumsinspektion & Konfliktlösung**: Klicken Sie auf einen beliebigen Tag, um detaillierte Kennzahlen, Schlafphasenverteilungen, Quellennachweise und herstellerübergreifende Abweichungen einzusehen.
+
+### Zirkadiane & Schlaf-Intelligenz
+
+Plethora analysiert Schlafqualität und -timing ohne klinische Messgeräte:
+
+- **Schlaf-Regelmäßigkeitsindex (SRI)**: Misst die tägliche Beständigkeit Ihres Schlafplans (Wahrscheinlichkeit, sich im Abstand von 24 Stunden im gleichen Zustand – schlafend oder wach – zu befinden). Eine höhere Regelmäßigkeit korreliert stark mit stabiler Gedächtnisleistung.
+- **Zwei-Prozess-Modell von Borbély**: Bietet eine explorative, nicht-klinische Wachheitssimulation aus homöostatischem Schlafdruck (Prozess S) und zirkadianer Wachheit (Prozess C), um Ihre natürlichen Konzentrationsfenster und Leistungstiefs aufzuzeigen.
+- **Schlafdauer & Schlafschuld**: Vergleicht gleitende Schlafdurchschnitte mit Ihrer persönlichen Baseline, um Schlafmangel und Erholung zu überwachen.
+- **Physiologische Erholung**: Visualisiert die nächtliche Herzfrequenzvariabilität (HRV mit separater Erfassung von RMSSD und SDNN) sowie den Ruhepuls (RHR) zur Einschätzung der vegetativen Erholung.
+
+### Lernleistung & Gedächtniskorrelation
+
+Statt bloße Korrelation mit Kausalität gleichzusetzen, wendet Plethora fundierte statistische Methoden an:
+
+- **FSRS-7-Erinnerungsresiduen**: Für jede Kartenwiederholung berechnet Plethora chronologisch vor der Bewertung den Wert `beobachtete_Erinnerung - vorhergesagte_Abrufbarkeit`. Dies isoliert den physiologischen Schlafeffekt vom Alter und der Schwierigkeit der Karte.
+- **Antwortlatenz**: Analysiert gewinsorte Log-Latenzen zur Messung der Abrufgeschwindigkeit und mentalen Klarheit.
+- **Bereinigung um Störfaktoren**: Kontrolliert Tageszeit-Zirkadianrhythmen (`sin`/`cos`), Kartenschwierigkeit und die Lernbelastung der letzten 24 Stunden per intraindividueller multipler Regression.
+- **Evidenz-Inspektor**: Klicken Sie bei persönlichen Mustern auf **Evidenz prüfen**, um Stichprobengrößen, tagesgeclusterte Block-Bootstrap-Konfidenzintervalle und FDR-Korrekturen (Benjamini-Hochberg) einzusehen. Unzureichende Datenmengen werden transparent ausgewiesen.
+- **Lernplan-Gesundheitskarte**: Eingebettete Gesundheitszusammenfassungen in den Lernplanansichten zeigen, wie Schlafdauer und -regelmäßigkeit mit Modulabschlüssen und Prüfungsergebnissen harmonieren.
+
+### Datenquellen & Wearable-Anbindung
+
+Plethora unterstützt flexible Erfassungswege – von manueller Protokollierung bis hin zu automatischen Wearable-Schnittstellen:
+
+- **Kein Wearable erforderlich (Manuelle Erfassung)**: Über **Schlaf protokollieren** erfassen Sie Schlafzeiten, Qualität und optionale Phasen manuell.
+- **Interaktive Beispieldaten**: Erkunden Sie alle Funktionen risikofrei über **Beispieldaten** in einem temporären In-Memory-Tresor.
+- **Datei-Import & -Export**: Importieren Sie Daten aus Apple Health (`export.xml`), Plethora-Health-JSON oder CSV. Exportieren Sie unverschlüsselte Dateien oder passwortgeschützte Archive (`.plethora-health.enc` mit PBKDF2 und AES-256-GCM).
+- **Native mobile Schnittstellen**: Direkte Anbindung an **Apple HealthKit** unter iOS und **Android Health Connect** unter Android mit automatischer Hintergrundsynchronisation.
+- **Cloud-Wearable-Anbieter**: Sichere OAuth 2.0 PKCE-Konnektoren für **Oura Ring** (Cloud API v2), **WHOOP** (v2) und **Google Health** (v4, Pixel Watch und Fitbit).
+- **Quellenpriorität**: Bei überlappenden Daten mehrerer Geräte (z. B. Apple Watch und Oura) bestimmt die in den Einstellungen definierte Priorität die Bereinigung.
+
+### Lokale Privatsphäre-Architektur
+
+Gesundheitsdaten unterliegen strenger lokaler Isolation:
+
+- **Dedizierter Health Vault**: Gespeichert in einer separaten SQLite-Datenbank (`<app_data_dir>/health/health.db`), physisch getrennt von der Hauptdatenbank (`plethora.db`).
+- **Kein Cloud- oder KI-Abfluss**: Gesundheitsdaten fließen niemals in Cloud-Backups, E2EE-Gerätesynchronisation, semantische Suchindizes oder KI/LLM-Prompts.
+- **Sicheres Löschen**: Einzelne Einträge oder der gesamte Tresor können unter **Einstellungen → Integrationen → Gesundheit & Wearables** gelöscht und bereinigt werden.
+
+---
+
 ## Einstellungen und Anpassung
 
 ### Darstellungseinstellungen
@@ -1561,6 +1616,17 @@ Geben Sie im Assistenten (oder in Flashcard Studio) „#“ ein, um einen Teil e
 - Ein einfacher importierter Artikel ohne Überschriften erhält einen **abgeleiteten Abschnittsindex**: Absätze werden in beschriftete Segmente gruppiert, sodass das Popup bei einem Dokument mit lesbarem Text nie leer ist.
 - Wenn Sie im Dokument Text **ausgewählt** haben, wird Ihre Auswahl als erster Eintrag angezeigt. Wenn Sie sie auswählen, wird genau der ausgewählte Text als Kontext angehängt (bei Bedarf auf das Kontextbudget gekürzt, mit einem Hinweis).
 - Wenn das Dokument keinen extrahierbaren Text enthält, wird dies im Popup explizit angezeigt, anstatt eine leere Liste anzuzeigen.
+
+#### Integration von Gesundheit & Wearables
+
+Verwalten Sie Wearable-Verbindungen, Quellenprioritäten und den lokalen Tresor:
+
+1. Navigieren Sie zu **Einstellungen → Integrationen → Gesundheit & Wearables**.
+2. **Lokaler Gesundheitstresor**: Speichergröße, Eintragszahlen und Optimierungsdatum einsehen.
+3. **Anbieter verbinden**: Verbinden Sie HealthKit (iOS), Health Connect (Android) oder Cloud-Dienste (Oura, WHOOP, Google Health).
+4. **Quellenpriorität**: Legen Sie die Rangfolge fest, wenn mehrere Geräte denselben Zeitraum aufzeichnen.
+5. **Datentransfer**: Importieren Sie Verlaufsdateien oder exportieren Sie passwortverschlüsselte `.plethora-health.enc`-Sicherungen.
+6. **Tresor bereinigen**: Löschen Sie alle Gesundheits- und Schlafdaten dauerhaft inklusive SQLite-Vakuumierung.
 
 #### MCP-Server
 

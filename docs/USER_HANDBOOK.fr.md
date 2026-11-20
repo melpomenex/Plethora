@@ -1114,6 +1114,61 @@ Exportez vos données pour analyse :
 
 ---
 
+## Suivi du sommeil et aperçus d'apprentissage (Learning Insights)
+
+Reliez vos rythmes de sommeil, votre horloge circadienne et vos mesures physiologiques à vos performances d'étude dans l'onglet **Learning Insights** (accessible via l'icône HeartPulse dans la barre d'outils ou le menu mobile).
+
+Inspiré du célèbre SleepChart du Dr Piotr Woźniak dans SuperMemo, Plethora modernise l'analyse du sommeil en associant des données objectives à la rétention mnésique espacée (FSRS-7), aux sessions de lecture et aux plans d'étude.
+
+### Tableau de bord & Sleep Chart interactif
+
+Le **Sleep Chart** visualise l'historique de votre sommeil et de vos révisions sur une frise interactive de plusieurs mois :
+
+- **Ancrage à la date biologique de réveil** : Les épisodes de sommeil sont ancrés à la date de réveil biologique (préservée des fuseaux horaires et passages à l'heure d'été), attribuant les siestes et nuits au bon jour cognitif.
+- **Phases de sommeil & siestes** : Affiche les phases détaillées (sommeil profond, paradoxal/REM, léger et éveils) ainsi que les siestes diurnes.
+- **Superposition des sessions d'étude** : Superpose directement vos révisions de cartes, sessions de lecture et examens pour identifier l'influence de votre sommeil et de vos phases d'éveil sur vos études.
+- **Exploration et résolution des conflits** : Cliquez sur n'importe quel jour pour inspecter les métriques détaillées, l'origine des sources et arbitrer les écarts entre appareils.
+
+### Analyse circadienne et qualité du sommeil
+
+Plethora évalue votre rythme biologique sans équipement médical lourd :
+
+- **Indice de régularité du sommeil (SRI)** : Mesure la stabilité quotidienne de vos horaires de coucher et de lever (probabilité d'être dans le même état — endormi ou éveillé — à 24 heures d'intervalle).
+- **Modèle à deux processus de Borbély** : Simulation exploratoire non clinique combinant la pression de sommeil homéostatique (Processus S) et l'éveil circadien (Processus C) afin de révéler vos fenêtres de concentration optimales.
+- **Durée et dette de sommeil** : Compare votre moyenne mobile à votre référence personnelle pour surveiller le manque de sommeil et la récupération.
+- **Récupération physiologique** : Visualise la variabilité de la fréquence cardiaque nocturne (VRC/HRV avec suivi distinct du RMSSD et du SDNN) ainsi que la fréquence cardiaque au repos (FCR/RHR).
+
+### Performance d'apprentissage et corrélation mnésique
+
+Plethora applique des critères statistiques rigoureux pour éviter les conclusions hâtives :
+
+- **Résidus de rappel FSRS-7** : Pour chaque carte révisée, Plethora calcule `rappel_observé - rétention_prédite` chronologiquement avant la notation, isolant l'effet physiologique du sommeil de l'ancienneté ou de la difficulté intrinsèque de la carte.
+- **Latence de réponse** : Analyse les temps de réponse logarithmiques winsorisés pour mesurer la vivacité mentale et la vitesse de récupération.
+- **Contrôle des facteurs de confusion** : Neutralise les effets de l'heure (`sin`/`cos`), de la difficulté des fiches et de la charge d'étude des 24 dernières heures par régression multiple intra-individuelle.
+- **Inspecteur de preuves** : Cliquez sur **Inspecter les preuves** pour examiner les tailles d'échantillon, les intervalles de confiance bootstrap et le contrôle du taux de fausse découverte (FDR de Benjamini-Hochberg). Les corrélations insuffisamment étayées sont signalées sans ambiguïté.
+- **Carte santé dans les plans d'étude** : Des synthèses intégrées dans le suivi des plans d'étude illustrent l'alignement entre régularité du sommeil et réussite aux examens.
+
+### Sources de données et appareils connectés
+
+Plethora s'adapte à toutes les configurations, de la saisie manuelle sans capteur aux montres connectées :
+
+- **Aucun appareil requis (Saisie manuelle)** : Utilisez **Enregistrer le sommeil** pour consigner vos heures de coucher, de lever, la qualité perçue et les phases facultatives.
+- **Données d'exemple interactives** : Testez instantanément l'ensemble des graphiques avec un jeu de données synthétique temporaire hébergé en mémoire.
+- **Importation et exportation** : Importez vos données depuis Apple Health (`export.xml`), Plethora Health JSON ou CSV. Exportez des archives standard ou des fichiers chiffrés par mot de passe (`.plethora-health.enc` avec PBKDF2 et AES-256-GCM).
+- **Passerelles mobiles natives** : Prise en charge d'**Apple HealthKit** sous iOS et d'**Android Health Connect** sous Android avec synchronisation incrémentale en arrière-plan.
+- **Objets connectés dans le cloud** : Connexion directe OAuth 2.0 PKCE pour **Oura Ring** (Cloud API v2), **WHOOP** (v2) et **Google Health** (v4, Pixel Watch et Fitbit).
+- **Priorité des sources** : Lorsque plusieurs appareils enregistrent le même créneau, l'ordre de priorité défini dans les paramètres élimine les doublons.
+
+### Confidentialité et architecture locale
+
+Vos données de santé bénéficient d'un cloisonnement local strict :
+
+- **Coffre de santé dédié** : Stockage dans une base SQLite indépendante (`<app_data_dir>/health/health.db`), physiquement isolée de la base principale (`plethora.db`).
+- **Aucune fuite vers le cloud ou l'IA** : Vos données physiologiques ne sont jamais transmises aux sauvegardes cloud, à la synchronisation E2EE, aux index sémantiques ou aux requêtes d'intelligence artificielle (LLM).
+- **Suppression sécurisée** : Supprimez des données ciblées ou réinitialisez complètement le coffre avec compactage dans **Paramètres → Intégrations → Santé et appareils portables**.
+
+---
+
 ## Paramètres et personnalisation
 
 ### Paramètres d'apparence
@@ -1541,6 +1596,17 @@ Tapez « # » dans l'Assistant (ou dans Flashcard Studio) pour mentionner une 
 - Un article simple importé sans titre obtient un **index de section dérivé** : les paragraphes sont regroupés en segments étiquetés, de sorte que la fenêtre contextuelle n'est jamais vide pour un document contenant du texte lisible.
 - Si vous avez du texte **sélectionné** dans le document, votre sélection apparaît comme première entrée — en la choisissant, vous attachez exactement le texte sélectionné comme contexte (tronqué au budget contextuel si nécessaire, avec un avis).
 - Si le document ne contient pas de texte extractible, la popup le dit explicitement au lieu d'afficher une liste vide.
+
+#### Intégration de la santé et des appareils portables (Health & Wearables)
+
+Gérez vos capteurs, vos priorités de sources et le coffre local de santé :
+
+1. Ouvrez **Paramètres → Intégrations → Santé et appareils portables**.
+2. **Coffre de santé local** : Consultez la taille de la base, le volume d'enregistrements et la date de la dernière optimisation.
+3. **Connecter des fournisseurs** : Associez vos plateformes mobiles (HealthKit sur iOS, Health Connect sur Android) ou comptes cloud (Oura, WHOOP, Google Health).
+4. **Priorité des sources** : Définissez l'ordre de priorité pour arbitrer les enregistrements qui se chevauchent.
+5. **Transfert de données** : Importez des fichiers ou exportez des sauvegardes chiffrées `.plethora-health.enc`.
+6. **Effacer le coffre** : Purgez définitivement tous les enregistrements locaux avec compactage SQLite automatisé.
 
 #### Serveurs MCP
 

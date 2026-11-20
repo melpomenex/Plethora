@@ -15,11 +15,13 @@
 7. [Queue Management](#queue-management)
 8. [Study Plans & Guided Reading Trails](#study-plans--guided-reading-trails)
 9. [Analytics & Progress Tracking](#analytics--progress-tracking)
-10. [Settings & Customization](#settings--customization)
+10. [Sleep Tracking & Learning Insights](#sleep-tracking--learning-insights)
+11. [Settings & Customization](#settings--customization)
    - [NotebookLM Integration](#notebooklm-integration)
-11. [Advanced Features](#advanced-features)
-12. [Tips & Best Practices](#tips--best-practices)
-13. [Troubleshooting](#troubleshooting)
+   - [Health & Wearables Integration](#health--wearables-integration)
+12. [Advanced Features](#advanced-features)
+13. [Tips & Best Practices](#tips--best-practices)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1166,6 +1168,61 @@ Export your data for analysis:
 
 ---
 
+## Sleep Tracking & Learning Insights
+
+Connect your sleep history, circadian rhythms, and physiological telemetry directly with your learning performance in the **Learning Insights** tab (accessible via the HeartPulse icon in the desktop toolbar or mobile navigation).
+
+Inspired by Dr. Piotr Woźniak's classic SleepChart in SuperMemo, Plethora modernizes sleep and circadian tracking by pairing objective sleep observations with spaced-repetition memory retention (FSRS-7), reading sessions, and study plan mastery.
+
+### Dashboard & Interactive Sleep Chart
+
+The **Sleep Chart** visualizes your sleep and study history on a unified, multi-month interactive timeline:
+
+- **Biological Wake-Date Anchoring**: Sleep episodes are anchored to the biological wake date (timezone and DST-safe), ensuring overnight sleep and daytime naps are attributed to the correct cognitive day.
+- **Sleep Stages & Naps**: Displays detailed sleep stages (Deep, REM, Light, and Awake) alongside daytime naps and sleep interruptions.
+- **Study Session Overlays**: Overlays flashcard review sessions, reading sessions, and assessment attempts directly on the timeline, showing exactly when you studied relative to your sleep blocks and circadian phase.
+- **Date Inspection & Conflict Resolution**: Click any day to inspect detailed metrics, sleep stage breakdown, source provenance, and any multi-device discrepancies.
+
+### Circadian & Sleep Intelligence
+
+Plethora analyzes sleep quality and timing without requiring clinical equipment:
+
+- **Sleep Regularity Index (SRI)**: Measures the day-to-day consistency of your sleep schedule (calculating the probability that you are in the same state—asleep vs. awake—24 hours apart). Higher regularity correlates strongly with stable cognitive performance.
+- **Borbély Two-Process Model**: Displays an exploratory, non-clinical alertness simulation combining homeostatic sleep pressure (Process S) and circadian alertness (Process C) to highlight your natural peak learning windows and circadian dips.
+- **Sleep Duration & Debt**: Tracks rolling sleep totals against your baseline to monitor acute sleep deprivation and recovery.
+- **Physiological Recovery**: Visualizes overnight Heart Rate Variability (HRV with separated RMSSD and SDNN tracking) and Resting Heart Rate (RHR) to reflect autonomic recovery and readiness.
+
+### Learning Performance & Memory Correlation
+
+Rather than assuming correlation equals causation, Plethora applies conservative statistical methods to evaluate how your sleep impacts memory retention:
+
+- **FSRS-7 Recall Residuals**: For every flashcard review, Plethora calculates `observed_recall - predicted_retrievability` chronologically prior to the rating. This isolates the physiological effect of sleep from the card's age and inherent difficulty.
+- **Response Latency**: Analyzes winsorized log-latency to measure recall speed and retrieval effort across different sleep states.
+- **Confounder-Adjusted Analysis**: Controls for time-of-day circadian rhythms (`sin`/`cos`), card difficulty, and prior 24-hour study workload using within-person multiple regression.
+- **Evidence Inspector**: Click **Inspect Evidence** on any personal pattern to inspect sample sizes, day-clustered block bootstrap confidence intervals, and Benjamini-Hochberg False Discovery Rate (FDR) control. Plethora explicitly marks associations where data is insufficient rather than presenting premature conclusions.
+- **Study Plan Health Insights Card**: Embedded health summaries appear in Study Plan Progress and Home views, showing how your sleep regularity and duration align with curriculum milestones and examination performance.
+
+### Data Sources & Wearable Connections
+
+Plethora supports a complete range of data collection options—from zero-wearable manual tracking to multi-device wearable ecosystems:
+
+- **Zero Wearable Required (Manual Logging)**: Click **Log Sleep** to record sleep by hand (bed time, wake time, quality rating, and optional stages).
+- **Interactive Sample Data**: Click **Sample Data** to explore the complete feature set using a temporary, synthetic dataset loaded into an in-memory vault without modifying your real records.
+- **File Import & Export**: Import sleep and health records from Apple Health (`export.xml`), Plethora Health JSON, or CSV spreadsheets. Export your data as standard JSON/CSV or as a passphrase-protected encrypted bundle (`.plethora-health.enc` using PBKDF2 and AES-256-GCM).
+- **Native Mobile Bridges**: On iOS, connect **Apple HealthKit**; on Android, connect **Android Health Connect** for automated, incremental background synchronization.
+- **Cloud Wearable Providers**: Direct OAuth 2.0 PKCE connectors for **Oura Ring** (Cloud API v2), **WHOOP** (Developer API v2), and **Google Health** (v4, covering Pixel Watch and Fitbit).
+- **Source Priority**: When multiple devices record the same sleep window (e.g., Apple Watch and Oura Ring), Plethora deduplicates records based on your preferred provider priority configured in Settings.
+
+### Local-First Privacy Architecture
+
+Health data is sensitive and subject to strict local-first isolation:
+
+- **Dedicated Health Vault**: Stored in a separate on-device SQLite database (`<app_data_dir>/health/health.db`), physically isolated from the main library database (`plethora.db`).
+- **Zero Cloud & AI Egress**: Health records are never included in Plethora Cloud backups, E2EE device synchronization, semantic chunk indexing, or AI/LLM prompt contexts.
+- **Safe Vault Deletion**: Delete individual entries or perform a complete vault wipe with database compaction under **Settings → Integrations → Health & Wearables**.
+
+---
+
 ## Settings & Customization
 
 ### Appearance Settings
@@ -1575,6 +1632,17 @@ Type `#` in the Assistant (or in Flashcard Studio) to mention part of a document
 - A plain imported article with no headings gets a **derived section index**: paragraphs are grouped into labelled segments, so the popup is never empty for a document that has readable text.
 - If you have text **selected** in the document, your selection appears as the first entry — choosing it attaches exactly the selected text as context (truncated to the context budget if needed, with a notice).
 - If the document has no extractable text, the popup says so explicitly instead of showing an empty list.
+
+#### Health & Wearables Integration
+
+Manage wearable connections, data source priority, and local vault storage:
+
+1. Navigate to **Settings → Integrations → Health & Wearables**.
+2. **Local Health Vault**: Review database storage size, record counts, and last optimization date.
+3. **Connect Providers**: Connect supported native platforms (Apple HealthKit on iOS, Health Connect on Android) or cloud providers (Oura, WHOOP, Google Health).
+4. **Source Priority**: Arrange the priority order of your connected sources to control which provider takes precedence when overlapping sleep data is recorded.
+5. **Data Transfer**: Import local health files or export passphrase-encrypted `.plethora-health.enc` backups.
+6. **Wipe Vault**: Completely erase all local health and sleep records with automated SQLite compaction.
 
 #### MCP Servers
 
