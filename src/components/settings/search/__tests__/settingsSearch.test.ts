@@ -110,6 +110,13 @@ describe("Settings search matcher", () => {
     expect(idsFor("recording flashcards")).toContain("ai.sessionLearningSuggestions");
   });
 
+  it("finds the saved image-theme motion control by GIF and animation terms", () => {
+    const entry = findSettingsSearchEntry("appearance.imageThemeAnimation");
+    expect(entry?.targetId).toBe("appearance.imageThemeAnimation");
+    expect(idsFor("GIF animation")[0]).toBe("appearance.imageThemeAnimation");
+    expect(idsFor("image backdrop movement")).toContain("appearance.imageThemeAnimation");
+  });
+
   it("tolerates one bounded adjacent transposition but ranks exact matches first", () => {
     const typo = idsFor("font siez");
     expect(typo).toContain("appearance.fontSize");

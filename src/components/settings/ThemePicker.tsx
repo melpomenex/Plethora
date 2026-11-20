@@ -34,8 +34,10 @@ import { ThemeGallery } from './ThemeGallery';
 import { ImageThemeModal } from './ImageThemeModal';
 import { ThemeCustomizer } from './ThemeCustomizer';
 import { builtInThemes as registeredBuiltInThemes } from '../../themes/builtin';
+import { isAnimatedImageTheme } from '../../themes/themePortability';
 import { useI18n } from '../../lib/i18n';
 import { cn } from '../../utils';
+import { SettingsSearchTarget } from './search/SettingsSearchNavigation';
 
 type VariantFilter = "all" | "light" | "dark";
 type AnimatedFilter = "all" | "animated" | "static";
@@ -97,6 +99,7 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
     previewTheme,
     previewThemeId,
     commitPreview,
+    updateCustomTheme,
   } = useTheme();
 
   const [open, setOpen] = useState(false);
@@ -129,9 +132,10 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return orderedThemes.filter((th) => {
+      const animated = Boolean(th.effects?.backgroundAnimation || isAnimatedImageTheme(th));
       if (variantFilter !== "all" && th.variant !== variantFilter) return false;
-      if (animatedFilter === "animated" && !th.effects?.backgroundAnimation) return false;
-      if (animatedFilter === "static" && th.effects?.backgroundAnimation) return false;
+      if (animatedFilter === "animated" && !animated) return false;
+      if (animatedFilter === "static" && animated) return false;
       if (q && !(th.name.toLowerCase().includes(q) || th.id.toLowerCase().includes(q))) {
         return false;
       }
@@ -140,6 +144,18 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
   }, [orderedThemes, search, variantFilter, animatedFilter]);
 
   const isPreviewing = previewThemeId !== null && previewThemeId !== theme.id;
+  const imageAnimation = theme.effects?.imageAnimation;
+  const fromImageButton = (
+    <button
+      type="button"
+      onClick={() => setShowImageModal(true)}
+      className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-primary transition-colors hover:bg-primary/20"
+      title="Create theme from an image"
+    >
+      <ImageIcon className="h-4 w-4" />
+      <span className="text-sm font-medium">From Image</span>
+    </button>
+  );
 
   const closePanel = () => {
     setOpen(false);
@@ -217,8 +233,17 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
 
   const handleExportTheme = async (themeId: ThemeId) => {
     try {
-      const json = exportTheme(themeId);
       const target = themes.find((th) => th.id === themeId);
+      if (
+        target &&
+        (isAnimatedImageTheme(target) || target.effects?.backgroundImage?.imageId) &&
+        !window.confirm(
+          isAnimatedImageTheme(target)
+            ? t("theme.exportAnimatedColorsOnlyConfirm")
+            : t("theme.exportStillImageConfirm")
+        )
+      ) return;
+      const json = exportTheme(themeId);
 
       const filePath = await invokeCommand<string>('dialog_save_file', {
         defaultPath: `${target?.name || 'theme'}.json`,
@@ -241,8 +266,7 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
 
       if (filePath) {
         const contents = await invokeCommand<string>('read_file', { path: filePath });
-        const importedTheme = importTheme(contents);
-        setTheme(importedTheme.id);
+        await importTheme(contents);
       }
     } catch (error) {
       console.error('Failed to import theme:', error);
@@ -265,21 +289,23 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
             <p className="truncate text-sm font-semibold text-foreground">{theme.name}</p>
             <p className="text-xs text-muted-foreground">
               {theme.variant}
-              {theme.effects?.backgroundAnimation ? ` · ${t('settings.themeAnimated')}` : ""} · {themes.length} {t('theme.themeCount')}
+              {(theme.effects?.backgroundAnimation || isAnimatedImageTheme(theme))
+                ? ` · ${t('settings.themeAnimated')}`
+                : ""} · {themes.length} {t('theme.themeCount')}
             </p>
           </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowImageModal(true)}
-            className="flex items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 py-2 text-primary transition-colors hover:bg-primary/20"
-            title="Create theme from an image"
-          >
-            <ImageIcon className="h-4 w-4" />
-            <span className="text-sm font-medium">From Image</span>
-          </button>
+          {imageAnimation ? fromImageButton : (
+            <SettingsSearchTarget
+              id="appearance.imageThemeAnimation"
+              label={t("theme.playAnimation")}
+              className="inline-flex"
+            >
+              {fromImageButton}
+            </SettingsSearchTarget>
+          )}
           <button
             type="button"
             onClick={() => setShowCustomizer(true)}
@@ -323,6 +349,42 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
           )}
         </div>
       </div>
+
+      {imageAnimation ? (
+        <SettingsSearchTarget
+          id="appearance.imageThemeAnimation"
+          label={t("theme.playAnimation")}
+          className="rounded-lg border border-border bg-card p-3"
+        >
+          <label className="flex min-h-11 items-center justify-between gap-4 text-sm text-foreground">
+            <span className="min-w-0">
+              <span className="block font-medium">{t("theme.playAnimation")}</span>
+              <span className="mt-0.5 block text-xs text-muted-foreground">
+                {t("theme.imageAnimationControlHint")}
+              </span>
+            </span>
+            <input
+              type="checkbox"
+              checked={imageAnimation.enabled}
+              aria-label={t("theme.playAnimation")}
+              onChange={(event) => updateCustomTheme({
+                ...theme,
+                effects: {
+                  ...theme.effects,
+                  imageAnimation: { ...imageAnimation, enabled: event.target.checked },
+                },
+              })}
+              className="h-4 w-4 shrink-0 accent-primary"
+            />
+          </label>
+        </SettingsSearchTarget>
+      ) : (
+        <div className="rounded-lg border border-border bg-card p-3">
+          <p className="text-xs text-muted-foreground">
+            {t("theme.imageAnimationPrerequisite")}
+          </p>
+        </div>
+      )}
 
       {/* Combobox-style selector */}
       <div ref={rootRef} className="relative w-full">
@@ -497,7 +559,7 @@ export function ThemePicker({ onClose }: ThemePickerProps) {
                         <ThemeSwatch theme={th} className="h-5 w-11" />
                         <span className="min-w-0 truncate text-sm text-foreground">{th.name}</span>
                         <span className="shrink-0 text-xs capitalize text-muted-foreground">{th.variant}</span>
-                        {th.effects?.backgroundAnimation && (
+                        {(th.effects?.backgroundAnimation || isAnimatedImageTheme(th)) && (
                           <span
                             className="flex shrink-0 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium text-primary"
                           >

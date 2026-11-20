@@ -1,0 +1,59 @@
+{
+  "reference": {
+    "decoders": ["ImageMagick 7", "FFmpeg"],
+    "comparison": "coalesced RGBA pixels; RGB values where alpha is zero are ignored",
+    "createdWith": "ImageMagick 7.1.1-47 Q16-HDRI"
+  },
+  "fixtures": {
+    "palette-dominance.gif": {
+      "logicalSize": [4, 4],
+      "loopRepeats": 0,
+      "normalizedCycleMs": 1000,
+      "frames": [
+        { "startMs": 0, "durationMs": 100, "rows": ["BBBB", "BBBB", "BBBB", "BBBB"] },
+        { "startMs": 100, "durationMs": 900, "rows": ["GGGG", "GGGG", "GGGG", "GGGG"] }
+      ],
+      "colors": { "B": "#0000ffff", "G": "#00ff00ff" }
+    },
+    "disposal-background.gif": {
+      "logicalSize": [4, 4],
+      "loopRepeats": 0,
+      "normalizedCycleMs": 300,
+      "frames": [
+        { "startMs": 0, "durationMs": 100, "rows": ["RRRR", "RRRR", "RRRR", "RRRR"] },
+        { "startMs": 100, "durationMs": 100, "rows": ["RRRR", "RGGR", "RGGR", "RRRR"] },
+        { "startMs": 200, "durationMs": 100, "rows": ["....", "....", "..B.", "...."] }
+      ],
+      "colors": { "R": "#ff0000ff", "G": "#00ff00ff", "B": "#0000ffff", ".": "alpha=0" }
+    },
+    "alpha-transparency.gif": {
+      "logicalSize": [4, 4],
+      "loopRepeats": 0,
+      "normalizedCycleMs": 200,
+      "frames": [
+        { "startMs": 0, "durationMs": 100, "rows": ["YY..", "YY..", "....", "...."] },
+        { "startMs": 100, "durationMs": 100, "rows": ["YY..", "YY..", "..MM", "..MM"] }
+      ],
+      "colors": { "Y": "#ffff00ff", "M": "#ff00ffff", ".": "alpha=0" }
+    },
+    "finite-loop-seam.gif": {
+      "logicalSize": [4, 4],
+      "loopRepeats": 1,
+      "totalPlays": 2,
+      "normalizedCycleMs": 500,
+      "frames": [
+        { "startMs": 0, "durationMs": 200, "rows": ["RRRR", "RRRR", "RRRR", "RRRR"] },
+        { "startMs": 200, "durationMs": 100, "rows": ["GGGG", "GGGG", "GGGG", "GGGG"] },
+        { "startMs": 300, "durationMs": 200, "rows": ["BBBB", "BBBB", "BBBB", "BBBB"] }
+      ],
+      "colors": { "R": "#ff0000ff", "G": "#00ff00ff", "B": "#0000ffff" }
+    },
+    "still-regression.png": {
+      "logicalSize": [4, 4],
+      "frames": [
+        { "rows": ["##OO", "##OO", "BBGG", "BBGG"] }
+      ],
+      "colors": { "#": "#000000ff", "O": "#ff8800ff", "B": "#3366ccff", "G": "#55aa44ff" }
+    }
+  }
+}

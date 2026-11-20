@@ -14,6 +14,18 @@ import {
   type PreparedBackdropImage,
 } from "../../themes/imageStorage";
 import {
+  animatedImagePosterKey,
+} from "../../themes/animatedImage/storage";
+import {
+  cancelAnimatedImagePreparation,
+  prepareAnimatedImageFile,
+} from "../../themes/animatedImage/prepareAnimatedImage";
+import type {
+  AnimatedImagePreparationStage,
+  PreparedAnimatedImage,
+} from "../../themes/animatedImage/contracts";
+import {
+  extractPaletteFromWeightedSamples,
   extractPaletteFromPixels,
   getMoodDefaults,
   synthesizeThemeFromPalette,
@@ -21,6 +33,8 @@ import {
   type ImageThemeMood,
 } from "../../themes/imageThemeExtractor";
 import type { Theme, ThemeVariant } from "../../types/theme";
+import { isNativeMobile } from "../../lib/tauri";
+import { useI18n } from "../../lib/i18n";
 import { cn } from "../../utils";
 
 interface ImageThemeModalProps {
@@ -35,15 +49,44 @@ const MOODS: Array<{ id: ImageThemeMood; label: string; hint: string }> = [
   { id: "high-contrast", label: "High Contrast", hint: "Crisp 7:1 text legibility" },
 ];
 
+type PreparedImage =
+  | { readonly kind: "still"; readonly value: PreparedBackdropImage }
+  | { readonly kind: "gif"; readonly value: PreparedAnimatedImage };
+
+interface PreparationProgress {
+  readonly stage: AnimatedImagePreparationStage;
+  readonly fraction: number;
+}
+
 export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
-  const { theme, themes, addCustomTheme, setTheme, previewCustomTheme } = useTheme();
+  const {
+    theme,
+    themes,
+    addCustomTheme,
+    setTheme,
+    previewCustomTheme,
+    beginAnimatedImagePreview,
+    updateAnimatedImagePreview,
+    cancelAnimatedImagePreview,
+    commitAnimatedImagePreview,
+  } = useTheme();
+  const { t } = useI18n();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const [prepared, setPrepared] = useState<PreparedBackdropImage | null>(null);
+  const [prepared, setPrepared] = useState<PreparedImage | null>(null);
   const [palette, setPalette] = useState<ExtractedImagePalette | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [progress, setProgress] = useState<PreparationProgress | null>(null);
+  const [stillFallbackReason, setStillFallbackReason] = useState<string | null>(null);
+  const [playAnimation, setPlayAnimation] = useState(true);
+  const [animatedPreviewUrl, setAnimatedPreviewUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const fileJobRef = useRef(0);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const animatedPreviewTokenRef = useRef<number | null>(null);
+  const previewPreparedRef = useRef<PreparedAnimatedImage | null>(null);
 
   const [name, setName] = useState("Custom Image Theme");
   const [variant, setVariant] = useState<ThemeVariant>("dark");
@@ -69,22 +112,43 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
 
   const synthesizedTheme = useMemo(() => {
     if (!prepared || !palette) return null;
-    return synthesizeThemeFromPalette(palette, {
-      id: `custom-img-preview-${prepared.imageId}`,
+    const backgroundImageId = prepared.kind === "gif"
+      ? animatedImagePosterKey(prepared.value.mediaId)
+      : prepared.value.imageId;
+    const imageAnimation = prepared.kind === "gif" && prepared.value.pack
+      ? {
+          version: 1 as const,
+          mediaId: prepared.value.mediaId,
+          sourceFormat: "gif" as const,
+          enabled: playAnimation,
+        }
+      : undefined;
+    const synthesized = synthesizeThemeFromPalette(palette, {
+      id: prepared.kind === "gif"
+        ? `custom-img-${prepared.value.mediaId}`
+        : `custom-img-preview-${prepared.value.imageId}`,
       name,
       variant,
       mood,
       primaryOverride,
       backgroundImage: {
-        imageId: prepared.imageId,
-        thumbnailDataUrl: prepared.thumbnailDataUrl,
+        imageId: backgroundImageId,
+        thumbnailDataUrl: prepared.value.thumbnailDataUrl,
         blur,
         scrimOpacity,
         surfaceOpacity,
         brightness,
+        ...(prepared.kind === "gif" ? { protectedSurfaces: true } : {}),
       },
       baseTokens,
     });
+    return {
+      ...synthesized,
+      effects: {
+        ...synthesized.effects,
+        ...(imageAnimation ? { imageAnimation } : {}),
+      },
+    };
   }, [
     prepared,
     palette,
@@ -97,32 +161,79 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
     surfaceOpacity,
     brightness,
     baseTokens,
+    playAnimation,
   ]);
 
   const previewCustomThemeRef = useRef(previewCustomTheme);
   previewCustomThemeRef.current = previewCustomTheme;
 
-  // Live-apply preview across the entire app while the modal is open.
+  const cancelCurrentPreview = useCallback(() => {
+    const token = animatedPreviewTokenRef.current;
+    if (token !== null) {
+      cancelAnimatedImagePreview?.(token);
+      animatedPreviewTokenRef.current = null;
+      previewPreparedRef.current = null;
+    } else {
+      previewCustomTheme?.(null);
+    }
+  }, [cancelAnimatedImagePreview, previewCustomTheme]);
+
+  // The provider owns the prepared bytes; this component only updates the scoped lease.
   useEffect(() => {
-    if (!previewCustomTheme || !prepared || !synthesizedTheme) return;
-    let cancelled = false;
-    // Ensure image is in memory cache so ThemeBackdrop renders it immediately.
-    void saveBackdropImage(prepared.imageId, prepared.dataUrl).then(() => {
-      if (!cancelled) {
-        previewCustomTheme(synthesizedTheme);
+    if (!prepared || !synthesizedTheme) return;
+    if (prepared.kind === "gif") {
+      if (!beginAnimatedImagePreview || !updateAnimatedImagePreview) return;
+      if (previewPreparedRef.current !== prepared.value || animatedPreviewTokenRef.current === null) {
+        const token = beginAnimatedImagePreview(prepared.value, synthesizedTheme);
+        animatedPreviewTokenRef.current = token;
+        previewPreparedRef.current = prepared.value;
+      } else {
+        updateAnimatedImagePreview(animatedPreviewTokenRef.current, synthesizedTheme);
       }
+      return;
+    }
+
+    const existingToken = animatedPreviewTokenRef.current;
+    if (existingToken !== null) {
+      cancelAnimatedImagePreview?.(existingToken);
+      animatedPreviewTokenRef.current = null;
+      previewPreparedRef.current = null;
+    }
+    if (!previewCustomTheme) return;
+    let cancelled = false;
+    void saveBackdropImage(prepared.value.imageId, prepared.value.dataUrl).then(() => {
+      if (!cancelled) previewCustomTheme(synthesizedTheme);
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [prepared, synthesizedTheme, previewCustomTheme]);
+    return () => { cancelled = true; };
+  }, [
+    prepared,
+    synthesizedTheme,
+    beginAnimatedImagePreview,
+    updateAnimatedImagePreview,
+    cancelAnimatedImagePreview,
+    previewCustomTheme,
+  ]);
+
+  useEffect(() => {
+    if (!prepared || prepared.kind !== "gif") {
+      setAnimatedPreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(prepared.value.poster);
+    setAnimatedPreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [prepared]);
 
   // Revert preview on unmount.
   useEffect(() => {
     return () => {
-      previewCustomThemeRef.current?.(null);
+      abortControllerRef.current?.abort();
+      cancelAnimatedImagePreparation();
+      const token = animatedPreviewTokenRef.current;
+      if (token !== null) cancelAnimatedImagePreview?.(token);
+      else previewCustomThemeRef.current?.(null);
     };
-  }, []);
+  }, [cancelAnimatedImagePreview]);
 
   const fileInputId = "image-theme-file-input";
 
@@ -136,18 +247,64 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
       setError("Please select an image file (PNG, JPEG, WebP, GIF, or AVIF).");
       return;
     }
+    const job = ++fileJobRef.current;
+    abortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    abortControllerRef.current = abortController;
+    cancelAnimatedImagePreparation();
     setError(null);
+    setProgress({ stage: "validating", fraction: 0 });
+    setStillFallbackReason(null);
     setIsProcessing(true);
     try {
-      const result = await prepareBackdropImage(file);
-      const extracted = extractPaletteFromPixels(
-        result.samplePixels,
-        result.sampleWidth,
-        result.sampleHeight
-      );
-      await saveBackdropImage(result.imageId, result.dataUrl);
-      setPrepared(result);
-      setPalette(extracted);
+      const isCompact = typeof window.matchMedia === "function" && window.matchMedia("(max-width: 640px)").matches;
+      const tier = isNativeMobile() || isCompact
+        ? "mobile"
+        : "desktop";
+      let animated: PreparedAnimatedImage | null = null;
+      let fallbackReason: string | null = null;
+      try {
+        animated = await prepareAnimatedImageFile(file, {
+          tier,
+          signal: abortController.signal,
+          onProgress: (next) => {
+            if (fileJobRef.current === job) setProgress({ stage: next.stage, fraction: next.fraction });
+          },
+        });
+      } catch (prepareError) {
+        const failureCode = prepareError instanceof Error && "code" in prepareError
+          ? String((prepareError as Error & { code?: unknown }).code)
+          : "";
+        if (["worker-unavailable", "decoder-unavailable", "deadline-exceeded"].includes(failureCode)) {
+          fallbackReason = t("theme.imageAnimationStillFallback");
+        } else {
+          throw prepareError;
+        }
+      }
+      if (fileJobRef.current !== job) return;
+
+      let extracted: ExtractedImagePalette;
+      if (animated) {
+        extracted = extractPaletteFromWeightedSamples(animated.paletteSamples);
+        setPrepared({ kind: "gif", value: animated });
+        setPalette(extracted);
+        setStillFallbackReason(animated.outcome === "still" ? t("theme.imageAnimationStillOnly") : null);
+        setPlayAnimation(animated.outcome === "animated");
+      } else {
+        const result = await prepareBackdropImage(file);
+        if (fileJobRef.current !== job) return;
+        extracted = extractPaletteFromPixels(
+          result.samplePixels,
+          result.sampleWidth,
+          result.sampleHeight
+        );
+        await saveBackdropImage(result.imageId, result.dataUrl);
+        if (fileJobRef.current !== job) return;
+        setPrepared({ kind: "still", value: result });
+        setPalette(extracted);
+        setStillFallbackReason(fallbackReason);
+        setPlayAnimation(false);
+      }
       setVariant(extracted.suggestedVariant);
       setPrimaryOverride(undefined);
       const baseName = file.name.replace(/\.[^/.]+$/, "").replace(/[-_]+/g, " ").trim();
@@ -155,11 +312,17 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
         setName(baseName.slice(0, 36));
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to process image.");
+      if (fileJobRef.current === job) {
+        setError(err instanceof Error ? err.message : t("theme.imageProcessingFailed"));
+      }
     } finally {
-      setIsProcessing(false);
+      if (fileJobRef.current === job) {
+        setIsProcessing(false);
+        setProgress(null);
+        abortControllerRef.current = null;
+      }
     }
-  }, []);
+  }, [t]);
 
   const handleMoodChange = (nextMood: ImageThemeMood) => {
     setMood(nextMood);
@@ -172,20 +335,41 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
 
   const handleSave = async () => {
     if (!prepared || !palette || !synthesizedTheme) return;
-    await saveBackdropImage(prepared.imageId, prepared.dataUrl);
-    const finalTheme: Theme = {
-      ...synthesizedTheme,
-      id: `custom-img-${Date.now()}`,
-    };
-    previewCustomTheme?.(null);
-    addCustomTheme(finalTheme);
-    setTheme(finalTheme.id);
-    onSaved?.(finalTheme);
-    onClose();
+    setIsSaving(true);
+    setError(null);
+    try {
+      if (prepared.kind === "gif") {
+        const token = animatedPreviewTokenRef.current;
+        if (token === null || !commitAnimatedImagePreview) {
+          throw new Error(t("theme.imageSaveFailed"));
+        }
+        await commitAnimatedImagePreview(token);
+        animatedPreviewTokenRef.current = null;
+        previewPreparedRef.current = null;
+        onSaved?.(synthesizedTheme);
+      } else {
+        await saveBackdropImage(prepared.value.imageId, prepared.value.dataUrl);
+        const finalTheme: Theme = {
+          ...synthesizedTheme,
+          id: `custom-img-${Date.now()}`,
+        };
+        previewCustomTheme?.(null);
+        addCustomTheme(finalTheme);
+        setTheme(finalTheme.id);
+        onSaved?.(finalTheme);
+      }
+      onClose();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : t("theme.imageSaveFailed"));
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const handleCancel = () => {
-    previewCustomTheme?.(null);
+    abortControllerRef.current?.abort();
+    cancelAnimatedImagePreparation();
+    cancelCurrentPreview();
     onClose();
   };
 
@@ -200,11 +384,11 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
       </button>
       <button
         type="button"
-        disabled={!synthesizedTheme || isProcessing}
+        disabled={!synthesizedTheme || isProcessing || isSaving}
         onClick={() => void handleSave()}
         className="rounded-lg bg-primary px-4 py-2 text-sm font-medium text-primary-foreground transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        Save &amp; Apply Theme
+        {isSaving ? t("theme.imageSaving") : t("theme.imageSaveApply")}
       </button>
     </div>
   );
@@ -219,7 +403,7 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
           <span>Create Theme from Image</span>
         </span>
       }
-      description="Upload a photo or artwork — Plethora extracts an OKLCH palette and themes the app live."
+      description={t("theme.imageThemeDescription")}
       desktopMaxWidth="42rem"
       footer={footer}
     >
@@ -259,7 +443,9 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
             {prepared ? (
               <>
                 <img
-                  src={prepared.dataUrl}
+                  src={prepared.kind === "still"
+                    ? prepared.value.dataUrl
+                    : animatedPreviewUrl || prepared.value.thumbnailDataUrl}
                   alt="Backdrop preview"
                   className="h-full w-full object-cover"
                   style={{
@@ -276,12 +462,12 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
                 />
                 <div className="relative z-10 flex items-center gap-3 rounded-lg border border-white/15 bg-black/45 px-3.5 py-2 text-xs text-white backdrop-blur-md">
                   <ImageIcon className="h-4 w-4" />
-                  <span>{prepared.width}×{prepared.height}</span>
+                  <span>{prepared.value.width}×{prepared.value.height}</span>
                   <label
                     htmlFor={fileInputId}
                     className="cursor-pointer rounded bg-white/15 px-2.5 py-1.5 font-medium hover:bg-white/25"
                   >
-                    Change image
+                    {t("theme.imageChange")}
                   </label>
                 </div>
               </>
@@ -292,12 +478,40 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
               >
                 <UploadSimple className="h-7 w-7 text-muted-foreground" />
                 <p className="text-sm font-medium text-foreground">
-                  {isProcessing ? "Extracting OKLCH palette…" : "Tap to choose a photo or drop an image"}
+                  {isProcessing ? t("theme.imagePreparing") : t("theme.imageChoose")}
                 </p>
-                <p className="text-xs text-muted-foreground">PNG, JPEG, WebP, AVIF, or GIF</p>
+                <p className="text-xs text-muted-foreground">{t("theme.imageFormats")}</p>
               </label>
             )}
           </div>
+
+          {progress && (
+            <div className="space-y-1" role="status" aria-live="polite">
+              <div className="flex items-center justify-between text-xs text-muted-foreground">
+                <span>{t(`theme.imageProgress.${progress.stage}`)}</span>
+                <span>{Math.round(progress.fraction * 100)}%</span>
+              </div>
+              <div
+                className="h-1.5 overflow-hidden rounded-full bg-muted"
+                role="progressbar"
+                aria-label={t("theme.imagePreparationProgress")}
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={Math.round(progress.fraction * 100)}
+              >
+                <div
+                  className="h-full rounded-full bg-primary transition-[width]"
+                  style={{ width: `${Math.round(progress.fraction * 100)}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {stillFallbackReason && (
+            <p className="rounded-lg border border-border bg-muted/50 px-3 py-2 text-xs text-muted-foreground" role="status">
+              {stillFallbackReason}
+            </p>
+          )}
 
           {error && (
             <p className="rounded-lg border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive">
@@ -311,19 +525,19 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_auto]">
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Theme Name
+                    {t("theme.imageThemeName")}
                   </label>
                   <input
                     type="text"
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    placeholder="My Image Theme"
+                    placeholder={t("theme.imageThemeNamePlaceholder")}
                     className="w-full rounded-lg border border-border bg-input px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   />
                 </div>
                 <div>
                   <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                    Mode
+                    {t("theme.imageMode")}
                   </label>
                   <div className="flex rounded-lg border border-border bg-background p-0.5">
                     <button
@@ -335,7 +549,7 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
                       )}
                     >
                       <Moon className="h-3.5 w-3.5" />
-                      Dark
+                      {t("theme.imageDark")}
                     </button>
                     <button
                       type="button"
@@ -346,7 +560,7 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
                       )}
                     >
                       <Sun className="h-3.5 w-3.5" />
-                      Light
+                      {t("theme.imageLight")}
                     </button>
                   </div>
                 </div>
@@ -355,7 +569,7 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
               {/* Mood Presets */}
               <div>
                 <label className="mb-1.5 block text-xs font-medium text-muted-foreground">
-                  Mood
+                  {t("theme.imageMood")}
                 </label>
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
                   {MOODS.map((m) => (
@@ -376,6 +590,27 @@ export function ImageThemeModal({ onClose, onSaved }: ImageThemeModalProps) {
                   ))}
                 </div>
               </div>
+
+              {prepared.kind === "gif" && prepared.value.pack && (
+                <label className="flex items-center gap-2 text-sm text-foreground">
+                  <input
+                    type="checkbox"
+                    checked={playAnimation}
+                    onChange={(event) => setPlayAnimation(event.target.checked)}
+                    aria-label={t("theme.playAnimation")}
+                    className="h-4 w-4 accent-primary"
+                  />
+                  <span>{t("theme.playAnimation")}</span>
+                </label>
+              )}
+
+              {prepared.kind === "gif" && prepared.value.outcome === "still" && (
+                <p className="text-xs text-muted-foreground" role="status">
+                  {prepared.value.stillReason === "unsafe-flashing"
+                    ? t("theme.imageUnsafeAnimation")
+                    : t("theme.imageAnimationStillOnly")}
+                </p>
+              )}
 
               {/* Extracted Swatches */}
               <div>

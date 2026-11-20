@@ -1058,10 +1058,68 @@
     -webkit-backdrop-filter: blur(16px) saturate(1.2);
   }
 
+  /* Keep semantic overlays stable while structural page surfaces stay
+     transparent so the animated image backdrop can show through. */
+  :root[data-theme-image-protected="true"] [class*="bg-background/"] {
+    background-color: var(--color-background) !important;
+    background-image: none !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  :root[data-theme-image-protected="true"] .bg-card,
+  :root[data-theme-image-protected="true"] [class*="bg-card/"] {
+    background-color: var(--color-card) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  :root[data-theme-image-protected="true"] .bg-sidebar,
+  :root[data-theme-image-protected="true"] [class*="bg-sidebar/"],
+  :root[data-theme-image-protected="true"] aside {
+    background-color: var(--color-sidebar) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  :root[data-theme-image-protected="true"] .bg-toolbar,
+  :root[data-theme-image-protected="true"] [class*="bg-toolbar/"] {
+    background-color: var(--color-toolbar) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  :root[data-theme-image-protected="true"] .bg-muted,
+  :root[data-theme-image-protected="true"] [class*="bg-muted/"] {
+    background-color: var(--color-muted) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
+  :root[data-theme-image-protected="true"] .bg-popover,
+  :root[data-theme-image-protected="true"] [class*="bg-popover/"] {
+    background-color: var(--color-popover) !important;
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+  }
+
   .theme-backdrop-canvas {
     display: block;
     width: 100%;
     height: 100%;
+  }
+
+  .theme-image-frame-layer {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: center;
+  }
+
+  .theme-image-frame-canvas {
+    display: block;
   }
 
   /* Safe-area insets for full-screen overlays (mobile player, transcript sheet,

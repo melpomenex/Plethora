@@ -9,6 +9,7 @@ import { useState } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ThemeProvider } from "../../../contexts/ThemeContext";
 import { ThemePicker } from "../ThemePicker";
+import { milkyMatchaTheme } from "../../../themes/fallback";
 
 function renderPicker() {
   return render(
@@ -33,6 +34,16 @@ describe("ThemePicker", () => {
     renderPicker();
     // The active theme appears in the summary row and in the collapsed trigger.
     expect(screen.getAllByText("Obsidian Noir").length).toBeGreaterThan(0);
+  });
+
+  it("keeps one From Image action and routes the image-animation search target to it", () => {
+    renderPicker();
+    const target = document.querySelector('[data-settings-search-target="appearance.imageThemeAnimation"]');
+    expect(target).toBeInTheDocument();
+    expect(screen.getByText(/Select or create a GIF image theme/)).toBeInTheDocument();
+    const fromImageButtons = screen.getAllByRole("button", { name: "From Image" });
+    expect(fromImageButtons).toHaveLength(1);
+    expect(target).toContainElement(fromImageButtons[0]);
   });
 
   it("opens a compact panel with every theme reachable (full catalog)", async () => {
@@ -85,6 +96,35 @@ describe("ThemePicker", () => {
     expect(screen.getByText("Neon Grid")).toBeInTheDocument();
     expect(screen.getByText("Deep Ocean Glow")).toBeInTheDocument();
     expect(screen.queryByText("Dracula")).not.toBeInTheDocument();
+  });
+
+  it("classifies a saved GIF theme as animated even without a procedural effect", async () => {
+    const imageTheme = {
+      ...milkyMatchaTheme,
+      id: "custom-gif-theme",
+      name: "Animated image theme",
+      effects: {
+        backgroundImage: { imageId: "media:v1:anim-picker-test-00000000:poster" },
+        imageAnimation: {
+          version: 1 as const,
+          mediaId: "anim-picker-test-00000000",
+          sourceFormat: "gif" as const,
+          enabled: false,
+        },
+      },
+    };
+    localStorage.setItem("plethora-custom-themes", JSON.stringify([imageTheme]));
+    renderPicker();
+    openPicker();
+    await screen.findByText("Animated image theme");
+
+    fireEvent.click(screen.getByRole("button", { name: "Animated" }));
+    expect(screen.getByText("Animated image theme")).toBeInTheDocument();
+    expect(screen.queryByText("Dracula")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Static" }));
+    expect(screen.queryByText("Animated image theme")).not.toBeInTheDocument();
+    expect(screen.getByText("Dracula")).toBeInTheDocument();
   });
 
   it("live-previews on hover without committing, then commits on apply", async () => {

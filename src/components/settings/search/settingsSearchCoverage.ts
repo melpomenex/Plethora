@@ -50,6 +50,7 @@ export const SETTINGS_SEARCH_COVERAGE: readonly SettingsSearchCoverageRow[] = [
     catalogPrefixes: ["section.appearance", "appearance."],
     exclusions: [
       "Individual theme cards are a user-created/dynamic collection; the Theme group is the stable destination.",
+      "Image-theme animation stays indexed at a stable target; when no GIF theme is active, that target reveals the existing From Image prerequisite.",
       "Line Height is a disabled placeholder and is not indexed.",
       "Companion speech/comments/encouragement are indexed only while the companion is enabled.",
     ],

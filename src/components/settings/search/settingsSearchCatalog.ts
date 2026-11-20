@@ -372,6 +372,17 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     targetId: "appearance.theme",
   },
   {
+    id: "appearance.imageThemeAnimation",
+    kind: "setting",
+    section: SettingsTab.Appearance,
+    label: k("theme.playAnimation"),
+    description: k("theme.imageAnimationControlHint"),
+    groupPath: [k("settings.theme")],
+    aliases: [lit("GIF animation"), lit("animated GIF"), lit("image backdrop movement"), lit("animated image"), lit("still backdrop")],
+    keywords: ["image", "GIF", "animation", "motion", "backdrop"],
+    targetId: "appearance.imageThemeAnimation",
+  },
+  {
     id: "appearance.eink",
     kind: "group",
     section: SettingsTab.Appearance,

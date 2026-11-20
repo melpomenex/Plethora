@@ -338,6 +338,18 @@
     "study-plans/evidence-aggregation-1000-rows": {
       "cost": 2.593,
       "reason": "C8-T07 golden fixture: evidence-v1 fold over 1000 rows (250 groups)."
+    },
+    "animated-image/preflight-200-frames": {
+      "cost": 0.02842,
+      "reason": "add-animated-image-theme-backgrounds: seeded 200-frame GIF structural preflight, measured with the full anchor-normalized local bench gate on 2026-11-20."
+    },
+    "animated-image/temporal-sampling-450-frames": {
+      "cost": 0.004454,
+      "reason": "add-animated-image-theme-backgrounds: seeded 450-frame duration-stratified palette selection, measured with the full anchor-normalized local bench gate on 2026-11-20."
+    },
+    "animated-image/palette-histogram-12x64": {
+      "cost": 11.93,
+      "reason": "add-animated-image-theme-backgrounds: weighted OKLCH histogram finalization for 12 seeded 64x64 RGBA samples, measured with the full anchor-normalized local bench gate on 2026-11-20."
     }
   }
 }

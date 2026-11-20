@@ -6,9 +6,7 @@
  * thumbnail data URL are stored on the Theme object.
  */
 
-const DB_NAME = "plethora-theme-images";
-const STORE_NAME = "images";
-const DB_VERSION = 1;
+import { openThemeImageDatabase, THEME_IMAGE_STORE_NAME } from "./imageDatabase";
 
 const MAX_BACKDROP_EDGE = 1920;
 const THUMBNAIL_EDGE = 48;
@@ -16,33 +14,14 @@ const THUMBNAIL_EDGE = 48;
 /** In-memory cache for instant repeat reads and test environments without IDB. */
 const memoryCache = new Map<string, string>();
 
-function openImageDb(): Promise<IDBDatabase | null> {
-  if (typeof indexedDB === "undefined") return Promise.resolve(null);
-  return new Promise((resolve) => {
-    try {
-      const request = indexedDB.open(DB_NAME, DB_VERSION);
-      request.onupgradeneeded = () => {
-        const db = request.result;
-        if (!db.objectStoreNames.contains(STORE_NAME)) {
-          db.createObjectStore(STORE_NAME);
-        }
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => resolve(null);
-    } catch {
-      resolve(null);
-    }
-  });
-}
-
 export async function saveBackdropImage(imageId: string, dataUrl: string): Promise<void> {
   memoryCache.set(imageId, dataUrl);
-  const db = await openImageDb();
+  const db = await openThemeImageDatabase();
   if (!db) return;
   await new Promise<void>((resolve) => {
     try {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      tx.objectStore(STORE_NAME).put(dataUrl, imageId);
+      const tx = db.transaction(THEME_IMAGE_STORE_NAME, "readwrite");
+      tx.objectStore(THEME_IMAGE_STORE_NAME).put(dataUrl, imageId);
       tx.oncomplete = () => {
         db.close();
         resolve();
@@ -62,13 +41,13 @@ export async function loadBackdropImage(imageId: string): Promise<string | null>
   const cached = memoryCache.get(imageId);
   if (cached) return cached;
 
-  const db = await openImageDb();
+  const db = await openThemeImageDatabase();
   if (!db) return null;
 
   return new Promise<string | null>((resolve) => {
     try {
-      const tx = db.transaction(STORE_NAME, "readonly");
-      const req = tx.objectStore(STORE_NAME).get(imageId);
+      const tx = db.transaction(THEME_IMAGE_STORE_NAME, "readonly");
+      const req = tx.objectStore(THEME_IMAGE_STORE_NAME).get(imageId);
       req.onsuccess = () => {
         const result = typeof req.result === "string" ? req.result : null;
         if (result) memoryCache.set(imageId, result);
@@ -88,12 +67,12 @@ export async function loadBackdropImage(imageId: string): Promise<string | null>
 
 export async function deleteBackdropImage(imageId: string): Promise<void> {
   memoryCache.delete(imageId);
-  const db = await openImageDb();
+  const db = await openThemeImageDatabase();
   if (!db) return;
   await new Promise<void>((resolve) => {
     try {
-      const tx = db.transaction(STORE_NAME, "readwrite");
-      tx.objectStore(STORE_NAME).delete(imageId);
+      const tx = db.transaction(THEME_IMAGE_STORE_NAME, "readwrite");
+      tx.objectStore(THEME_IMAGE_STORE_NAME).delete(imageId);
       tx.oncomplete = () => {
         db.close();
         resolve();

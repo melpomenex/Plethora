@@ -210,6 +210,51 @@ export function contrastRatio(a: Rgb, b: Rgb): number {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
+/** Adjust an OKLCH color to the nearest lightness that meets a contrast floor. */
+export function ensureOklchContrast(
+  foreground: Oklch,
+  background: Rgb,
+  minimumRatio: number,
+  preferLighter: boolean
+): Rgb {
+  const targetRatio = clamp(minimumRatio, 1, 21) + 0.03;
+  const atLightness = (lightness: number): Rgb => {
+    const chroma = lightness > 0.92 || lightness < 0.12
+      ? Math.min(foreground.c, 0.04)
+      : foreground.c;
+    return oklchToRgb({ l: clamp(lightness, 0.02, 0.99), c: chroma, h: foreground.h });
+  };
+  const initial = atLightness(foreground.l);
+  if (contrastRatio(initial, background) >= targetRatio) return initial;
+
+  const preferredL = preferLighter ? 0.99 : 0.02;
+  const alternateL = preferLighter ? 0.02 : 0.99;
+  const preferred = atLightness(preferredL);
+  const alternate = atLightness(alternateL);
+  const preferredRatio = contrastRatio(preferred, background);
+  const alternateRatio = contrastRatio(alternate, background);
+  const usePreferred = preferredRatio >= alternateRatio;
+  const extremeRatio = usePreferred ? preferredRatio : alternateRatio;
+  if (extremeRatio < targetRatio) return usePreferred ? preferred : alternate;
+
+  const lighter = usePreferred ? preferLighter : !preferLighter;
+  let low = lighter ? foreground.l : 0.02;
+  let high = lighter ? 0.99 : foreground.l;
+  for (let iteration = 0; iteration < 24; iteration += 1) {
+    const middle = (low + high) / 2;
+    const ratio = contrastRatio(atLightness(middle), background);
+    if (lighter) {
+      if (ratio >= targetRatio) high = middle;
+      else low = middle;
+    } else if (ratio >= targetRatio) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return atLightness(lighter ? high : low);
+}
+
 /**
  * Angular distance between two hues in degrees (0–180).
  */

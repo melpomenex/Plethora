@@ -9,6 +9,7 @@ import { normalizeThemeMaterial } from '../themes/materials';
 
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
+import type { ThemeAnimatedImagePreview } from "../types/theme";
 // Only import the default fallback themes eagerly, from the dedicated fallback
 // module. Importing them from "../themes/builtin" here would statically link
 // the full catalog (builtin.ts + legacyIndex.ts) into the entry chunk and
@@ -18,12 +19,40 @@ import { Theme, ThemeContextValue, ThemeId } from "../types/theme";
 import { biolumeAbyssTheme, superGameBroTheme, milkyMatchaTheme, plethoraLaunchTheme, obsidianNoirTheme } from "../themes/fallback";
 import { makeOpaque, parseColor } from "../themes/color";
 import { deleteBackdropImage } from "../themes/imageStorage";
+import {
+  commitAnimatedImageTheme,
+  commitImportedTheme,
+  recoverImageThemeMutationJournal,
+  removeAnimatedImageTheme,
+  selectAnimatedImageTheme,
+  updateAnimatedImageTheme,
+} from "../themes/animatedImage/themeMutations";
+import {
+  AnimatedImagePreparationError,
+  type PreparedAnimatedImage,
+} from "../themes/animatedImage/contracts";
 import { deriveMaterialRoles } from "../themes/materialRoles";
 import { resolveModeAccent } from "../themes/modeAccent";
 import { resolveRatingColors } from "../themes/ratingColors";
 import { loadGoogleFont } from "../utils/fonts";
 import { migratedGetItem } from "../lib/brandMigration";
 import { invokeCommand } from "../lib/tauri";
+import {
+  isAnimatedImageTheme as isAnimatedMediaTheme,
+  sanitizeImportedTheme,
+  serializeThemeForExport,
+} from "../themes/themePortability";
+
+function mergePersistedCustomThemes(
+  current: Theme[],
+  custom: Theme[],
+  builtinIds: Set<string>
+): Theme[] {
+  return [
+    ...current.filter((theme) => builtinIds.has(theme.id)),
+    ...custom.filter((theme) => !builtinIds.has(theme.id)),
+  ];
+}
 
 /**
  * Maps font family name to CSS font-family value
@@ -200,6 +229,8 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
   const bgImg = theme.effects?.backgroundImage;
   if (bgImg?.imageId) {
     root.setAttribute("data-theme-image-backdrop", "true");
+    if (bgImg.protectedSurfaces !== false) root.setAttribute("data-theme-image-protected", "true");
+    else root.removeAttribute("data-theme-image-protected");
     root.style.setProperty("--theme-surface-opacity", String(bgImg.surfaceOpacity ?? 0.78));
     const toRgbTuple = (color: string | undefined, fallback: string): string => {
       const parsed = parseColor(color) ?? parseColor(fallback) ?? { r: 20, g: 22, b: 36 };
@@ -212,6 +243,7 @@ function applyThemeToDOM(theme: Theme, fontFamilyOverride?: string | null): void
     root.style.setProperty("--theme-toolbar-rgb", toRgbTuple(theme.colors.toolbar || theme.colors.surface, fallback));
   } else {
     root.removeAttribute("data-theme-image-backdrop");
+    root.removeAttribute("data-theme-image-protected");
     root.style.removeProperty("--theme-surface-opacity");
     root.style.removeProperty("--theme-card-rgb");
     root.style.removeProperty("--theme-surface-rgb");
@@ -296,6 +328,20 @@ function saveLastThemeId(themeId: ThemeId): void {
 
 export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   const captureThemeActive = document.documentElement.dataset.marketingTheme === plethoraLaunchTheme.id;
+  const mutationRecoveryAttemptedRef = useRef(false);
+  const mutationRecoveryErrorRef = useRef<unknown>(null);
+  if (!mutationRecoveryAttemptedRef.current) {
+    mutationRecoveryAttemptedRef.current = true;
+    try {
+      void recoverImageThemeMutationJournal().catch((error) => {
+        mutationRecoveryErrorRef.current = error;
+        console.error("Saved image-theme recovery is pending:", error);
+      });
+    } catch (error) {
+      mutationRecoveryErrorRef.current = error;
+      console.error("Saved image-theme recovery is pending:", error);
+    }
+  }
   // Start with just the default fallback themes eagerly available. The full
   // built-in catalog is lazy-loaded below (loadBuiltinCatalog) so the large
   // themes/builtin module ships in its own chunk instead of the initial bundle.
@@ -318,6 +364,11 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   // `commitPreview` (or `setTheme`) on an explicit selection.
   const [previewThemeId, setPreviewThemeId] = useState<ThemeId | null>(null);
   const [livePreviewTheme, setLivePreviewTheme] = useState<Theme | null>(null);
+  const [animatedImagePreview, setAnimatedImagePreview] =
+    useState<ThemeAnimatedImagePreview | null>(null);
+  const animatedImagePreviewRef = useRef<ThemeAnimatedImagePreview | null>(null);
+  const animatedImagePreviewTokenRef = useRef(0);
+  const pendingImageMutationTokenRef = useRef<number | null>(null);
 
   // Track the ids of known built-in themes. Used to filter builtins out when
   // persisting custom themes. Pre-seeded with the eagerly-loaded fallback ids;
@@ -331,6 +382,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   // context stays the committed theme so the UI can show the "Previewing"
   // notice against the actual active theme.
   const appliedTheme =
+    animatedImagePreview?.theme ||
     livePreviewTheme ||
     (previewThemeId !== null && themes.find((t) => t.id === previewThemeId)) ||
     currentTheme;
@@ -361,6 +413,31 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     };
   }, []);
 
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== "plethora-custom-themes" && event.key !== "plethora-last-theme") return;
+      try {
+        void recoverImageThemeMutationJournal().then(() => {
+          mutationRecoveryErrorRef.current = null;
+          const customThemes = loadCustomThemes();
+          setThemes((current) =>
+            mergePersistedCustomThemes(current, customThemes, builtinThemeIdsRef.current)
+          );
+          const selectedThemeId = migratedGetItem("plethora-last-theme");
+          if (selectedThemeId) setCurrentThemeId(selectedThemeId);
+        }).catch((error) => {
+          mutationRecoveryErrorRef.current = error;
+          console.error("Failed to refresh saved image theme state:", error);
+        });
+      } catch (error) {
+        mutationRecoveryErrorRef.current = error;
+        console.error("Failed to refresh saved image theme state:", error);
+      }
+    };
+    window.addEventListener("storage", handleStorage);
+    return () => window.removeEventListener("storage", handleStorage);
+  }, []);
+
   // Apply theme to DOM whenever it changes (committed theme or live preview).
   useEffect(() => {
     // Load font family from settings and apply theme with font override
@@ -368,7 +445,16 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     applyThemeToDOM(appliedTheme, savedFontFamily);
     if (savedFontFamily) loadGoogleFont(savedFontFamily);
     // Never persist a previewed theme as "last selected".
-    if (previewThemeId === null && livePreviewTheme === null && !captureThemeActive) saveLastThemeId(currentThemeId);
+    if (
+      previewThemeId === null &&
+      livePreviewTheme === null &&
+      animatedImagePreview === null &&
+      !captureThemeActive &&
+      mutationRecoveryErrorRef.current === null &&
+      !isAnimatedMediaTheme(currentTheme)
+    ) {
+      saveLastThemeId(currentThemeId);
+    }
 
     // Apply native platform vibrancy if supported
     invokeCommand<boolean>("apply_theme_vibrancy", { themeId: appliedTheme.id, colors: appliedTheme.colors })
@@ -384,35 +470,134 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
         console.error("Failed to apply vibrancy:", err);
         document.documentElement.removeAttribute("data-vibrancy-active");
       });
-  }, [appliedTheme, previewThemeId, livePreviewTheme, currentThemeId, captureThemeActive]);
+  }, [appliedTheme, previewThemeId, livePreviewTheme, animatedImagePreview, currentTheme, currentThemeId, captureThemeActive]);
+
+  const clearAnimatedImagePreview = useCallback((token?: number): boolean => {
+    const active = animatedImagePreviewRef.current;
+    if (!active || (token !== undefined && active.token !== token)) return false;
+    if (pendingImageMutationTokenRef.current === active.token) return false;
+    animatedImagePreviewRef.current = null;
+    setAnimatedImagePreview(null);
+    return true;
+  }, []);
+
+  const beginAnimatedImagePreview = useCallback((
+    prepared: PreparedAnimatedImage,
+    theme: Theme
+  ): number => {
+    if (pendingImageMutationTokenRef.current !== null) {
+      throw new AnimatedImagePreparationError("storage-write-failed", "The saved theme is being updated.");
+    }
+    const token = ++animatedImagePreviewTokenRef.current;
+    const preview: ThemeAnimatedImagePreview = { token, prepared, theme };
+    animatedImagePreviewRef.current = preview;
+    setAnimatedImagePreview(preview);
+    setLivePreviewTheme(null);
+    setPreviewThemeId(null);
+    return token;
+  }, []);
+
+  const updateAnimatedImagePreview = useCallback((token: number, theme: Theme): boolean => {
+    const active = animatedImagePreviewRef.current;
+    if (!active || active.token !== token || pendingImageMutationTokenRef.current === token) return false;
+    const preview = { ...active, theme };
+    animatedImagePreviewRef.current = preview;
+    setAnimatedImagePreview(preview);
+    return true;
+  }, []);
+
+  const cancelAnimatedImagePreview = useCallback((token: number): void => {
+    clearAnimatedImagePreview(token);
+  }, [clearAnimatedImagePreview]);
+
+  const commitAnimatedImagePreview = useCallback(async (token: number): Promise<void> => {
+    if (mutationRecoveryErrorRef.current) {
+      throw new AnimatedImagePreparationError(
+        "storage-write-failed",
+        "An earlier image theme update needs recovery before saving."
+      );
+    }
+    const active = animatedImagePreviewRef.current;
+    if (!active || active.token !== token) {
+      throw new AnimatedImagePreparationError("cancelled", "This image preview is no longer current.");
+    }
+    if (pendingImageMutationTokenRef.current !== null) {
+      throw new AnimatedImagePreparationError("storage-write-failed", "Another image theme update is in progress.");
+    }
+
+    pendingImageMutationTokenRef.current = token;
+    try {
+      const result = await commitAnimatedImageTheme(active.theme, active.prepared);
+      setThemes((current) =>
+        mergePersistedCustomThemes(current, result.customThemes, builtinThemeIdsRef.current)
+      );
+      setCurrentThemeId(result.selectedThemeId);
+      setLivePreviewTheme(null);
+      setPreviewThemeId(null);
+      if (animatedImagePreviewRef.current?.token === token) {
+        animatedImagePreviewRef.current = null;
+        setAnimatedImagePreview(null);
+      }
+    } finally {
+      if (pendingImageMutationTokenRef.current === token) pendingImageMutationTokenRef.current = null;
+    }
+  }, []);
 
   const setTheme = (themeId: ThemeId) => {
     const theme = themes.find((t) => t.id === themeId);
-    if (theme) {
-      setLivePreviewTheme(null);
-      setPreviewThemeId(null);
-      setCurrentThemeId(themeId);
+    if (!theme || pendingImageMutationTokenRef.current !== null || mutationRecoveryErrorRef.current) return;
+    if (isAnimatedMediaTheme(theme)) {
+      void selectAnimatedImageTheme(themeId).then((result) => {
+        setThemes((current) =>
+          mergePersistedCustomThemes(current, result.customThemes, builtinThemeIdsRef.current)
+        );
+        clearAnimatedImagePreview();
+        setLivePreviewTheme(null);
+        setPreviewThemeId(null);
+        setCurrentThemeId(result.selectedThemeId);
+      }).catch((error) => {
+        console.error("Failed to select the saved image theme:", error);
+      });
+      return;
     }
+    clearAnimatedImagePreview();
+    setLivePreviewTheme(null);
+    setPreviewThemeId(null);
+    setCurrentThemeId(themeId);
   };
 
   const previewTheme = useCallback((themeId: ThemeId | null) => {
+    clearAnimatedImagePreview();
     setLivePreviewTheme(null);
     setPreviewThemeId(themeId);
-  }, []);
+  }, [clearAnimatedImagePreview]);
 
   const previewCustomTheme = useCallback((theme: Theme | null) => {
+    clearAnimatedImagePreview();
     if (theme) setPreviewThemeId(null);
     setLivePreviewTheme(theme);
-  }, []);
+  }, [clearAnimatedImagePreview]);
 
   const commitPreview = () => {
     if (previewThemeId !== null && previewThemeId !== currentThemeId) {
       setCurrentThemeId(previewThemeId);
     }
+    clearAnimatedImagePreview();
     setPreviewThemeId(null);
   };
 
   const addCustomTheme = (theme: Theme) => {
+    if (mutationRecoveryErrorRef.current || pendingImageMutationTokenRef.current !== null) return;
+    if (isAnimatedMediaTheme(theme)) {
+      void updateAnimatedImageTheme(theme).then((result) => {
+        setThemes((current) =>
+          mergePersistedCustomThemes(current, result.customThemes, builtinThemeIdsRef.current)
+        );
+      }).catch((error) => {
+        console.error("Failed to save the image theme metadata:", error);
+      });
+      return;
+    }
     const newThemes = [...themes, theme];
     setThemes(newThemes);
     const builtinIds = builtinThemeIdsRef.current;
@@ -420,8 +605,19 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   };
 
   const updateCustomTheme = (theme: Theme) => {
+    if (mutationRecoveryErrorRef.current || pendingImageMutationTokenRef.current !== null) return;
     if (builtinThemeIdsRef.current.has(theme.id)) {
       console.warn("Cannot update built-in theme");
+      return;
+    }
+    if (isAnimatedMediaTheme(theme)) {
+      void updateAnimatedImageTheme(theme).then((result) => {
+        setThemes((current) =>
+          mergePersistedCustomThemes(current, result.customThemes, builtinThemeIdsRef.current)
+        );
+      }).catch((error) => {
+        console.error("Failed to update the saved image theme:", error);
+      });
       return;
     }
     const exists = themes.some((t) => t.id === theme.id);
@@ -432,6 +628,7 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
   };
 
   const removeCustomTheme = (themeId: ThemeId) => {
+    if (mutationRecoveryErrorRef.current || pendingImageMutationTokenRef.current !== null) return;
     // Prevent removing built-in themes
     if (builtinThemeIdsRef.current.has(themeId)) {
       console.warn("Cannot remove built-in theme");
@@ -439,6 +636,21 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     }
 
     const removed = themes.find((t) => t.id === themeId);
+    if (isAnimatedMediaTheme(removed)) {
+      const fallbackThemeId = currentThemeId === themeId ? "milky-matcha" : currentThemeId;
+      void removeAnimatedImageTheme(themeId, fallbackThemeId).then((result) => {
+        setThemes((current) =>
+          mergePersistedCustomThemes(current, result.customThemes, builtinThemeIdsRef.current)
+        );
+        setCurrentThemeId(result.selectedThemeId);
+        clearAnimatedImagePreview();
+        setLivePreviewTheme(null);
+        setPreviewThemeId(null);
+      }).catch((error) => {
+        console.error("Failed to remove the saved image theme:", error);
+      });
+      return;
+    }
     const newThemes = themes.filter((t) => t.id !== themeId);
     setThemes(newThemes);
     const builtinIds = builtinThemeIdsRef.current;
@@ -459,34 +671,42 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     if (!theme) {
       throw new Error(`Theme ${themeId} not found`);
     }
-    return JSON.stringify(theme, null, 2);
+    return serializeThemeForExport(theme);
   };
 
-  const importTheme = (themeJson: string): Theme => {
+  const importTheme = async (themeJson: string): Promise<Theme> => {
+    if (mutationRecoveryErrorRef.current) {
+      throw new AnimatedImagePreparationError(
+        "storage-write-failed",
+        "An earlier image theme update needs recovery before importing a theme."
+      );
+    }
+    if (pendingImageMutationTokenRef.current !== null) {
+      throw new AnimatedImagePreparationError(
+        "storage-write-failed",
+        "An image theme update is in progress. Try importing again when it finishes."
+      );
+    }
+
+    let importedTheme: Theme;
     try {
-      const theme = JSON.parse(themeJson) as Theme;
-      theme.material = normalizeThemeMaterial(theme.material);
-
-      if (!theme.id || !theme.name || !theme.colors) {
-        throw new Error("Invalid theme structure");
-      }
-
-      const existing = themes.find((t) => t.id === theme.id);
-      if (existing) {
-        const newThemes = themes.map((t) => (t.id === theme.id ? theme : t));
-        setThemes(newThemes);
-        const builtinIds = builtinThemeIdsRef.current;
-        saveCustomThemes(newThemes.filter((t) => !builtinIds.has(t.id)));
-      } else {
-        // Add new theme
-        addCustomTheme(theme);
-      }
-
-      return theme;
+      importedTheme = sanitizeImportedTheme(JSON.parse(themeJson), themes);
+      importedTheme.material = normalizeThemeMaterial(importedTheme.material);
     } catch (error) {
       console.error("Failed to import theme:", error);
       throw new Error("Invalid theme JSON");
     }
+
+    const result = await commitImportedTheme(importedTheme);
+    const committedTheme = result.customThemes.find((theme) => theme.id === result.selectedThemeId) ?? importedTheme;
+    setThemes((current) =>
+      mergePersistedCustomThemes(current, result.customThemes, builtinThemeIdsRef.current)
+    );
+    setCurrentThemeId(result.selectedThemeId);
+    setLivePreviewTheme(null);
+    setPreviewThemeId(null);
+    clearAnimatedImagePreview();
+    return committedTheme;
   };
 
   const value: ThemeContextValue = {
@@ -503,6 +723,11 @@ export function ThemeProvider({ children, defaultTheme }: ThemeProviderProps) {
     commitPreview,
     previewCustomTheme,
     updateCustomTheme,
+    animatedImagePreview,
+    beginAnimatedImagePreview,
+    updateAnimatedImagePreview,
+    cancelAnimatedImagePreview,
+    commitAnimatedImagePreview,
   };
 
   return <ThemeContext.Provider value={value}><ResolvedAppearanceContext.Provider value={appearance}>{children}</ResolvedAppearanceContext.Provider></ThemeContext.Provider>;

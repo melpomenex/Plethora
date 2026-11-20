@@ -9,6 +9,7 @@
 import {
   clamp,
   contrastRatio,
+  ensureOklchContrast,
   hueSeparation,
   normalizeHue,
   oklchToRgb,
@@ -85,6 +86,13 @@ const HUE_BINS = 24; // 15° per bin
 const LIGHTNESS_BINS = 6;
 const CHROMA_BINS = 4;
 
+export interface WeightedPaletteInput {
+  readonly pixels: Uint8ClampedArray | number[];
+  readonly width: number;
+  readonly height: number;
+  readonly weightMs: number;
+}
+
 /**
  * Extract a perceptual OKLCH palette from raw RGBA pixels.
  * Works in pure JS (no DOM required) so it is fast and unit-testable.
@@ -94,45 +102,70 @@ export function extractPaletteFromPixels(
   width: number,
   height: number
 ): ExtractedImagePalette {
-  const totalPixels = Math.max(1, width * height);
-  // Sample up to ~9,216 pixels (96x96)
-  const stride = Math.max(1, Math.floor(totalPixels / 9216));
+  return extractPaletteFromSamples([{ pixels, width, height, weightMs: 1 }], false, 0);
+}
+
+/** Duration and visible alpha contribute directly to animated-theme samples. */
+export function extractPaletteFromWeightedSamples(
+  samples: readonly WeightedPaletteInput[]
+): ExtractedImagePalette {
+  return extractPaletteFromSamples(samples, true, 0.02);
+}
+
+function extractPaletteFromSamples(
+  samples: readonly WeightedPaletteInput[],
+  alphaWeighted: boolean,
+  minimumColorfulPopulation: number
+): ExtractedImagePalette {
   const buckets = new Map<number, BucketAccum>();
-  const lightnessHist = new Uint32Array(64);
+  const lightnessHist = new Float64Array(64);
   let validCount = 0;
 
-  for (let idx = 0; idx < totalPixels; idx += stride) {
-    const offset = idx * 4;
-    if (offset + 3 >= pixels.length) break;
-    const aAlpha = pixels[offset + 3];
-    if (aAlpha < 128) continue;
+  for (const sample of samples) {
+    const totalPixels = Math.min(sample.width * sample.height, Math.floor(sample.pixels.length / 4));
+    if (totalPixels <= 0 || !Number.isFinite(sample.weightMs) || sample.weightMs <= 0) continue;
+    // Each incoming frame is already downsampled to at most 96 px per edge.
+    const stride = Math.max(1, Math.floor(totalPixels / 9216));
 
-    const r = pixels[offset];
-    const g = pixels[offset + 1];
-    const b = pixels[offset + 2];
-    const oklch = rgbToOklch({ r, g, b });
+    for (let idx = 0; idx < totalPixels; idx += stride) {
+      const offset = idx * 4;
+      const alpha = sample.pixels[offset + 3] / 255;
+      if (!alphaWeighted && alpha < 128 / 255) continue;
+      if (alpha <= 0) continue;
 
-    validCount++;
-    const lIdx = Math.min(63, Math.max(0, Math.floor(oklch.l * 63)));
-    lightnessHist[lIdx]++;
+      const weight = sample.weightMs * (alphaWeighted ? alpha : 1);
+      const oklch = rgbToOklch({
+        r: sample.pixels[offset],
+        g: sample.pixels[offset + 1],
+        b: sample.pixels[offset + 2],
+      });
+      validCount += weight;
 
-    const hBin = oklch.c < 0.025 ? 0 : Math.floor(normalizeHue(oklch.h) / (360 / HUE_BINS)) % HUE_BINS;
-    const lBin = Math.min(LIGHTNESS_BINS - 1, Math.max(0, Math.floor(oklch.l * LIGHTNESS_BINS)));
-    const cBin = Math.min(CHROMA_BINS - 1, Math.max(0, Math.floor((oklch.c / 0.32) * CHROMA_BINS)));
-    const key = (hBin * LIGHTNESS_BINS + lBin) * CHROMA_BINS + cBin;
+      const lIdx = Math.min(63, Math.max(0, Math.floor(oklch.l * 63)));
+      lightnessHist[lIdx] += weight;
 
-    const rad = (oklch.h * Math.PI) / 180;
-    const labA = oklch.c * Math.cos(rad);
-    const labB = oklch.c * Math.sin(rad);
+      const hBin = oklch.c < 0.025 ? 0 : Math.floor(normalizeHue(oklch.h) / (360 / HUE_BINS)) % HUE_BINS;
+      const lBin = Math.min(LIGHTNESS_BINS - 1, Math.max(0, Math.floor(oklch.l * LIGHTNESS_BINS)));
+      const cBin = Math.min(CHROMA_BINS - 1, Math.max(0, Math.floor((oklch.c / 0.32) * CHROMA_BINS)));
+      const key = (hBin * LIGHTNESS_BINS + lBin) * CHROMA_BINS + cBin;
 
-    const existing = buckets.get(key);
-    if (existing) {
-      existing.count++;
-      existing.sumL += oklch.l;
-      existing.sumA += labA;
-      existing.sumB += labB;
-    } else {
-      buckets.set(key, { count: 1, sumL: oklch.l, sumA: labA, sumB: labB });
+      const rad = (oklch.h * Math.PI) / 180;
+      const labA = oklch.c * Math.cos(rad);
+      const labB = oklch.c * Math.sin(rad);
+      const existing = buckets.get(key);
+      if (existing) {
+        existing.count += weight;
+        existing.sumL += oklch.l * weight;
+        existing.sumA += labA * weight;
+        existing.sumB += labB * weight;
+      } else {
+        buckets.set(key, {
+          count: weight,
+          sumL: oklch.l * weight,
+          sumA: labA * weight,
+          sumB: labB * weight,
+        });
+      }
     }
   }
 
@@ -170,6 +203,7 @@ export function extractPaletteFromPixels(
     const c = Math.sqrt(avgA * avgA + avgB * avgB);
     const h = normalizeHue((Math.atan2(avgB, avgA) * 180) / Math.PI);
     const population = acc.count / validCount;
+    if (c >= 0.045 && population < minimumColorfulPopulation) continue;
 
     // Saliency: sublinear population weight * chroma boost * midtone preference
     const midtoneBoost = 1 - Math.abs(l - 0.56) * 0.55;
@@ -247,17 +281,7 @@ function oklchHex(l: number, c: number, h: number): string {
 }
 
 function ensureContrastHex(fg: Oklch, bgRgb: Rgb, minRatio: number, preferLighter: boolean): string {
-  let l = fg.l;
-  let rgb = oklchToRgb({ l, c: fg.c, h: fg.h });
-  let step = 0;
-  while (contrastRatio(rgb, bgRgb) < minRatio && step < 28) {
-    l = preferLighter ? clamp(l + 0.03, 0.02, 0.99) : clamp(l - 0.03, 0.02, 0.99);
-    // Reduce chroma near extremes so sRGB gamut doesn't clip weirdly
-    const c = l > 0.92 || l < 0.12 ? Math.min(fg.c, 0.04) : fg.c;
-    rgb = oklchToRgb({ l, c, h: fg.h });
-    step++;
-  }
-  return rgbToHex(rgb);
+  return rgbToHex(ensureOklchContrast(fg, bgRgb, minRatio, preferLighter));
 }
 
 function pickOnColor(bgHex: string, tintHue: number): string {
@@ -361,11 +385,12 @@ export function synthesizeThemeFromPalette(
   const sidebar = isDark ? oklchHex(0.16, sC * 1.1, atmoHue) : oklchHex(0.945, sC * 0.85, atmoHue);
   const toolbar = isDark ? oklchHex(0.17, sC * 1.05, atmoHue) : oklchHex(0.955, sC * 0.75, atmoHue);
   const input = isDark ? oklchHex(0.22, sC * 1.0, atmoHue) : oklchHex(0.975, sC * 0.6, atmoHue);
-  const outline = isDark ? oklchHex(0.42, sC * 1.2, atmoHue) : oklchHex(0.62, sC * 1.1, atmoHue);
-  const outlineVariant = isDark ? oklchHex(0.29, sC * 1.0, atmoHue) : oklchHex(0.84, sC * 0.85, atmoHue);
-
   const bgRgb = parseColor(background) ?? { r: 20, g: 22, b: 34 };
   const surfRgb = parseColor(surface) ?? bgRgb;
+  const outlineSeed = { l: isDark ? 0.42 : 0.62, c: sC * 1.2, h: atmoHue };
+  const outlineVariantSeed = { l: isDark ? 0.29 : 0.84, c: sC, h: atmoHue };
+  const outline = ensureContrastHex(outlineSeed, surfRgb, 3.0, isDark);
+  const outlineVariant = ensureContrastHex(outlineVariantSeed, surfRgb, 3.0, isDark);
 
   const onBackground = ensureContrastHex(
     { l: isDark ? 0.93 : 0.16, c: 0.012, h: atmoHue },
@@ -397,7 +422,7 @@ export function synthesizeThemeFromPalette(
     c: primaryChroma,
     h: primarySeed.h,
   };
-  const primary = ensureContrastHex(primaryOklch, bgRgb, 3.2, isDark);
+  const primary = ensureContrastHex(primaryOklch, surfRgb, 3.2, isDark);
   const onPrimary = pickOnColor(primary, primarySeed.h);
 
   const primaryContainer = isDark
@@ -408,8 +433,8 @@ export function synthesizeThemeFromPalette(
   const secChroma = clamp(palette.secondary.c || primaryChroma * 0.8, m.accentChromaMin * 0.8, m.accentChromaMax * 0.9);
   const secondary = ensureContrastHex(
     { l: isDark ? 0.70 : 0.48, c: secChroma, h: palette.secondary.h },
-    bgRgb,
-    3.0,
+    surfRgb,
+    3.2,
     isDark
   );
   const onSecondary = pickOnColor(secondary, palette.secondary.h);
@@ -417,8 +442,8 @@ export function synthesizeThemeFromPalette(
   const terChroma = clamp(palette.tertiary.c || primaryChroma * 0.75, m.accentChromaMin * 0.75, m.accentChromaMax * 0.85);
   const tertiary = ensureContrastHex(
     { l: isDark ? 0.72 : 0.48, c: terChroma, h: palette.tertiary.h },
-    bgRgb,
-    3.0,
+    surfRgb,
+    3.2,
     isDark
   );
 
@@ -430,12 +455,27 @@ export function synthesizeThemeFromPalette(
   );
 
   // Functional colors (kept semantically recognizable)
-  const error = isDark ? "#f87171" : "#dc2626";
+  const error = ensureContrastHex(
+    rgbToOklch(parseColor(isDark ? "#f87171" : "#dc2626")!),
+    surfRgb,
+    4.5,
+    isDark
+  );
   const onError = pickOnColor(error, 25);
   const errorContainer = isDark ? "#451a1d" : "#fee2e2";
   const onErrorContainer = pickOnColor(errorContainer, 25);
-  const success = isDark ? "#4ade80" : "#16a34a";
-  const warning = isDark ? "#fbbf24" : "#d97706";
+  const success = ensureContrastHex(
+    rgbToOklch(parseColor(isDark ? "#4ade80" : "#16a34a")!),
+    surfRgb,
+    4.5,
+    isDark
+  );
+  const warning = ensureContrastHex(
+    rgbToOklch(parseColor(isDark ? "#fbbf24" : "#d97706")!),
+    surfRgb,
+    4.5,
+    isDark
+  );
 
   const colors: ThemeColors = {
     background,
@@ -481,7 +521,10 @@ export function synthesizeThemeFromPalette(
     radius: baseTokens.radius,
     shadows: baseTokens.shadows,
     effects: {
-      backgroundImage,
+      backgroundImage: {
+        ...backgroundImage,
+        protectedSurfaces: backgroundImage.protectedSurfaces ?? true,
+      },
     },
   };
 }

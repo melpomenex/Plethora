@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   contrastRatio,
+  ensureOklchContrast,
   flattenOverBase,
   hueSeparation,
   makeOpaque,
@@ -180,6 +181,29 @@ describe("relativeLuminance / contrastRatio", () => {
     const a = parseColor("#22d3ee")!;
     const b = parseColor("#121426")!;
     expect(contrastRatio(a, b)).toBeCloseTo(contrastRatio(b, a), 10);
+  });
+});
+
+describe("ensureOklchContrast", () => {
+  it.each([
+    ["#ffffff", 4.5, false],
+    ["#000000", 4.5, true],
+    ["#ffffff", 7, false],
+    ["#000000", 7, true],
+  ])("adjusts a chromatic foreground to %f contrast on %s", (backgroundHex, minimumRatio, preferLighter) => {
+    const background = parseColor(backgroundHex)!;
+    const foreground = ensureOklchContrast({ l: 0.72, c: 0.21, h: 86 }, background, minimumRatio, preferLighter);
+    expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(minimumRatio);
+  });
+
+  it("chooses the stronger neutral endpoint when a requested floor is impossible", () => {
+    const background = parseColor("#808080")!;
+    const adjusted = ensureOklchContrast({ l: 0.6, c: 0.05, h: 250 }, background, 7, true);
+    const strongest = Math.max(
+      contrastRatio(parseColor("#000000")!, background),
+      contrastRatio(parseColor("#ffffff")!, background)
+    );
+    expect(contrastRatio(adjusted, background)).toBeGreaterThanOrEqual(strongest - 0.02);
   });
 });
 
