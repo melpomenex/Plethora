@@ -42,3 +42,19 @@
   no baseline is only a warning that prints the exact JSON line to paste.
 - Script unit tests: `npm run test:scripts` (`node --test` on
   `scripts/__tests__/*.test.ts`). GitHub Actions is not used as a gate.
+
+## Dependency security (Socket Firewall / sfw)
+
+- **Always use `sfw` for dependency management:** Socket Firewall Free (`sfw`)
+  is installed globally to block malicious dependencies and protect against
+  supply chain attacks in real time (see [sfw-free](https://github.com/SocketDev/sfw-free)).
+- **Prefix package manager commands with `sfw`:** Whenever installing,
+  adding, updating, or fetching packages, wrap the command with `sfw`:
+  - **npm / pnpm / yarn:** `sfw npm install ...`, `sfw npm i ...`, `sfw npm ci`, `sfw npm update`
+  - **Cargo:** `sfw cargo add ...`, `sfw cargo fetch`, `sfw cargo update`
+  - **Python / uv:** `sfw pip install ...`, `sfw uv pip install ...`
+- **Do not bypass `sfw`:** All future agents must prefix package manager operations
+  with `sfw` when fetching or installing external dependencies.
+- **Reinstall if missing:** If `sfw` is ever missing in a runner or shell environment,
+  install it globally with `npm i -g sfw`.
+
