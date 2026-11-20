@@ -283,6 +283,10 @@ export function EmbeddedImageViewer({ image, onClose, fallbackFocusRef }: Embedd
 
   const title = image.alt?.trim() || image.caption?.trim() || t("viewer.genericImageDescription");
   const caption = image.caption?.trim() || image.alt?.trim();
+  const isPointOnImage = (x: number, y: number) => {
+    const bounds = imageRef.current?.getBoundingClientRect();
+    return Boolean(bounds && x >= bounds.left && x <= bounds.right && y >= bounds.top && y <= bounds.bottom);
+  };
 
   return createPortal(
     <div
@@ -342,10 +346,7 @@ export function EmbeddedImageViewer({ image, onClose, fallbackFocusRef }: Embedd
             pointerMovedRef.current = false;
             return;
           }
-          const bounds = imageRef.current?.getBoundingClientRect();
-          const clickedImage = bounds && event.clientX >= bounds.left && event.clientX <= bounds.right
-            && event.clientY >= bounds.top && event.clientY <= bounds.bottom;
-          if (!clickedImage) onClose();
+          if (!isPointOnImage(event.clientX, event.clientY)) onClose();
         }}
         onWheel={(event) => {
           event.preventDefault();
@@ -354,9 +355,10 @@ export function EmbeddedImageViewer({ image, onClose, fallbackFocusRef }: Embedd
         }}
         onPointerDown={(event) => {
           if (event.button !== 0) return;
-          event.preventDefault();
           event.stopPropagation();
           if (pointersRef.current.size === 0) pointerMovedRef.current = false;
+          if (!isPointOnImage(event.clientX, event.clientY)) return;
+          event.preventDefault();
           try { event.currentTarget.setPointerCapture(event.pointerId); } catch { /* unsupported pointer capture */ }
           updatePointer(event);
         }}
