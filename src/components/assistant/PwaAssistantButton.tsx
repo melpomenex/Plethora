@@ -26,6 +26,10 @@ import {
 import { runAssistantAppleFmChat } from "../../lib/ai/assistant/assistantAppleFmChat";
 import { providerRequiresApiKey } from "../../utils/llmProviderUtils";
 import { isNativeMobile } from "../../lib/tauri";
+import { resolveRequestPolicy } from "../../api/llm/policy";
+import type { Citation } from "../../lib/ai/assistant/conversations/types";
+import { pdfSourceTokenBudget } from "../../utils/pdfAssistantEvidence";
+import { PdfAssistantCitations } from "./PdfAssistantCitations";
 
 type Side = "left" | "right";
 
@@ -34,6 +38,7 @@ type ChatMessage = {
   role: "user" | "assistant" | "system";
   content: string;
   thinking?: string;
+  pdfPageCitations?: Citation[];
   timestamp: number;
 };
 
@@ -366,15 +371,31 @@ export function PwaAssistantButton({
         return;
       }
 
-      const resolvedContext = context.resolveForPrompt ? await context.resolveForPrompt(trimmed) : { content: context.content };
-      if (!isCurrentAttempt()) return;
       const provider = resolved.provider;
+      const policy = resolveRequestPolicy({
+        provider: resolved.useAppleFm ? "apple-foundation" : provider.provider,
+        model: provider?.model,
+        providerMaxOutput: provider?.maxTokens,
+        configuredContextOverride: provider?.contextWindowTokens,
+        globalContextTokens: settings.ai.maxTokens,
+      });
+      const resolvedContext = context.resolveForPrompt ? await context.resolveForPrompt(trimmed, {
+        documentId: context.documentId,
+        signal: controller.signal,
+        sourceTokenBudget: pdfSourceTokenBudget(policy.promptBudgetTokens, trimmed, messages, provider?.systemPrompt),
+      }) : undefined;
+      if (!isCurrentAttempt()) return;
+      if (resolvedContext?.pageScoped && resolvedContext.status !== "ready") {
+        setError(resolvedContext.message ?? "Text from the current PDF page is unavailable.");
+        return;
+      }
       const response = await runAssistantTurn({
         signal: controller.signal,
         onProgress: (stage) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, stage } : current); },
         onPreview: (text) => { if (isCurrentAttempt()) setPendingReply((current) => current ? { ...current, text } : current); },
         scope: "chat", userQuestion: trimmed, sourceType: context.type, sourceId: context.documentId,
-        sourceTitle: context.metadata?.title, sourceContent: resolvedContext.content,
+        sourceTitle: context.metadata?.title, sourceContent: resolvedContext ? resolvedContext.content : context.content,
+        pdfPageEvidence: resolvedContext?.pdfPageEvidence,
         selectionExcerpt: context.selection, playbackTimeSeconds: context.position?.currentTime,
         transcriptStatus: context.transcriptStatus,
         history: messages.filter((message) => message.role !== "system"),
@@ -403,6 +424,7 @@ export function PwaAssistantButton({
         role: "assistant",
         content: parsedResponse.answer,
         thinking: parsedResponse.thinking || undefined,
+        pdfPageCitations: response.pdfPageCitations,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, assistant]);
@@ -654,7 +676,10 @@ export function PwaAssistantButton({
                       ].join(" ")}
                     >
                       {m.role === "assistant" ? (
-                        <AssistantResponseContent content={m.content} thinking={m.thinking} className="prose prose-sm max-w-none" />
+                        <>
+                          <AssistantResponseContent content={m.content} thinking={m.thinking} className="prose prose-sm max-w-none" />
+                          {m.pdfPageCitations?.length ? <PdfAssistantCitations citations={m.pdfPageCitations} getSource={context.getPdfPageSource} /> : null}
+                        </>
                       ) : (
                         <div className="whitespace-pre-wrap">{m.content}</div>
                       )}

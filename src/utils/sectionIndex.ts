@@ -1232,8 +1232,8 @@ export function buildSelectionFocusedContext(
 ): { content: string; truncated: boolean; labels: string[] } {
   const { maxTokens = 4000, trimRatio = 0.7 } = options;
   if (!selections.length) return { content: "", truncated: false, labels: [] };
-  const budgeted = budgetScopedBodies(selections.map((node) => ({ label: node.title, text: node.content, selection: true })), maxTokens, trimRatio);
-  return { ...budgeted, labels: selections.map((node) => node.title) };
+  const { content, truncated } = budgetScopedBodies(selections.map((node) => ({ label: node.title, text: node.content, selection: true })), maxTokens, trimRatio);
+  return { content, truncated, labels: selections.map((node) => node.title) };
 }
 
 /**

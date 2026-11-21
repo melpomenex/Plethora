@@ -60,6 +60,24 @@ mod tests {
     }
 
     #[test]
+    fn sparse_pdf_units_keep_their_physical_page_numbers() {
+        let units = analyze_document_structure(StructuralSourceInput::PdfLocatedPages {
+            document_id: "pdf-sparse",
+            pages: &[
+                (1, "First physical page".into()),
+                (3, "Third physical page".into()),
+            ],
+        });
+        assert_eq!(
+            units
+                .iter()
+                .map(|unit| unit.page_number)
+                .collect::<Vec<_>>(),
+            [Some(1), Some(3)]
+        );
+    }
+
+    #[test]
     fn excludes_pdf_front_matter_bibliography_index_and_running_headers() {
         let pages = vec![
             "Philosophy Press\nCopyright © 2024 Philosophy Press\nAll rights reserved. ISBN 978-0-123456-78-9\nLibrary of Congress Cataloging-in-Publication Data".to_string(),

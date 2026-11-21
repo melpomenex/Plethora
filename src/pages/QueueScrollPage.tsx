@@ -165,9 +165,11 @@ import { chatWithLLM, type LLMMessage } from "../api/llm";
 import { getAIConfig, type AIConfig } from "../api/ai";
 import { useLLMProvidersStore } from "../stores/llmProvidersStore";
 import {
-  resolvePdfAssistantContext,
+  resolvePdfContextForPrompt,
+  type ResolveAssistantPromptOptions,
   resolveGenericAssistantContext,
-  type ResolvedAssistantContext
+  type ResolvedAssistantContext,
+  type PdfTextWindow,
 } from "../utils/assistantContext";
 import {
   hasActiveTextSelection,
@@ -2685,6 +2687,7 @@ export function QueueScrollPage() {
 
   const selectionRef = useRef(selection);
   const pdfContextTextRef = useRef(pdfContextText);
+  const pdfTextWindowRef = useRef<PdfTextWindow | undefined>(undefined);
   const pdfOcrContextTextRef = useRef(pdfOcrContextText);
   const scrollStateRef = useRef(scrollState);
   const documentsRef = useRef(documents);
@@ -2786,7 +2789,7 @@ export function QueueScrollPage() {
   }, [renderedItem?.id, currentItem?.id]);
 
   const resolveContextForPrompt = useCallback(
-    async (_prompt: string): Promise<ResolvedAssistantContext> => {
+    async (prompt: string, options?: ResolveAssistantPromptOptions): Promise<ResolvedAssistantContext> => {
       const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 2000;
       const assistantItem = renderedItem ?? currentItem;
       const activeSelection = selectionRef.current;
@@ -2814,9 +2817,10 @@ export function QueueScrollPage() {
 
         if (doc?.fileType === "pdf") {
           const preferOcr = settings.documents.ocr.autoOCR || settings.documents.ocr.autoExtractOnLoad;
-          const resolution = await resolvePdfAssistantContext({
+          return resolvePdfContextForPrompt(prompt, {
             document: doc,
             liveWindowText: pdfContextTextRef.current,
+            liveWindow: pdfTextWindowRef.current,
             storedDocumentText: doc.content ?? documentContentRef.current,
             ocrText: pdfOcrContextTextRef.current,
             selection: activeSelection,
@@ -2829,24 +2833,7 @@ export function QueueScrollPage() {
                   return result.content;
                 }
               : undefined,
-          });
-
-          if (resolution.status !== "ready" || !resolution.content) {
-            return resolution;
-          }
-
-          try {
-            const trimmed = await trimToTokenWindow(resolution.content, maxTokens, aiModel, activeSelection);
-            return {
-              ...resolution,
-              content: trimmed,
-            };
-          } catch {
-            return {
-              ...resolution,
-              content: resolution.content.slice(0, maxTokens * 4),
-            };
-          }
+          }, maxTokens, aiModel, options);
         }
       }
 
@@ -2979,6 +2966,7 @@ export function QueueScrollPage() {
                 title: title || undefined,
               },
               resolveForPrompt: resolveContextForPrompt,
+              getPdfPageSource: () => pdfTextWindowRef.current?.source,
             });
           }
           return;
@@ -3001,6 +2989,7 @@ export function QueueScrollPage() {
               title: title || undefined,
             },
             resolveForPrompt: resolveContextForPrompt,
+            getPdfPageSource: () => pdfTextWindowRef.current?.source,
           });
         }
         return;
@@ -4973,7 +4962,10 @@ export function QueueScrollPage() {
                 onVideoContextChange={setLiveVideoContext}
                 onSelectionChange={setSelection}
                 onScrollPositionChange={setScrollState}
-                onPdfContextTextChange={setPdfContextText}
+                onPdfContextTextChange={(text, window) => {
+                  if (window) pdfTextWindowRef.current = window;
+                  setPdfContextText(text);
+                }}
                 onPdfOcrContextTextChange={setPdfOcrContextText}
                 contextPageWindow={2}
                 extractPostCreateBehavior="stay-in-reader"

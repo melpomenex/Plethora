@@ -476,6 +476,31 @@ describe("Queue Scroll assistant context parity", () => {
     expect(screen.getByTestId("assistant-panel-probe")).toBeInTheDocument();
   });
 
+  it("resolves the active PDF page at send time and rejects the previous page after a jump", async () => {
+    mocks.queueState.filteredItems = [makeDocRow("doc-pdf", "Cells Paper", 11)];
+    mocks.queueState.items = [...mocks.queueState.filteredItems];
+    useDocumentStore.setState({ documents: [pdfDoc] });
+
+    render(<QueueScrollPage />);
+    await screen.findByTestId("document-viewer");
+    act(() => {
+      viewerProbe.props.onScrollPositionChange({ pageNumber: 47 });
+      viewerProbe.props.onPdfContextTextChange("Page 46 and 47", {
+        documentId: "doc-pdf",
+        activePage: 47,
+        activePageText: "Membranes regulate water flow.",
+      });
+    });
+    await waitFor(() => expect(panelProbe.context?.resolveForPrompt).toBeTypeOf("function"));
+    const ready = await panelProbe.context.resolveForPrompt("Explain this section");
+    expect(ready.content).toContain("Membranes regulate water flow.");
+
+    act(() => viewerProbe.props.onScrollPositionChange({ pageNumber: 48 }));
+    const unavailable = await panelProbe.context.resolveForPrompt("Explain this section");
+    expect(unavailable).toMatchObject({ status: "unavailable", pageScoped: true });
+    expect(unavailable.content).toBeUndefined();
+  });
+
   it("keeps the Assistant transcript in place while viewing an EPUB in Scroll Mode", async () => {
     const items = [
       makeDocRow(firstEpubDoc.id, firstEpubDoc.title, 11),

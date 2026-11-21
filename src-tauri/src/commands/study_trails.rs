@@ -214,25 +214,28 @@ async fn load_document_source_for_trail(
                     pages: &pages,
                 });
             } else if !chunk_rows.is_empty() {
-                // Reconstruct per-page text from semantic_chunks when file isn't accessible
-                let mut pages_map: std::collections::BTreeMap<u32, Vec<String>> =
+                // A sparse index retains its physical page keys. Unlocated
+                // chunks cannot establish a page for a Reading Trail step.
+                let mut pages_map: std::collections::BTreeMap<u32, Vec<&str>> =
                     std::collections::BTreeMap::new();
-                for (text, loc_json) in &chunk_rows {
-                    let page = serde_json::from_str::<serde_json::Value>(loc_json)
-                        .ok()
-                        .and_then(|v| v.get("pageNumber").and_then(|p| p.as_u64()))
-                        .unwrap_or(1) as u32;
-                    pages_map.entry(page).or_default().push(text.clone());
+                for (text, location_json) in &chunk_rows {
+                    let page = serde_json::from_str::<crate::ai_learning::models::ChunkLocation>(
+                        location_json,
+                    )
+                    .ok()
+                    .and_then(|location| location.page_number)
+                    .and_then(|number| u32::try_from(number).ok())
+                    .filter(|number| *number > 0);
+                    if let Some(page) = page {
+                        pages_map.entry(page).or_default().push(text);
+                    }
                 }
-                let pages: Vec<String> = pages_map.into_values().map(|v| v.join("\n")).collect();
-                total_len = pages.iter().map(|p| p.len()).sum();
-                units = analyze_document_structure(StructuralSourceInput::PdfPages {
-                    document_id: &id,
-                    pages: &pages,
-                });
-            } else if !content_str.trim().is_empty() {
-                let pages: Vec<String> = content_str.split('\u{000C}').map(str::to_string).collect();
-                units = analyze_document_structure(StructuralSourceInput::PdfPages {
+                let pages: Vec<_> = pages_map
+                    .into_iter()
+                    .map(|(page, text)| (page, text.join("\n")))
+                    .collect();
+                total_len = pages.iter().map(|(_, text)| text.len()).sum();
+                units = analyze_document_structure(StructuralSourceInput::PdfLocatedPages {
                     document_id: &id,
                     pages: &pages,
                 });

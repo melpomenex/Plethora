@@ -42,6 +42,10 @@ pub enum StructuralSourceInput<'a> {
         document_id: &'a str,
         pages: &'a [String],
     },
+    PdfLocatedPages {
+        document_id: &'a str,
+        pages: &'a [(u32, String)],
+    },
     EpubSpines {
         document_id: &'a str,
         spines: &'a [(u32, String)],
@@ -437,7 +441,17 @@ pub fn analyze_document_structure(input: StructuralSourceInput<'_>) -> Vec<Struc
         StructuralSourceInput::Plain { document_id, text } => {
             analyze_plain(document_id, text, "text")
         }
-        StructuralSourceInput::PdfPages { document_id, pages } => analyze_pdf(document_id, pages),
+        StructuralSourceInput::PdfPages { document_id, pages } => analyze_pdf(
+            document_id,
+            pages
+                .iter()
+                .enumerate()
+                .map(|(index, text)| (index as u32 + 1, text.as_str())),
+        ),
+        StructuralSourceInput::PdfLocatedPages { document_id, pages } => analyze_pdf(
+            document_id,
+            pages.iter().map(|(page, text)| (*page, text.as_str())),
+        ),
         StructuralSourceInput::EpubSpines {
             document_id,
             spines,
@@ -784,10 +798,13 @@ fn looks_like_edge_page_number(line: &str) -> bool {
             .all(|c| c.is_ascii_digit() || matches!(c, '/' | '-' | ' ' | '.' | '|'))
 }
 
-fn analyze_pdf(document_id: &str, pages: &[String]) -> Vec<StructuralUnit> {
+fn analyze_pdf<'a>(
+    document_id: &str,
+    pages: impl ExactSizeIterator<Item = (u32, &'a str)> + Clone,
+) -> Vec<StructuralUnit> {
     // Detect repeated running headers/footers across >= 3 pages (normalizing digits so "3/15" matches "4/15").
     let mut line_freq: HashMap<String, usize> = HashMap::new();
-    for page in pages {
+    for (_, page) in pages.clone() {
         let lines: Vec<&str> = page
             .lines()
             .map(str::trim)
@@ -815,8 +832,7 @@ fn analyze_pdf(document_id: &str, pages: &[String]) -> Vec<StructuralUnit> {
     let mut stack: Vec<(u8, String)> = Vec::new();
     let mut offset = 0usize;
 
-    for (page_idx, page_text) in pages.iter().enumerate() {
-        let page_num = (page_idx + 1) as u32;
+    for (page_num, page_text) in pages {
         let lines: Vec<&str> = page_text
             .lines()
             .map(str::trim)

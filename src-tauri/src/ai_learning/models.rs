@@ -11,6 +11,19 @@ use serde::{Deserialize, Serialize};
 /// annotations and card fronts are single chunks (task 4.7). Figures and media
 /// (video/audio keyframes) provide multimodal semantic anchor points.
 pub const SOURCE_TYPE_DOCUMENT: &str = "document";
+pub const PDF_PROJECTION_VERSION: u32 = 1;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfChunkEvidence {
+    pub version: u32,
+    pub source_revision: Option<String>,
+    pub block_id: Option<String>,
+    pub extraction: crate::pdf::model::PdfWordSource,
+    pub confidence: Option<f32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_regions: Vec<crate::pdf::model::PdfSourceRegion>,
+}
 pub const SOURCE_TYPE_EXTRACT: &str = "extract";
 pub const SOURCE_TYPE_ANNOTATION: &str = "annotation";
 pub const SOURCE_TYPE_CARD: &str = "card";
@@ -65,6 +78,8 @@ pub struct ChunkLocation {
     /// PDF page number (1-based) when the source is page-scoped.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub page_number: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pdf_evidence: Option<PdfChunkEvidence>,
     /// EPUB spine index of the chapter the chunk came from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub spine_index: Option<i64>,

@@ -22,7 +22,9 @@
 //! Extracts, annotations and card fronts are single chunks with their own
 //! location payloads (`single_chunk`), per task 4.7.
 
-use crate::ai_learning::models::{ChunkLocation, ChunkModel};
+use crate::ai_learning::models::{
+    ChunkLocation, ChunkModel, PdfChunkEvidence, PDF_PROJECTION_VERSION, SOURCE_TYPE_DOCUMENT,
+};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
 
@@ -250,6 +252,7 @@ fn chunk_session_transcript(
                 end_offset: end,
                 heading_path: vec![heading],
                 page_number: None,
+                pdf_evidence: None,
                 spine_index: None,
                 cfi_range: None,
                 page_rects: None,
@@ -574,7 +577,16 @@ fn parse_paged_blocks(pages: &[String]) -> Vec<Block> {
     let mut blocks = Vec::new();
     for (idx, page) in pages.iter().enumerate() {
         let page_no = (idx + 1) as i64;
-        for block in parse_plain_blocks(page, true) {
+        if page.trim().is_empty() {
+            continue;
+        }
+        let mut page_blocks = parse_plain_blocks(page, true);
+        if page_blocks.is_empty() {
+            // A short single-line PDF page can look like a heading even
+            // when it is the only available evidence for that page.
+            page_blocks = parse_plain_blocks(page, false);
+        }
+        for block in page_blocks {
             blocks.push(Block {
                 page: Some(page_no),
                 ..block
@@ -1057,7 +1069,7 @@ fn build_chunk(
     text: &str,
 ) -> ChunkModel {
     let content_hash = chunk_content_hash(text);
-    let location = ChunkLocation {
+    let mut location = ChunkLocation {
         source_type: location_source_type.to_string(),
         document_id: ctx.document_id.to_string(),
         ordinal,
@@ -1070,13 +1082,23 @@ fn build_chunk(
         anchor_id: ctx.source_id.map(str::to_string),
         ..Default::default()
     };
+    let original_id = chunk_id(ctx.document_id, ctx.source_type, ctx.source_id, &content_hash);
+    let id = match page {
+        Some(page) if ctx.source_type == SOURCE_TYPE_DOCUMENT && location_source_type == "pdf" => {
+            location.pdf_evidence = Some(PdfChunkEvidence {
+                version: PDF_PROJECTION_VERSION,
+                source_revision: None,
+                block_id: None,
+                extraction: crate::pdf::model::PdfWordSource::NativePdfText,
+                confidence: None,
+                source_regions: Vec::new(),
+            });
+            chunk_content_hash(&format!("pdf:{PDF_PROJECTION_VERSION}:{original_id}:{page}:{start_offset}:{end_offset}"))
+        }
+        _ => original_id,
+    };
     ChunkModel {
-        id: chunk_id(
-            ctx.document_id,
-            ctx.source_type,
-            ctx.source_id,
-            &content_hash,
-        ),
+        id,
         document_id: ctx.document_id.to_string(),
         source_type: ctx.source_type.to_string(),
         source_id: ctx.source_id.map(str::to_string),
@@ -1112,6 +1134,44 @@ pub fn chunk_document(
         ChunkInput::Paged { pages } => parse_paged_blocks(pages),
     };
     pack_blocks(ctx, &blocks, opts, ctx.location_source_type)
+}
+
+pub(crate) fn chunk_projected_pdf_page(
+    ctx: &ChunkContext<'_>,
+    physical_page: u32,
+    revision: &str,
+    evidence: &[crate::pdf::semantic_projection::EvidenceBlock],
+) -> Vec<ChunkModel> {
+    let mut result = Vec::new();
+    let mut offset = 0;
+    for evidence_block in evidence {
+        let count = evidence_block.text.chars().count();
+        let block = Block {
+            text: evidence_block.text.clone(),
+            heading_path: Vec::new(),
+            start: offset,
+            end: offset + count,
+            page: Some(i64::from(physical_page)),
+        };
+        offset += count + 2;
+        for mut chunk in pack_blocks(ctx, &[block], &ChunkOptions::default(), "pdf") {
+            let Ok(mut location) = serde_json::from_str::<ChunkLocation>(&chunk.location_json) else {
+                continue;
+            };
+            chunk.id = chunk_content_hash(&format!("{}:{revision}:{}", chunk.id, evidence_block.id));
+            location.pdf_evidence = Some(PdfChunkEvidence {
+                version: PDF_PROJECTION_VERSION,
+                source_revision: Some(revision.to_owned()),
+                block_id: Some(evidence_block.id.clone()),
+                extraction: evidence_block.extraction,
+                confidence: Some(evidence_block.confidence),
+                source_regions: evidence_block.regions.clone(),
+            });
+            chunk.location_json = serde_json::to_string(&location).unwrap_or_default();
+            result.push(chunk);
+        }
+    }
+    result
 }
 
 /// Build a single chunk for an extract / annotation / card front (task 4.7).

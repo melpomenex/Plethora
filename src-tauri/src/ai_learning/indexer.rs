@@ -527,7 +527,7 @@ async fn build_document_chunks(
     } else {
         None
     };
-    let mut chunks = match build_rich_text_chunks(&ctx, &doc.file_path, html.as_deref()).await {
+    let mut chunks = match build_rich_text_chunks(repo, &ctx, &doc.file_path, html.as_deref()).await {
         Some(chunks) => chunks,
         None => {
             let input = match doc.file_type {
@@ -871,27 +871,73 @@ async fn build_transcript_document_chunks(
 /// Rebuild the text chunks from the same PDF pages or preserved markup used
 /// by indexing. This reads source material only and leaves the index untouched.
 pub(crate) async fn build_rich_text_chunks(
+    repo: &Repository,
     ctx: &ChunkContext<'_>,
     file_path: &str,
     html: Option<&str>,
 ) -> Option<Vec<ChunkModel>> {
-    let pages;
     let input = match ctx.location_source_type {
-        "pdf" => {
-            pages = crate::processor::pdf::extract_pdf_pages_text(file_path)
-                .await
-                .ok()?;
-            if pages.is_empty() {
-                return None;
-            }
-            ChunkInput::Paged { pages: &pages }
-        }
+        "pdf" => return build_pdf_page_chunks(repo, ctx, file_path).await,
         "epub" | "html" => ChunkInput::Html {
             html: html.filter(|html| !html.trim().is_empty())?,
         },
         _ => return None,
     };
     Some(chunk_document(ctx, input, &ChunkOptions::default()))
+}
+
+async fn build_pdf_page_chunks(
+    repo: &Repository,
+    ctx: &ChunkContext<'_>,
+    file_path: &str,
+) -> Option<Vec<ChunkModel>> {
+    use crate::ai_learning::models::ChunkLocation;
+    use crate::commands::pdf_mobile::registered_pdf_revision;
+    use std::{collections::BTreeMap, path::Path};
+
+    let path = Path::new(file_path);
+    let revision = registered_pdf_revision(path);
+    let native_pages = crate::processor::pdf::extract_pdf_pages_text(file_path).await;
+    let projected = match &revision {
+        Some(revision) => crate::pdf::semantic_projection::load_pages(repo, ctx.document_id, revision)
+            .await
+            .unwrap_or_default(),
+        None => Vec::new(),
+    };
+    if registered_pdf_revision(path) != revision {
+        return None;
+    }
+    if native_pages.is_err() && projected.is_empty() {
+        return None;
+    }
+    let pages = native_pages.unwrap_or_default();
+    let mut by_page = BTreeMap::<u32, Vec<(ChunkModel, ChunkLocation)>>::new();
+    for chunk in chunk_document(ctx, ChunkInput::Paged { pages: &pages }, &ChunkOptions::default()) {
+        if let Ok(mut location) = serde_json::from_str::<ChunkLocation>(&chunk.location_json) {
+            if let Some(evidence) = &mut location.pdf_evidence {
+                evidence.source_revision.clone_from(&revision);
+            }
+            if let Some(page) = location.page_number.and_then(|number| u32::try_from(number).ok()) {
+                by_page.entry(page).or_default().push((chunk, location));
+            }
+        }
+    }
+    let revision = revision.as_deref().unwrap_or_default();
+    for (page, evidence) in projected {
+        let chunks: Vec<_> = crate::ai_learning::chunker::chunk_projected_pdf_page(ctx, page, revision, &evidence)
+            .into_iter()
+            .filter_map(|chunk| serde_json::from_str(&chunk.location_json).ok().map(|loc| (chunk, loc)))
+            .collect();
+        if !chunks.is_empty() {
+            by_page.insert(page, chunks);
+        }
+    }
+    Some(by_page.into_values().flatten().enumerate().map(|(ordinal, (mut chunk, mut location))| {
+        chunk.ordinal = ordinal as i64;
+        location.ordinal = chunk.ordinal;
+        chunk.location_json = serde_json::to_string(&location).unwrap_or_default();
+        chunk
+    }).collect())
 }
 
 async fn load_html_content(repo: &Repository, document_id: &str) -> Option<String> {
@@ -1042,24 +1088,47 @@ async fn document_location_type(repo: &Repository, document_id: &str) -> String 
 /// Content-hash diff: delete stored chunks whose id is absent from the new
 /// set (orphans), insert new ids, and refresh ordinals/locations of retained
 /// chunks (cheap metadata UPDATE, never a re-embed).
+fn disambiguate_duplicate_chunk_ids(chunks: &[ChunkModel]) -> Vec<ChunkModel> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    chunks
+        .iter()
+        .cloned()
+        .map(|mut chunk| {
+            let count = seen.entry(chunk.id.clone()).or_insert(0);
+            if *count > 0 {
+                chunk.id = format!("{}#occ:{}", chunk.id, *count);
+            }
+            *count += 1;
+            chunk
+        })
+        .collect()
+}
+
 async fn apply_chunk_diff(
     repo: &Repository,
     document_id: &str,
     new_chunks: &[ChunkModel],
 ) -> Result<()> {
-    let stored: Vec<(String, i64)> =
-        sqlx::query_as("SELECT id, ordinal FROM semantic_chunks WHERE document_id = ?1")
-            .bind(document_id)
-            .fetch_all(repo.pool())
-            .await?;
+    let new_chunks = disambiguate_duplicate_chunk_ids(new_chunks);
+    let new_chunks = new_chunks.as_slice();
+    let stored_rows: Vec<(String, i64, String, String)> = sqlx::query_as(
+        "SELECT id, ordinal, location_json, heading_path FROM semantic_chunks WHERE document_id = ?1",
+    )
+    .bind(document_id)
+    .fetch_all(repo.pool())
+    .await?;
+    let stored: std::collections::HashMap<_, _> = stored_rows
+        .iter()
+        .map(|(id, ordinal, location, heading)| (id.as_str(), (*ordinal, location, heading)))
+        .collect();
 
     let new_ids: HashSet<&str> = new_chunks.iter().map(|c| c.id.as_str()).collect();
 
     // Delete orphans (embeddings cascade via FK).
-    let orphans: Vec<String> = stored
-        .iter()
-        .filter(|(id, _)| !new_ids.contains(id.as_str()))
-        .map(|(id, _)| id.clone())
+    let orphans: Vec<&str> = stored
+        .keys()
+        .copied()
+        .filter(|id| !new_ids.contains(id))
         .collect();
     if !orphans.is_empty() {
         let mut tx = repo.pool().begin().await?;
@@ -1079,21 +1148,24 @@ async fn apply_chunk_diff(
 
     // Insert new chunks one by one (per-chunk commit: interruption-safe).
     for chunk in new_chunks {
-        let already = stored.iter().any(|(id, _)| id == &chunk.id);
-        if already {
-            // Retained: refresh position metadata if the ordinal moved.
-            if let Some((_, ordinal)) = stored.iter().find(|(id, _)| id == &chunk.id) {
-                if *ordinal != chunk.ordinal {
-                    sqlx::query(
-                        "UPDATE semantic_chunks SET ordinal = ?2, location_json = ?3, heading_path = ?4, updated_at = datetime('now') WHERE id = ?1",
-                    )
-                    .bind(&chunk.id)
-                    .bind(chunk.ordinal)
-                    .bind(&chunk.location_json)
-                    .bind(serde_json::to_string(&chunk.heading_path).unwrap_or_else(|_| "[]".into()))
-                    .execute(repo.pool())
-                    .await?;
-                }
+        let heading_path =
+            serde_json::to_string(&chunk.heading_path).unwrap_or_else(|_| "[]".into());
+        if let Some(&(ordinal, location, heading)) = stored.get(chunk.id.as_str()) {
+            // Locator repairs can change the physical page without moving
+            // the ordinal or changing the text and its embedding.
+            if ordinal != chunk.ordinal
+                || location != &chunk.location_json
+                || heading != &heading_path
+            {
+                sqlx::query(
+                    "UPDATE semantic_chunks SET ordinal = ?2, location_json = ?3, heading_path = ?4, updated_at = datetime('now') WHERE id = ?1",
+                )
+                .bind(&chunk.id)
+                .bind(chunk.ordinal)
+                .bind(&chunk.location_json)
+                .bind(&heading_path)
+                .execute(repo.pool())
+                .await?;
             }
             continue;
         }
@@ -1108,7 +1180,7 @@ async fn apply_chunk_diff(
         .bind(&chunk.source_id)
         .bind(chunk.ordinal)
         .bind(&chunk.text)
-        .bind(serde_json::to_string(&chunk.heading_path).unwrap_or_else(|_| "[]".into()))
+        .bind(&heading_path)
         .bind(&chunk.location_json)
         .bind(&chunk.content_hash)
         .bind(chunk.token_count)
@@ -1400,6 +1472,7 @@ async fn list_indexable_documents(repo: &Repository) -> Result<Vec<String>> {
            AND d.is_ai_excluded = 0
            AND (
                 length(trim(COALESCE(d.content, ''))) > 0
+                OR EXISTS (SELECT 1 FROM pdf_page_evidence pe WHERE pe.document_id = d.id)
                 OR length(trim(COALESCE(d.html_content, ''))) > 0
                 OR EXISTS (SELECT 1 FROM youtube_transcripts yt WHERE yt.document_id = d.id)
                 OR EXISTS (SELECT 1 FROM video_transcripts vt WHERE vt.document_id = d.id)
@@ -1467,12 +1540,12 @@ pub async fn ensure_documents_chunks_indexed(
         all_chunks.extend(build_annotation_chunks(repo, doc_id).await);
         all_chunks.extend(build_card_chunks(repo, doc_id).await);
 
+        apply_chunk_diff(repo, doc_id, &all_chunks).await?;
+
         if all_chunks.is_empty() {
             upsert_state_row(repo, doc_id, IndexState::Indexed, None, 0, 0, None).await?;
             continue;
         }
-
-        apply_chunk_diff(repo, doc_id, &all_chunks).await?;
 
         let total = all_chunks.len() as i64;
         let embedded: i64 = sqlx::query_scalar(
@@ -1616,6 +1689,100 @@ mod tests {
     use crate::ai_learning::embeddings_backend::{EmbeddingBackend, EmbeddingBackendKind};
     use crate::ai_learning::models::IndexState;
     use crate::ai_learning::test_support::{seed_document, test_pool};
+
+    #[tokio::test]
+    async fn pdf_index_repairs_a_page_locator_without_changing_chunk_identity() {
+        let pool = test_pool().await;
+        seed_document(&pool, "pdf-page-repair", "", "pdf").await;
+        let repo = Repository::new(pool.clone());
+        let ctx = ChunkContext {
+            document_id: "pdf-page-repair",
+            source_type: SOURCE_TYPE_DOCUMENT,
+            source_id: None,
+            location_source_type: "pdf",
+            spine_index: None,
+        };
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/tests/fixtures/pdf-baseline/blank-middle-page.pdf"
+        );
+        let and_blank = build_rich_text_chunks(&repo, &ctx, path, None).await.unwrap();
+        let page_of = |chunk: &ChunkModel| {
+            serde_json::from_str::<crate::ai_learning::models::ChunkLocation>(&chunk.location_json)
+                .unwrap()
+                .page_number
+        };
+        let third = and_blank
+            .iter()
+            .find(|chunk| chunk.text.contains("Third physical page"))
+            .unwrap();
+        assert_eq!(page_of(third), Some(3));
+        let mut old = third.clone();
+        let mut locator: serde_json::Value = serde_json::from_str(&old.location_json).unwrap();
+        locator["pageNumber"] = serde_json::json!(2);
+        old.location_json = locator.to_string();
+        apply_chunk_diff(&repo, ctx.document_id, &[old])
+            .await
+            .unwrap();
+        apply_chunk_diff(&repo, ctx.document_id, &and_blank)
+            .await
+            .unwrap();
+        let repaired: String =
+            sqlx::query_scalar("SELECT location_json FROM semantic_chunks WHERE id = ?1")
+                .bind(&third.id)
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(repaired, third.location_json);
+    }
+
+    #[tokio::test]
+    async fn duplicate_text_chunks_retain_per_occurrence_identities_and_locators() {
+        let pool = test_pool().await;
+        seed_document(&pool, "pdf-dup-text", "", "pdf").await;
+        let repo = Repository::new(pool.clone());
+        let first = ChunkModel {
+            id: "shared-content-id".to_string(),
+            document_id: "pdf-dup-text".to_string(),
+            source_type: SOURCE_TYPE_DOCUMENT.to_string(),
+            source_id: None,
+            ordinal: 0,
+            text: "Repeated passage across pages.".to_string(),
+            heading_path: vec![],
+            location_json: serde_json::json!({
+                "sourceType": "pdf",
+                "ordinal": 0,
+                "pageNumber": 1
+            })
+            .to_string(),
+            content_hash: "dup-hash".to_string(),
+            token_count: 4,
+        };
+        let mut second = first.clone();
+        second.ordinal = 1;
+        second.location_json = serde_json::json!({
+            "sourceType": "pdf",
+            "ordinal": 1,
+            "pageNumber": 3
+        })
+        .to_string();
+
+        apply_chunk_diff(&repo, "pdf-dup-text", &[first, second])
+            .await
+            .unwrap();
+
+        let rows: Vec<(String, String)> = sqlx::query_as(
+            "SELECT id, location_json FROM semantic_chunks WHERE document_id = 'pdf-dup-text' ORDER BY ordinal",
+        )
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].0, "shared-content-id");
+        assert_eq!(rows[1].0, "shared-content-id#occ:1");
+        assert!(rows[0].1.contains("\"pageNumber\":1"));
+        assert!(rows[1].1.contains("\"pageNumber\":3"));
+    }
 
     pub(crate) async fn state_of(pool: &sqlx::SqlitePool, id: &str) -> Option<(String, i64, i64)> {
         sqlx::query_as(

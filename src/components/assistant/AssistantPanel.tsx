@@ -97,7 +97,10 @@ import { useContextMenu, ContextMenu, ContextMenuItem, ContextMenuItemType } fro
 import { useToast } from "../common/Toast";
 import { createExtract, patchDocumentExtractCount } from "../../api/extracts";
 import { requestDestinationAction } from "../../commandPalette/destinationActions";
-import { SELECTION_PRECEDENCE_INSTRUCTION, type ResolvedAssistantContext } from "../../utils/assistantContext";
+import { SELECTION_PRECEDENCE_INSTRUCTION, type ResolveAssistantPromptOptions, type ResolvedAssistantContext } from "../../utils/assistantContext";
+import { pdfSourceTokenBudget, type PdfPageSource } from "../../utils/pdfAssistantEvidence";
+import type { Citation } from "../../lib/ai/assistant/conversations/types";
+import { PdfAssistantCitations } from "./PdfAssistantCitations";
 import {
   createSelectionAskSnapshot,
   shouldReseedSelectionSnapshot,
@@ -254,7 +257,8 @@ export interface AssistantContext {
   /** Authoritative viewer-supplied sections (for example timed audiobook chapters). */
   sections?: SectionNode[];
   snapshotForSubmit?: () => AssistantContext;
-  resolveForPrompt?: (prompt: string) => Promise<ResolvedAssistantContext>;
+  resolveForPrompt?: (prompt: string, options?: ResolveAssistantPromptOptions) => Promise<ResolvedAssistantContext>;
+  getPdfPageSource?: () => PdfPageSource | undefined;
 }
 
 export interface AttachedImage {
@@ -321,6 +325,7 @@ interface Message {
   images?: AttachedImage[];
   toolCalls?: ToolCall[];
   sourceContext?: SectionSourceReference;
+  pdfPageCitations?: Citation[];
   diagnostics?: StructuredTurnDiagnostics;
   sourceCoverage?: "full" | "window" | "chunks" | "hierarchical-full" | "none";
   /**
@@ -2023,6 +2028,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         timestamp: Date.now(),
         toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
         sourceContext: response.sourceContext,
+        pdfPageCitations: response.pdfPageCitations,
         diagnostics: response.diagnostics,
         sourceCoverage: response.sourceCoverage,
       };
@@ -2691,7 +2697,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     },
     isTwentyRules?: boolean,
     throwOnLlmError?: boolean,
-  ): Promise<{ content: string; toolCalls?: ToolCall[]; imagesStripped?: boolean; modelName?: string; sourceContext?: SectionSourceReference; diagnostics?: StructuredTurnDiagnostics; sourceCoverage?: "full" | "window" | "chunks" | "hierarchical-full" | "none" }> => {
+  ): Promise<{ content: string; toolCalls?: ToolCall[]; imagesStripped?: boolean; modelName?: string; sourceContext?: SectionSourceReference; pdfPageCitations?: Citation[]; diagnostics?: StructuredTurnDiagnostics; sourceCoverage?: "full" | "window" | "chunks" | "hierarchical-full" | "none" }> => {
     const mentionCandidates = selectionSection
       ? [selectionSection, ...assistantSectionFlat]
       : assistantSectionFlat;
@@ -2757,22 +2763,32 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         ? contextData.sourceContentOverride.trim()
         : "";
 
-      const resolvedContext = sourceContentOverride
+      const resolvedContext: ResolvedAssistantContext = sourceContentOverride
         ? {
             status: "ready" as const,
             content: sourceContentOverride,
             source: "document" as const,
             coverage: undefined,
+            pageScoped: false,
           }
         : llmContext?.resolveForPrompt
-          ? await llmContext.resolveForPrompt(prompt)
+          ? await llmContext.resolveForPrompt(prompt, {
+              documentId: llmContext.documentId,
+              signal: contextData.signal,
+              usesLibraryScope: turnScope === "library",
+              sourceTokenBudget: pdfSourceTokenBudget(promptBudget, effectivePrompt, contextData.conversationHistory as Message[], toolInstruction + (providerConfig?.systemPrompt ?? "")),
+            })
           : {
               status: llmContext?.status ?? "ready",
               coverage: undefined,
+              pageScoped: false,
               content: typeof llmContext?.content === "string" ? llmContext.content : undefined,
               source: (llmContext?.source as any) ?? "document",
               message: llmContext?.statusMessage,
             };
+      if (resolvedContext.pdfPagesRequested && (resolvedContext.status !== "ready" || promptSectionNodes.length > 0)) {
+        return { content: resolvedContext.message ?? "Send a PDF page range and attached sections as separate requests so each answer uses the intended source." };
+      }
 
       const selectionNodes = promptSectionNodes.filter(
         (n) => n.source === "selection" || n.source === "media-transcript",
@@ -2829,6 +2845,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
 
       if ((!contextContent || resolvedContext.status !== "ready")
           && llmContext?.type === "document" && llmContext.documentId
+          && !resolvedContext.pageScoped
           && promptSectionNodes.length === 0) {
         const fallbackText = (await loadDocumentQaText(
           llmContext.documentId,
@@ -2847,6 +2864,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       // re-inject the pinned excerpt first to keep follow-ups grounded.
       const pinnedApplies = Boolean(
         pinnedSelection?.excerpt && !sourceContentOverride && !action && promptSectionNodes.length === 0 &&
+        !resolvedContext.pdfPagesRequested &&
         !hasExplicitSelectionContext &&
         llmContext?.type === "document" &&
         (!pinnedSelection.documentId || !llmContext?.documentId || pinnedSelection.documentId === llmContext.documentId) &&
@@ -2860,10 +2878,13 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         finalResolvedContent = `${SELECTION_PRECEDENCE_INSTRUCTION}\n\n${passage.content}`;
         contextContent = finalResolvedContent.trim();
       }
+      if (resolvedContext.pageScoped && resolvedContext.status !== "ready" && !contextContent) {
+        return { content: resolvedContext.message ?? "Text from the current PDF page is unavailable." };
+      }
       // Explicit expansion (assistant-external-lookup): doc-first answer, then
       // broader background. Brave runs only on explicit trigger; failures and
       // missing keys degrade to knowledge-only with a disclosure note.
-      const wantsExpansion = shouldExpandBeyondDocument(prompt, false, scope);
+      const wantsExpansion = !resolvedContext.pdfPagesRequested && shouldExpandBeyondDocument(prompt, false, scope);
       if (wantsExpansion && !sourceContentOverride && llmContext?.type === "document") {
         const expansionInstruction = buildDocFirstExpansionInstruction();
         if (!resolvedUserPrompt.includes("Answer from the selection")) {
@@ -2904,6 +2925,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceCoverageForRequest = resolvedContext.coverage;
         if (
           isWholeDocumentRequest(effectivePrompt) &&
+          !resolvedContext.pageScoped &&
           !llmContext?.extractId &&
           !sourceContentOverride &&
           !hasExplicitSelectionContext &&
@@ -2957,7 +2979,8 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           scope: turnScope, userQuestion: appleFmUserPrompt, sourceType: llmContext?.type,
           sourceId: toolExecutionContextRef.current.sourceEnvelope?.documentId ?? llmContext?.documentId, sourceEnvelope: toolExecutionContextRef.current.sourceEnvelope, sourceTitle: action?.target.title ?? llmContext?.metadata?.title ?? assistantDocumentTitle,
           sourceContent: contextContent, sourceCoverage: sourceCoverageForRequest,
-          explicitSourceContent: Boolean(sourceContentOverride || pinnedApplies || promptSectionNodes.length || toolExecutionContextRef.current.sourceEnvelope?.kind === "extract"),
+          pdfPageEvidence: resolvedContext.pdfPageEvidence,
+          explicitSourceContent: Boolean(resolvedContext.pageScoped || sourceContentOverride || pinnedApplies || promptSectionNodes.length || toolExecutionContextRef.current.sourceEnvelope?.kind === "extract"),
           playbackTimeSeconds: llmContext?.position?.currentTime,
           history: (contextData.conversationHistory as Message[]).map((m) => ({ ...m, images: m.images?.map((image) => image.dataUrl) })), tools: turnTools,
           provider: "apple-foundation", isTwentyRules, twentyRulesPrompt: buildTwentyRulesSystemPrompt(),
@@ -2979,6 +3002,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           imagesStripped,
           modelName: appleFmProviderLabel,
           sourceContext,
+          pdfPageCitations: fmResponse.pdfPageCitations,
           diagnostics: fmResponse.turnDiagnostics ?? fmResponse.diagnostics?.turnDiagnostics,
           sourceCoverage: fmResponse.sourceCoverage,
         };
@@ -3025,8 +3049,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         sourceTitle: action?.target.title ?? llmContext?.metadata?.title ?? assistantDocumentTitle, sourceUrl: llmContext?.url,
         sourceContent: contextContent, selectionExcerpt: action ? undefined : pinnedSelection?.excerpt ?? llmContext?.selection,
         sourceCoverage: sourceCoverageForRequest,
+        pdfPageEvidence: resolvedContext.pdfPageEvidence,
         explicitSourceContent: Boolean(
-          (sourceContentOverride && (!action || action.target.kind !== "document")) ||
+          resolvedContext.pageScoped ||
+            (sourceContentOverride && (!action || action.target.kind !== "document")) ||
             pinnedApplies ||
             promptSectionNodes.length ||
             toolExecutionContextRef.current.sourceEnvelope?.kind === "extract"
@@ -3087,6 +3113,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         imagesStripped,
         modelName,
         sourceContext,
+        pdfPageCitations: response.pdfPageCitations,
         diagnostics: response.turnDiagnostics ?? response.diagnostics?.turnDiagnostics,
         sourceCoverage: response.sourceCoverage,
       };
@@ -4811,6 +4838,8 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
                   ) : (
                     <>
                       <AssistantResponseContent content={message.content} thinking={message.thinking} onTimestampClick={context?.type === "video" ? (seconds) => window.dispatchEvent(new CustomEvent("plethora:assistant-seek", { detail: { documentId: message.provenance?.sourceId ?? context.documentId, seconds } })) : undefined} />
+                      {Array.isArray(message.pdfPageCitations) && message.pdfPageCitations.length > 0 &&
+                        <PdfAssistantCitations citations={message.pdfPageCitations} getSource={context?.getPdfPageSource} />}
                       {(() => {
                         const badgeText = getCoverageBadgeText({
                           coverage: message.sourceCoverage,

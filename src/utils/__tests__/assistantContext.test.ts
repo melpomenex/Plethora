@@ -83,6 +83,41 @@ describe("resolvePdfAssistantContext", () => {
     expect(result.source).toBe("none");
     expect(result.message).toContain("No text content available");
   });
+
+  it("uses the physical active page for a reader-relative request", async () => {
+    const result = await resolvePdfAssistantContext({
+      document: baseDocument(),
+      liveWindow: { documentId: "doc-1", activePage: 47, activePageText: "The observed value was 85." },
+      pageNumber: 47,
+      storedDocumentText: longText("foreword"),
+      requireCurrentPage: true,
+    });
+    expect(result).toMatchObject({ status: "ready", pageScoped: true, coverage: "window" });
+    expect(result.content).toContain("Active page: 47");
+    expect(result.content).toContain("The observed value was 85.");
+    expect(result.content).not.toContain("foreword");
+  });
+
+  it.each([
+    { documentId: "previous-document", activePage: 47, activePageText: "Wrong document" },
+    { documentId: "doc-1", activePage: 46, activePageText: "Previous page" },
+    { documentId: "doc-1", activePage: 47, activePageText: "" },
+    { documentId: "doc-1", activePage: 47, activePageText: "47 / 100" },
+  ])("rejects stale or empty current-page context %j", async (liveWindow) => {
+    const extractedTextLoader = vi.fn(async () => longText("foreword"));
+    const result = await resolvePdfAssistantContext({
+      document: baseDocument(),
+      liveWindow,
+      pageNumber: 47,
+      liveWindowText: longText("neighbor"),
+      ocrText: longText("unscoped OCR"),
+      requireCurrentPage: true,
+      extractedTextLoader,
+    });
+    expect(result).toMatchObject({ status: "unavailable", pageScoped: true });
+    expect(result.content).toBeUndefined();
+    expect(extractedTextLoader).not.toHaveBeenCalled();
+  });
 });
 
 describe("resolveGenericAssistantContext", () => {

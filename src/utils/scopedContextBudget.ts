@@ -12,7 +12,7 @@ export function scopedBodyTokenBudget(options: {
 }
 
 /** Equal shares, with unused space redistributed in source order. */
-export function budgetScopedBodies(bodies: readonly { label: string; text: string; selection?: boolean }[], maxTokens: number, trimRatio = 1): { content: string; truncated: boolean } {
+export function budgetScopedBodies(bodies: readonly { label: string; text: string; selection?: boolean }[], maxTokens: number, trimRatio = 1): { content: string; truncated: boolean; excerpts: string[] } {
   const maxChars = Math.floor(maxTokens * 4 * trimRatio);
   const separator = "\n\n---\n\n";
   const marker = "\n[Selected body truncated to the context budget]";
@@ -36,11 +36,11 @@ export function budgetScopedBodies(bodies: readonly { label: string; text: strin
     }
   }
   let truncated = false;
+  const excerpts = bodies.map((body, index) => body.text.trim().slice(0, lengths[index]).trimEnd());
   const content = bodies.map((body, index) => {
-    const text = body.text.trim();
-    const omitted = lengths[index] < text.length;
+    const omitted = lengths[index] < body.text.trim().length;
     truncated ||= omitted;
-    return `${headers[index]}${text.slice(0, lengths[index]).trimEnd()}${omitted ? marker : ""}`;
+    return `${headers[index]}${excerpts[index]}${omitted ? marker : ""}`;
   }).join(separator);
-  return { content, truncated };
+  return { content, truncated, excerpts };
 }

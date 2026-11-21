@@ -15,6 +15,26 @@
 import type { ChunkLocation } from "../../../api/ai-learning";
 import type { AskLibraryCitedSource } from "../tasks/definitions/libraryTask";
 import type { Citation, SourceLocator } from "./conversations/types";
+import { renderAnswer } from "./citationView";
+import type { PdfPageEvidence } from "../../../utils/pdfAssistantEvidence";
+
+export function verifiedPdfPageCitations(answer: string, evidence: PdfPageEvidence): Citation[] {
+  const candidates = evidence.excerpts.map(({ pageNumber, text }, index): Citation => ({
+    id: `pdf-${evidence.documentId}-${pageNumber}`,
+    documentId: evidence.documentId,
+    contentVersion: evidence.version,
+    title: evidence.title,
+    displayNumber: index + 1,
+    origin: "library",
+    sourceType: "pdf",
+    quote: text.slice(0, 200).trimEnd(),
+    locator: { page: pageNumber },
+    validation: "verified",
+  }));
+  const markers = renderAnswer(answer.replace(/\[\d{1,2}\]\([^)]*\)/g, ""), candidates).segments;
+  const cited = new Set(markers.flatMap((marker) => marker.indicator?.actionable ? [marker.indicator.number] : []));
+  return candidates.filter((citation) => cited.has(citation.displayNumber));
+}
 
 /** Structural shape of the legacy `RagHit` (kept decoupled for tests). */
 export interface RagHitLike {

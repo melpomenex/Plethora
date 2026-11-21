@@ -44,6 +44,11 @@ import {
   type ToolDefinitionLike,
 } from "./toolCallParser";
 import type { AskLibraryResult } from "../tasks/definitions/libraryTask";
+import type { Citation } from "./conversations/types";
+import type { PdfPageEvidence } from "../../../utils/pdfAssistantEvidence";
+import { verifiedPdfPageCitations } from "./citations";
+
+const PDF_PAGE_EVIDENCE_INSTRUCTION = "Use only the supplied numbered physical PDF page excerpts for claims about the requested pages. Cite their assigned numbers as [N] markers. A truncated excerpt covers only the provided text. Do not infer other pages or sources from the conversation.";
 
 export interface AssistantTurnRequest {
   action?: ActionEnvelope;
@@ -65,6 +70,7 @@ export interface AssistantTurnRequest {
   previousSourceId?: string;
   previousSourceTitle?: string;
   sourceContent?: string | Uint8Array;
+  pdfPageEvidence?: PdfPageEvidence;
   /**
    * The caller already resolved `sourceContent` (for example, a clicked
    * Assistant answer used as formulation material). It is not a video
@@ -148,6 +154,7 @@ export interface AssistantTurnResult {
   rawContent: string;
   toolCalls: ParsedToolCall[];
   citations?: AskLibraryResult["sources"];
+  pdfPageCitations?: Citation[];
   retrievalOnly?: boolean;
   evidenceLevel?: "supported" | "weak" | "none" | "conflicting";
   suggestSwitchToChat?: boolean;
@@ -218,6 +225,20 @@ export async function runAssistantTurn(
         ? new TextDecoder().decode(request.sourceContent)
         : "";
   request = { ...request, sourceContent: normalizedSourceContent };
+  const pdfPageEvidence = !request.action && request.scope !== "library" &&
+    request.pdfPageEvidence?.documentId === request.sourceId &&
+    request.pdfPageEvidence?.content === normalizedSourceContent
+    ? request.pdfPageEvidence : undefined;
+  if (pdfPageEvidence) {
+    request = {
+      ...request,
+      selectionExcerpt: undefined,
+      explicitSourceContent: true,
+      sourceCoverage: "window",
+      sourceChunkCount: pdfPageEvidence.excerpts.length,
+      systemInstruction: [request.systemInstruction, PDF_PAGE_EVIDENCE_INSTRUCTION].filter(Boolean).join("\n\n"),
+    };
+  }
   let hasSourceContent = Boolean(
     normalizedSourceContent.trim() || request.selectionExcerpt?.trim(),
   );
@@ -605,6 +626,7 @@ export async function runAssistantTurn(
     rawContent: wantsToolExecution ? llmResponse.content : safeAnswer,
     toolCalls: parsedTools.toolCalls,
     citations: citedSources,
+    pdfPageCitations: pdfPageEvidence && verifiedPdfPageCitations(safeAnswer, pdfPageEvidence),
     evidenceLevel: hasSourceContent ? "supported" : undefined,
     suggestSwitchToChat: false,
     rollingSummaryText: assembled.rollingSummaryText,

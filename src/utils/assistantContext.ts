@@ -1,4 +1,7 @@
 import type { Document } from "../types/document";
+import { isReaderRelativeRequest } from "../lib/ai/assistant/documentIntent";
+import { parsePdfPageRequest, resolvePdfPageEvidence, usablePdfPageText, type PdfPageEvidence, type PdfPageSource } from "./pdfAssistantEvidence";
+import { trimToTokenWindow } from "./tokenizer";
 
 export type AssistantContextStatus = "ready" | "loading" | "unavailable";
 
@@ -23,6 +26,23 @@ export interface ResolvedAssistantContext {
    * present a window as the whole source.
    */
   coverage?: "full" | "window" | "chunks";
+  pageScoped?: boolean;
+  pdfPagesRequested?: boolean;
+  pdfPageEvidence?: PdfPageEvidence;
+}
+
+export interface PdfTextWindow {
+  documentId: string;
+  activePage: number;
+  activePageText?: string;
+  source?: PdfPageSource;
+}
+
+export interface ResolveAssistantPromptOptions {
+  documentId?: string;
+  sourceTokenBudget?: number;
+  signal?: AbortSignal;
+  usesLibraryScope?: boolean;
 }
 
 interface ResolvePdfAssistantContextParams {
@@ -34,6 +54,8 @@ interface ResolvePdfAssistantContextParams {
   pageNumber?: number;
   contextPageWindow?: number;
   preferOcr?: boolean;
+  requireCurrentPage?: boolean;
+  liveWindow?: PdfTextWindow;
   extractedTextLoader?: () => Promise<string | undefined>;
 }
 
@@ -93,7 +115,7 @@ function buildPdfContextContent(params: {
     const start = Math.max(1, params.pageNumber - pageWindow);
     const end = params.pageNumber + pageWindow;
     lines.push(`Active page: ${params.pageNumber}`);
-    lines.push(`Nearby page window: ${start}-${end}`);
+    if (pageWindow > 0) lines.push(`Nearby page window: ${start}-${end}`);
   }
 
   lines.push(`Context source: ${params.source}`);
@@ -125,10 +147,88 @@ export function getAssistantContextErrorMessage(reason?: string): string {
   }
 }
 
+function resolveCurrentPdfPage(
+  params: ResolvePdfAssistantContextParams,
+  selection: string,
+): ResolvedAssistantContext {
+  const page = params.liveWindow?.activePage;
+  const currentWindow = params.liveWindow?.documentId === params.document?.id
+    && (params.pageNumber === undefined || page === params.pageNumber);
+  const pageText = currentWindow ? usablePdfPageText(params.liveWindow?.activePageText) : "";
+  if (!pageText && !selection) {
+    return {
+      status: "unavailable",
+      source: "none",
+      pageScoped: true,
+      message: "Text from the current PDF page is unavailable. Select a passage or recognize the page with OCR and try again.",
+    };
+  }
+  const source = pageText ? "pdf-window" : "selection";
+  return {
+    status: "ready",
+    source,
+    coverage: "window",
+    pageScoped: true,
+    content: buildPdfContextContent({
+      title: params.document?.title,
+      pageNumber: currentWindow ? page : params.pageNumber,
+      contextPageWindow: 0,
+      selection,
+      body: pageText || selection,
+      source,
+    }),
+  };
+}
+
+export async function resolvePdfContextForPrompt(
+  prompt: string,
+  params: ResolvePdfAssistantContextParams,
+  maxTokens: number,
+  model?: string,
+  options?: ResolveAssistantPromptOptions,
+): Promise<ResolvedAssistantContext> {
+  if (options?.documentId && options.documentId !== params.document?.id) {
+    return { status: "unavailable", source: "none", pageScoped: true, message: "The active PDF changed before this request could be prepared." };
+  }
+  const requested = !options?.usesLibraryScope ? parsePdfPageRequest(prompt) : undefined;
+  if (requested) {
+    if (/\b(?:another|other|second|both|two)\s+(?:pdfs?|documents?)\b/iu.test(prompt)) {
+      return { status: "unavailable", source: "none", pageScoped: true, pdfPagesRequested: true, message: "This reader has physical page evidence for its active PDF. Include both PDFs in a source-scoped workspace for a cross-document comparison." };
+    }
+    const result = "message" in requested ? requested : await resolvePdfPageEvidence({
+      source: params.liveWindow?.source,
+      documentId: params.document?.id,
+      title: params.document?.title,
+      pages: requested.pages,
+      tokenBudget: Math.min(maxTokens, options?.sourceTokenBudget ?? maxTokens),
+      model,
+      signal: options?.signal,
+    });
+    if ("message" in result) {
+      return { status: "unavailable", source: "none", pageScoped: true, pdfPagesRequested: true, message: result.message };
+    }
+    return {
+      status: "ready",
+      source: "pdf-window",
+      content: result.evidence.content,
+      coverage: "window",
+      pageScoped: true,
+      pdfPagesRequested: true,
+      pdfPageEvidence: result.evidence,
+    };
+  }
+
+  const resolution = await resolvePdfAssistantContext({ ...params, requireCurrentPage: isReaderRelativeRequest(prompt) });
+  return resolution.status === "ready" && resolution.content
+    ? { ...resolution, content: await trimToTokenWindow(resolution.content, maxTokens, model, params.selection) }
+    : resolution;
+}
+
 export async function resolvePdfAssistantContext(
   params: ResolvePdfAssistantContextParams
 ): Promise<ResolvedAssistantContext> {
   const selection = normalizeWhitespace(params.selection);
+  if (params.requireCurrentPage) return resolveCurrentPdfPage(params, selection);
   const liveWindowText = normalizeWhitespace(params.liveWindowText);
   const ocrText = normalizeWhitespace(params.ocrText);
   let storedDocumentText = stripHtml(params.storedDocumentText);
@@ -161,7 +261,8 @@ export async function resolvePdfAssistantContext(
     }
   }
 
-  if (!hasUsableContextText(body) && !selection) {
+  const usableBody = hasUsableContextText(body);
+  if (!usableBody && !selection) {
     return {
       status: "unavailable",
       source: "none",
@@ -169,19 +270,21 @@ export async function resolvePdfAssistantContext(
     };
   }
 
+  const resolvedSource = usableBody ? source : "selection";
   const content = buildPdfContextContent({
     title: params.document?.title,
-    pageNumber: params.pageNumber,
+    pageNumber: resolvedSource === "pdf-window" ? params.pageNumber : undefined,
     contextPageWindow: params.contextPageWindow,
     selection,
-    body: body || selection,
-    source: selection && !body ? "selection" : source,
+    body: usableBody ? body : selection,
+    source: resolvedSource,
   });
 
   return {
     status: "ready",
     content,
-    source: selection && !body ? "selection" : source,
+    source: resolvedSource,
+    coverage: "window",
   };
 }
 

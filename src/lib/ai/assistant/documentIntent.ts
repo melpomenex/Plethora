@@ -53,3 +53,15 @@ export function isWholeDocumentRequest(question: string): boolean {
   if (!text) return false;
   return WHOLE_DOCUMENT_PATTERNS.some((pattern) => pattern.test(text));
 }
+
+const READER_RELATIVE_PATTERNS = [
+  /\b(?:this|current)\s+(?:page|section|paragraph|passage|chapter|equation|figure|table|selection)\b/i,
+  /\b(?:dies(?:e[rmns]?)?|aktuell\w*)\s+(?:Abschnitt|Absatz|Seite|Kapitel)\b/i,
+  /\b(?:esta|este|actual)\s+(?:secci[oó]n|p[aá]gina|pasaje|p[aá]rrafo|cap[ií]tulo)\b/i,
+  /\b(?:ce|cette)\s+(?:page|section|paragraphe|passage|chapitre)\b/i,
+  /(?:この|現在の)(?:ページ|節|段落|章)|(?:这|這|当前|當前)(?:一?页|一?頁|一?节|一?節|一?段|一?章)/,
+];
+
+export function isReaderRelativeRequest(question: string): boolean {
+  return READER_RELATIVE_PATTERNS.some((pattern) => pattern.test(question));
+}
