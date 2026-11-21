@@ -405,8 +405,9 @@ export async function streamChatWithLLM(
       throw Object.assign(new Error("Cloud stream was cancelled."), { code: "cancelled" });
     }
     if (!terminal) {
+      flushPending();
       terminal = true;
-      options.onDone?.();
+      options.onDone?.({ responseKind: inferStreamResponseKind(receivedText) });
     }
     if (terminalError) throw terminalError;
   } catch (error) {

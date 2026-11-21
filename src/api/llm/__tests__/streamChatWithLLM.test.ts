@@ -99,6 +99,22 @@ describe("streamChatWithLLM native event ownership", () => {
     expect(onError).toHaveBeenCalledWith("provider failed", undefined);
   });
 
+  it("delivers the final queued chunk when native completion arrives without a done event", async () => {
+    harness.invoke.mockImplementation(async (command: string, args: { requestId: string }) => {
+      if (command === "llm_stream_chat") {
+        emit("llm:stream:chunk", { requestId: args.requestId, content: "The entire reply" });
+      }
+    });
+    const events: string[] = [];
+    await streamChatWithLLM({ provider: "openrouter", messages: [] }, {
+      onChunk: (chunk) => events.push(chunk),
+      onDone: (completion) => events.push(completion?.responseKind ?? "missing"),
+    });
+
+    expect(events).toEqual(["The entire reply", "final-text"]);
+    expect(frames.size).toBe(0);
+  });
+
   it("drops a pending render batch when the request is cancelled", async () => {
     let finishStream!: () => void;
     harness.invoke.mockImplementation(async (command: string, args: { requestId?: string }) => {
