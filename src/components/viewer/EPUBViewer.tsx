@@ -661,6 +661,7 @@ interface EPUBViewerProps {
   onBack?: () => void;
   readingToolbarAction?: ReactNode;
   autoFocusContent?: boolean;
+  isReaderActive?: boolean;
   embedded?: boolean;
   onVimRuntimeChange?: (runtime: EpubVimRuntime | null) => void;
   /**
@@ -733,6 +734,7 @@ export function EPUBViewer({
   onBack,
   readingToolbarAction,
   autoFocusContent = true,
+  isReaderActive = true,
   embedded = false,
   onVimRuntimeChange,
   selectionInteractionBridge,
@@ -767,7 +769,7 @@ export function EPUBViewer({
   const [containerHasSize, setContainerHasSize] = useState(false);
 
   useEffect(() => {
-    if (!embedded) return;
+    if (!embedded || !isReaderActive) return;
     const openToc = () => setShowTocDrawer(true);
     const openSettings = () => setShowSettingsSheet(true);
     window.addEventListener("plethora-epub-open-toc", openToc);
@@ -776,7 +778,7 @@ export function EPUBViewer({
       window.removeEventListener("plethora-epub-open-toc", openToc);
       window.removeEventListener("plethora-epub-open-settings", openSettings);
     };
-  }, [embedded]);
+  }, [embedded, isReaderActive]);
 
   // ResizeObserver to track container visibility/dimensions
   useEffect(() => {
@@ -796,6 +798,7 @@ export function EPUBViewer({
   }, []);
 
   useEffect(() => {
+    if (!isReaderActive) return;
     const handleOpenToc = () => {
       setShowTocDrawer(true);
     };
@@ -810,7 +813,7 @@ export function EPUBViewer({
       window.removeEventListener("open-epub-toc", handleOpenToc);
       window.removeEventListener("open-epub-settings", handleOpenSettings);
     };
-  }, []);
+  }, [isReaderActive]);
   const [progressPercent, setProgressPercent] = useState(0);
   const [currentChapter, setCurrentChapter] = useState("");
   const selectionActiveRef = useRef(false);
@@ -3275,7 +3278,7 @@ export function EPUBViewer({
   };
 
   useEffect(() => {
-    if (!embedded) return;
+    if (!embedded || !isReaderActive) return;
     const previousPage = () => handlePrevPage();
     const nextPage = () => handleNextPage();
     window.addEventListener("plethora-epub-previous-page", previousPage);
@@ -3284,7 +3287,7 @@ export function EPUBViewer({
       window.removeEventListener("plethora-epub-previous-page", previousPage);
       window.removeEventListener("plethora-epub-next-page", nextPage);
     };
-  }, [embedded, rendition, metadata]);
+  }, [embedded, rendition, metadata, isReaderActive]);
 
   // Watch for TTS chapter advance signal
   const chapterSignalRef = useRef(advanceChapterSignal);
@@ -3746,6 +3749,7 @@ export function EPUBViewer({
   handleNextPageRef.current = handleNextPage;
 
   useEffect(() => {
+    if (!isReaderActive) return;
     if (isMobile && (!settings.interface.volumeRockerScroll || settings.interface.volumeRockerScroll === "none")) {
       return;
     }
@@ -3783,7 +3787,7 @@ export function EPUBViewer({
         viewerElement.removeEventListener("wheel", handleWheel);
       }
     };
-  }, [handleEPUBKeyDown, decreaseFontSize, increaseFontSize, isMobile, settings.interface.volumeRockerScroll]);
+  }, [handleEPUBKeyDown, decreaseFontSize, increaseFontSize, isMobile, isReaderActive, settings.interface.volumeRockerScroll]);
 
   const handleReaderTap = (event: MouseEvent<HTMLDivElement>) => {
     if (!isMobile) return;

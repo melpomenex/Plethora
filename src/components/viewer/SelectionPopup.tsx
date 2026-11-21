@@ -12,6 +12,7 @@
 import React, { useEffect, useState, useCallback, useRef } from "react";
 import { ChatDots, Copy, Highlighter } from "@phosphor-icons/react";
 import { useI18n } from "../../lib/i18n";
+import { shouldDismissViewerSelectionForMouseEvent } from "./documentSelectionBoundary";
 import { placeAnchoredBar, readSafeInsets } from "./selectionInteraction/geometry";
 
 export type HighlightColor = "yellow" | "green" | "blue" | "pink" | "purple";
@@ -165,6 +166,7 @@ export const SelectionPopup: React.FC<SelectionPopupProps> = ({
     if (!visible) return;
 
     const handleClickOutside = (e: MouseEvent) => {
+      if (!shouldDismissViewerSelectionForMouseEvent(e)) return;
       if (popupRef.current && e.target instanceof Node && !popupRef.current.contains(e.target)) {
         onDismiss?.();
       }

@@ -1,5 +1,6 @@
 import { usePaletteActionListener } from "../../commandPalette/paletteActionEvents";
 import { renderedAnnotationTargetsAtPoint, type ReaderContextMenuPayload } from "./annotationContextMenu";
+import { shouldDismissViewerSelectionForMouseEvent } from "./documentSelectionBoundary";
 import { ReaderNavigationOwner, observeReaderInput, announceReaderNavigation } from "../../lib/readerNavigation";
 import { canElementScrollHorizontally, createHorizontalWheelPageTurner } from "../../lib/horizontalWheelNavigation";
 import { pdfDestinationPoint, pdfDestinationScale, pdfReflowDestinationBlock } from "./pdfTocDestination";
@@ -492,6 +493,7 @@ interface PDFViewerProps {
   /** While true the floating selection popup stays hidden — the host's context
    *  menu supersedes it, and the popup returns when this flips back false. */
   selectionPopupSuppressed?: boolean;
+  isReaderActive?: boolean;
   /**
    * Selection-interaction invalidation port (V2, overhaul-reader-selection-ux):
    * fired when reflow relayout (typography slider changes), reflow
@@ -564,6 +566,7 @@ export function PDFViewer({
   onVimRuntimeChange,
   onContextMenu,
   selectionPopupSuppressed = false,
+  isReaderActive = true,
   onSelectionContextInvalidated,
 }: PDFViewerProps) {
   const { t } = useI18n();
@@ -580,7 +583,11 @@ export function PDFViewer({
   const [pdfSourceIdentity, setPdfSourceIdentity] = useState<{ identity: string; fingerprint: string } | null>(null);
   const [reflowDocument, setReflowDocument] = useState<PdfReflowDocument | null>(null);
   const [mobilePdfMode, setMobilePdfMode] = useState<"fixed" | "reflow">("fixed");
-  usePaletteActionListener("document-viewer", { "doc.toggleReflow": () => setMobilePdfMode((mode) => mode === "reflow" ? "fixed" : "reflow") });
+  usePaletteActionListener(
+    "document-viewer",
+    { "doc.toggleReflow": () => setMobilePdfMode((mode) => mode === "reflow" ? "fixed" : "reflow") },
+    { isActive: isReaderActive ? undefined : false },
+  );
   // V2: fixed ↔ reflow switches invalidate selection geometry (the reflowed
   // representation and the fixed text layer are different DOM).
   const lastMobilePdfModeRef = useRef<"fixed" | "reflow">("fixed");
@@ -2829,7 +2836,7 @@ export function PDFViewer({
   // Selection persistence (SumatraPDF-style geometric character selection +
   // committed overlay, with native DOM fallback for touch/unindexed pages).
   useEffect(() => {
-    if (!onSelectionChange) return;
+    if (!onSelectionChange || !isReaderActive) return;
 
     // Resolve a client point (clientX, clientY) to a caret position on the
     // nearest rendered PDF page that has a built character layout.
@@ -3071,7 +3078,7 @@ export function PDFViewer({
       // Only the primary button finalizes selections. A right-click's mouseup
       // must not re-commit (and re-surface the popup) while the context menu
       // handles the gesture.
-      if (e.button !== 0) return;
+      if (e.button !== 0 || e.ctrlKey) return;
 
       const drag = geomDragRef.current;
       if (drag) {
@@ -3091,9 +3098,10 @@ export function PDFViewer({
       // selection — so never run the empty-selection clear path for it.
       const releasedOnPopup =
         e.target instanceof Node && selectionPopupHostRef.current?.contains(e.target) === true;
+      if (releasedOnPopup || !shouldDismissViewerSelectionForMouseEvent(e)) return;
       setTimeout(() => {
         void commitSelection().then((committed) => {
-          if (!releasedOnPopup && !committed && lastSelectionWasPdfRef.current) {
+          if (!committed && lastSelectionWasPdfRef.current) {
             // mouseup landed on an empty/non-PDF selection — drop the old one.
             clearPersistedSelection("outside-page-click");
           }
@@ -3102,10 +3110,7 @@ export function PDFViewer({
     };
 
     const handleMouseDown = (e: MouseEvent) => {
-      // Right-click must not clear the committed selection: the contextmenu
-      // handler below needs it, and macOS/Windows fire mousedown(2) before
-      // contextmenu.
-      if (e.button !== 0) return;
+      if (!shouldDismissViewerSelectionForMouseEvent(e)) return;
       const target = e.target as Node;
       if (!(target instanceof Node)) return;
       if (selectionPopupHostRef.current?.contains(target)) return;
@@ -3218,7 +3223,7 @@ export function PDFViewer({
       document.removeEventListener("copy", handleCopy);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [onSelectionChange, buildPdfSelectionContext, clearPersistedSelection, documentId, pdf, shouldRunCanonicalAnalysis]);
+  }, [onSelectionChange, buildPdfSelectionContext, clearPersistedSelection, documentId, isReaderActive, pdf, shouldRunCanonicalAnalysis]);
 
   // Right-click on a committed selection surfaces the host's shared
   // text-selection context menu (same contract as EPUBViewer). The PDF text
@@ -3226,7 +3231,7 @@ export function PDFViewer({
   // already in the coordinate space the menu positions itself in. Without a
   // valid selection the platform's default menu passes through untouched.
   useEffect(() => {
-    if (!onContextMenu) return;
+    if (!onContextMenu || !isReaderActive) return;
 
     const handleContextMenu = (e: MouseEvent) => {
       // Android synthesizes contextmenu on long-press text selection; with the
@@ -3279,7 +3284,7 @@ export function PDFViewer({
 
     document.addEventListener("contextmenu", handleContextMenu, { capture: true });
     return () => document.removeEventListener("contextmenu", handleContextMenu, { capture: true });
-  }, [onContextMenu, mobilePdfMode, buildReflowSelectionContext, buildPdfSelectionContext]);
+  }, [onContextMenu, isReaderActive, mobilePdfMode, buildReflowSelectionContext, buildPdfSelectionContext]);
 
   // A new document (or a fresh pdf.js proxy) invalidates the persisted
   // selection's geometry and page context — clear it. `clearPersistedSelection`
@@ -4013,8 +4018,7 @@ export function PDFViewer({
   }, [hideSelectionPopup]);
 
   const handleMouseDown = (e: React.MouseEvent) => {
-    // Right-click belongs to the context menu — never start a drag-pan with it.
-    if (e.button === 2) return;
+    if (e.button === 2 || e.ctrlKey) return;
     // Only enable drag when:
     // 1. Zoomed in significantly (scale > 1.2) or in custom zoom mode
     // 2. Not clicking on the text layer (to allow text selection)

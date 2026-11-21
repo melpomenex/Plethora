@@ -9,7 +9,7 @@ import { textAnnotationTargetsAtPoint, type ReaderContextMenuPayload, type Persi
 import {
   isDesktopSelectionInViewerContent,
   isMobileSelectionInViewerContent,
-  shouldDismissViewerSelectionOnMouseDown,
+  shouldDismissViewerSelectionForMouseEvent,
 } from "./documentSelectionBoundary";
 import { AnnotationRemovalMenu } from "./AnnotationRemovalMenu";
 import { emitUserInteraction, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
@@ -800,12 +800,21 @@ export function DocumentViewer({
   const [mediaError, setMediaError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [, setPagesRendered] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>(initialViewMode ?? "document");
+  const [viewMode, setViewMode] = useState<ViewMode>(focusedExtractId ? "extracts" : initialViewMode ?? "document");
+  const [displayedDocumentId, setDisplayedDocumentId] = useState<string | null>(null);
+  const isDocumentView = viewMode === "document";
+  useEffect(() => {
+    if (isDocumentView && documentId) setDisplayedDocumentId(documentId);
+  }, [documentId, isDocumentView]);
   const [isPaletteMode, setIsPaletteMode] = useState(false);
   const [isExtractMode, setIsExtractMode] = useState(false);
   const [videoContext, setVideoContext] = useState<VideoViewerContext | null>(null);
   const readingSessionStartRef = useRef(Date.now());
   const containerRef = useRef<HTMLDivElement>(null);
+  const getDocumentScrollContainer = useCallback(
+    () => containerRef.current?.querySelector<HTMLDivElement>("div[data-document-scroll-container]") ?? null,
+    [],
+  );
 
   // Clear transient video context when switching documents.
   useEffect(() => {
@@ -1293,9 +1302,9 @@ export function DocumentViewer({
   // Set highlight container ref based on doc type
   useEffect(() => {
     if (docType === "markdown" || docType === "html") {
-      highlightContainerRef.current = document.querySelector("[data-document-scroll-container]");
+      highlightContainerRef.current = getDocumentScrollContainer();
     } else {
-      highlightContainerRef.current = document.querySelector(".viewer-content-area") as HTMLDivElement | null;
+      highlightContainerRef.current = containerRef.current?.querySelector<HTMLDivElement>(".viewer-content-area") ?? null;
     }
   }, [docType]);
 
@@ -1442,7 +1451,7 @@ export function DocumentViewer({
     // Scroll percent will be handled by the restoration logic
     if (state.scrollPercent !== undefined) {
       // Trigger a restore with the scroll percent
-      const container = document.querySelector("[data-document-scroll-container]") as HTMLElement | null;
+      const container = getDocumentScrollContainer();
       if (container) {
         const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
         container.scrollTop = (state.scrollPercent / 100) * maxScroll;
@@ -2362,9 +2371,7 @@ export function DocumentViewer({
   }, [pageNumber, scale]);
 
   const captureScrollState = useCallback(() => {
-    const container = document.querySelector(
-      "[data-document-scroll-container]"
-    ) as HTMLElement | null;
+    const container = getDocumentScrollContainer();
     if (container) {
       const scrollTop = container.scrollTop;
       const scrollLeft = container.scrollLeft;
@@ -3213,12 +3220,12 @@ export function DocumentViewer({
     return selectedText;
   }, [epubIframeWindow]);
 
-  // Build context menu items for text selection in non-PDF viewers.
+  // Build context menu items for text selection across readers.
   // The item set/order/gating derives from the shared selection-action
   // registry (change: hyperlink-selection-context-actions, design D1);
   // MENU_ITEM_BUILDERS is this host's one handler route per action id.
   const buildContextMenuItems = useCallback((selectedText: string, contextOverride?: SelectionContext | null): ContextMenuItem[] => {
-    const effectiveContext = selectionContext ?? contextOverride;
+    const effectiveContext = contextOverride ?? selectionContext;
 
     const runAiAction = (action: SelectionAiAction) => {
       recordSelectionActionInvocation(action);
@@ -3291,6 +3298,7 @@ export function DocumentViewer({
           recordSelectionActionInvocation("extractDialog");
           setSelectedText(selectedText);
           lastSelectionRef.current = selectedText;
+          setSelectionContext(effectiveContext ?? null);
           setIsExtractDialogOpen(true);
         },
       }),
@@ -3774,7 +3782,7 @@ export function DocumentViewer({
     return () => {
       cancelled = true;
       // Capture and save scroll position on document switch or unmount
-      const container = document.querySelector("[data-document-scroll-container]") as HTMLElement | null;
+      const container = getDocumentScrollContainer();
       let state = lastScrollStateRef.current;
       if (container) {
         const scrollTop = container.scrollTop;
@@ -4010,6 +4018,7 @@ export function DocumentViewer({
   const prevViewModeRef = useRef<ViewMode | null>(null);
   useEffect(() => {
     if (prevViewModeRef.current === "document" && viewMode !== "document") {
+      setContextMenuState(null);
       // Flush any pending HTML iframe scroll capture
       if (htmlScrollTimeoutRef.current !== null) {
         clearTimeout(htmlScrollTimeoutRef.current);
@@ -4526,7 +4535,7 @@ export function DocumentViewer({
       let stateToSave = lastScrollStateRef.current;
       
       // Try reading from DOM first - the scroll container might still be available
-      const container = document.querySelector("[data-document-scroll-container]") as HTMLElement | null;
+      const container = getDocumentScrollContainer();
       if (container) {
         const scrollTop = container.scrollTop;
         const scrollLeft = container.scrollLeft;
@@ -4861,8 +4870,9 @@ export function DocumentViewer({
   // Escape handler at all. Now: any click that isn't on the button itself, a
   // dialog, or a context menu dismisses the selection; Escape dismisses it too.
   useEffect(() => {
+    if (!isDocumentView || !isTabActive) return;
     const handleClickOutside = (e: MouseEvent) => {
-      if (!shouldDismissViewerSelectionOnMouseDown(e.target)) {
+      if (!shouldDismissViewerSelectionForMouseEvent(e)) {
         return;
       }
       if (activeExtractSelection) {
@@ -4882,7 +4892,7 @@ export function DocumentViewer({
       document.removeEventListener("mousedown", handleClickOutside);
       document.removeEventListener("keydown", handleEscape);
     };
-  }, [activeExtractSelection, clearTextSelection]);
+  }, [activeExtractSelection, clearTextSelection, isDocumentView, isTabActive]);
 
   useEffect(() => {
     onSelectionChange?.(selectedText);
@@ -4916,7 +4926,7 @@ export function DocumentViewer({
   }, []);
 
   const scrollDocumentContainer = useCallback((direction: "up" | "down") => {
-    const container = document.querySelector("[data-document-scroll-container]") as HTMLElement | null;
+    const container = getDocumentScrollContainer();
     if (container) {
       const step = 120;
       container.scrollBy({ top: direction === "down" ? step : -step, behavior: "smooth" });
@@ -4940,7 +4950,7 @@ export function DocumentViewer({
       if (!isFocusedInViewer) return;
 
       // Volume rocker scrolling/paging
-      if (handleVolumeRockerNavigation(
+      if (isDocumentView && handleVolumeRockerNavigation(
         e,
         settings.interface.volumeRockerScroll || "none",
         {
@@ -5065,24 +5075,18 @@ export function DocumentViewer({
       }
 
       // J / K smooth scrolling (only when no modifier keys are held)
-      if (!e.ctrlKey && !e.metaKey && !e.altKey && lowerKey === "j") {
+      if (isDocumentView && !mod && !e.altKey && (lowerKey === "j" || lowerKey === "k")) {
         e.preventDefault();
+        const direction = lowerKey === "j" ? "down" : "up";
         if (docType === "html") {
-          scrollHtmlIframe("down");
+          scrollHtmlIframe(direction);
         } else if (docType === "markdown") {
-          scrollDocumentContainer("down");
-        }
-      } else if (!e.ctrlKey && !e.metaKey && !e.altKey && lowerKey === "k") {
-        e.preventDefault();
-        if (docType === "html") {
-          scrollHtmlIframe("up");
-        } else if (docType === "markdown") {
-          scrollDocumentContainer("up");
+          scrollDocumentContainer(direction);
         }
       }
 
       // Arrow keys for navigation when in document mode
-      if (viewMode === "document") {
+      if (isDocumentView) {
         if (e.key === "ArrowLeft" || e.key === "ArrowUp") {
           handlePrevPage();
         } else if (e.key === "ArrowRight" || e.key === "ArrowDown") {
@@ -5112,7 +5116,7 @@ export function DocumentViewer({
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- keyboard handler captures many stable callbacks; exhaustive deps would cause excessive re-registration
-  }, [activeExtractSelection, closeViewerSearch, isExtractDialogOpen, isFullscreen, showSearch, viewerSearchSupported, viewMode, docType, hasDocumentHistory, queueNav.totalDocuments, scrollHtmlIframe, scrollDocumentContainer, settings.interface.volumeRockerScroll, onPriorityShortcut]);
+  }, [activeExtractSelection, closeViewerSearch, isDocumentView, isExtractDialogOpen, isFullscreen, showSearch, viewerSearchSupported, viewMode, docType, hasDocumentHistory, queueNav.totalDocuments, scrollHtmlIframe, scrollDocumentContainer, settings.interface.volumeRockerScroll, onPriorityShortcut]);
 
   const handlePrevPage = () => {
     if (currentDocument && currentDocument.totalPages) {
@@ -5327,7 +5331,7 @@ export function DocumentViewer({
         // Topmost mounted section with a visible word; multi-iframe continuous
         // manager safe (document order = spine order; first hit wins).
         const container: ParentNode | null =
-          document.querySelector("[data-epub-viewer]") ?? highlightContainerRef?.current ?? null;
+          containerRef.current?.querySelector("[data-epub-viewer]") ?? highlightContainerRef.current;
         const iframes = container ? Array.from(container.querySelectorAll("iframe")) : [];
         for (const iframe of iframes) {
           const body = iframe.contentDocument?.body ?? null;
@@ -5355,7 +5359,7 @@ export function DocumentViewer({
       }
 
       if (docType === "markdown") {
-        const root = document.querySelector("[data-document-scroll-container]");
+        const root = getDocumentScrollContainer();
         if (!root) return null;
         const rect = root.getBoundingClientRect();
         const word = findFirstVisibleWord(root, {
@@ -5390,7 +5394,7 @@ export function DocumentViewer({
     if (docType !== "epub") return;
     const timer = setTimeout(() => {
       const container: ParentNode | null =
-        document.querySelector("[data-epub-viewer]") ?? highlightContainerRef?.current ?? null;
+        containerRef.current?.querySelector("[data-epub-viewer]") ?? highlightContainerRef.current;
       const iframes = container ? Array.from(container.querySelectorAll("iframe")) : [];
       const map = new Map<string, HTMLElement>();
       for (const iframe of iframes) {
@@ -5478,7 +5482,7 @@ export function DocumentViewer({
       // Speech text comes from the rendered DOM so selection offsets (flattened
       // text of the scroll container) and speech offsets share coordinates.
       const timer = setTimeout(() => {
-        const root = document.querySelector("[data-document-scroll-container]");
+        const root = getDocumentScrollContainer();
         const domSections = extractSpeechSectionsFromDOM(root as Element | null, { key: "markdown" });
         if (domSections.length > 0) {
           setSpeechSections(
@@ -7435,6 +7439,10 @@ export function DocumentViewer({
   // the document identity is known, don't let DocumentViewer's hydration gate
   // hide that player behind a permanent "Loading document..." state.
   const canRenderAudioViewer = renderEditionPlayer;
+  const isTextReader = docType === "pdf" || docType === "epub" || docType === "markdown" || docType === "html";
+  const retainDocumentView = displayedDocumentId === currentDocument.id &&
+    isTextReader && !renderEditionPlayer && !recordingSession;
+  const isReaderActive = isDocumentView && isTabActive;
   const studyTrailControls = !embedded && isTabActive && tabId && hasStudyTrailControls
     ? <StudyTrailControls tabId={tabId} />
     : null;
@@ -8292,10 +8300,14 @@ export function DocumentViewer({
 
       {/* Content Area */}
       <div className="flex-1 min-h-0 flex relative">
-      <div 
+      <div className="relative flex min-w-0 flex-1">
+      {/* Keep the reader laid out so PDF offsets and EPUB pagination survive the switch. */}
+      <div
         data-document-content="true"
+        inert={!isDocumentView}
         className={cn(
           "flex-1 bg-muted/30 relative min-h-0",
+          !isDocumentView && "invisible",
           isExtractMode && viewMode === "document" && "cursor-crosshair",
           // Avoid nested scrolling when a child viewer owns its own internal scroll
           // containers.  PDFs restore against their own scroll element; YouTube has
@@ -8303,8 +8315,7 @@ export function DocumentViewer({
           // container — nested overflow-auto on the parent breaks text selection on
           // Windows (WebView2) because the parent scroll handler captures the
           // mouse-drag selection gesture.
-          viewMode === "document"
-          && (
+          (
             (docType === "pdf" && !(pdfViewMode === "ocr-html" && ocrResult))
             || docType === "youtube"
             || docType === "markdown"
@@ -8357,22 +8368,7 @@ export function DocumentViewer({
             </button>
           </div>
         )}
-        {viewMode === "extracts" ? (
-          <div {...tourAnchor("readerExtractsPanel")} className="p-6 bg-background h-full overflow-auto">
-            <ExtractsList
-              documentId={currentDocument.id}
-              documentTitle={currentDocument.title}
-              focusedExtractId={focusedExtractId}
-              sourceContext={extractSourceContext}
-              onBackToSource={extractSourceContext ? () => setViewMode("document") : undefined}
-              onResumeQueue={extractSourceContext?.queueType === "queue-scroll" && queueScrollTab ? resumeQueueFromExtract : undefined}
-            />
-          </div>
-        ) : viewMode === "cards" ? (
-          <div className="p-6 bg-background h-full overflow-auto">
-            <LearningCardsList documentId={currentDocument.id} />
-          </div>
-        ) : isPaletteMode && canUseEditPalette ? (
+        {(isDocumentView || retainDocumentView) && (isPaletteMode && canUseEditPalette ? (
           <EditableContentPalette
             title={currentDocument.title}
             badge={docType === "epub" ? "EPUB Palette" : docType === "html" ? "Document Palette" : "Markdown Palette"}
@@ -8528,7 +8524,8 @@ export function DocumentViewer({
                 : undefined
             }
             onContextMenu={handleReaderContextMenu}
-            selectionPopupSuppressed={Boolean(contextMenuState?.visible)}
+            selectionPopupSuppressed={!isReaderActive || Boolean(contextMenuState?.visible)}
+            isReaderActive={isReaderActive}
             pageNumber={pageNumber}
             scale={scale}
             zoomMode={zoomMode}
@@ -8609,7 +8606,8 @@ export function DocumentViewer({
             doc={currentDocument}
             onBack={handleBack}
             readingToolbarAction={isMobileTouch && !isFullscreen ? studyTrailControls : null}
-            autoFocusContent={!studyRequest}
+            autoFocusContent={isReaderActive && !studyRequest}
+            isReaderActive={isReaderActive}
             embedded={embedded}
             onLoad={(toc) => handleDocumentLoad(0, toc)}
             onSelectionChange={updateSelection}
@@ -9263,7 +9261,7 @@ export function DocumentViewer({
               )}
             </div>
           </div>
-        )}
+        ))}
 
         {/* Orb Rating Buttons - right side of viewer */}
         {!shouldHideRatingOrbs && viewMode === "document" && docType !== "pdf" && docType !== "youtube" && docType !== "audio" && isDocumentInQueue && (
@@ -9324,7 +9322,7 @@ export function DocumentViewer({
         )}
 
         {/* Document Minimap - VS Code style */}
-        {viewMode === "document" && (docType === "pdf" || docType === "epub" || docType === "markdown" || docType === "html") && (
+        {isDocumentView && isTextReader && (
           <div className="absolute right-2 top-1/2 -translate-y-1/2 z-30 opacity-50 hover:opacity-100 transition-opacity">
             <DocumentMinimap
               segments={minimapSegments}
@@ -9344,7 +9342,7 @@ export function DocumentViewer({
                   return;
                 }
 
-                const container = document.querySelector("[data-document-scroll-container]") as HTMLElement | null;
+                const container = getDocumentScrollContainer();
                 if (container) {
                   const targetScroll = position * Math.max(0, container.scrollHeight - container.clientHeight);
                   container.scrollTo({ top: targetScroll, behavior: "smooth" });
@@ -9354,7 +9352,7 @@ export function DocumentViewer({
           </div>
         )}
 
-        {isTabActive && viewMode === "document" && (docType === "pdf" || docType === "epub" || docType === "markdown" || docType === "html") && (
+        {isReaderActive && isTextReader && (
           <ReaderTTSControls
             ref={ttsHandleRef}
             text={readerContextText}
@@ -9393,6 +9391,24 @@ export function DocumentViewer({
             )}
           />
         )}
+      </div>
+      {viewMode === "extracts" && (
+        <div {...tourAnchor("readerExtractsPanel")} className="absolute inset-0 overflow-auto bg-background p-6">
+          <ExtractsList
+            documentId={currentDocument.id}
+            documentTitle={currentDocument.title}
+            focusedExtractId={focusedExtractId}
+            sourceContext={extractSourceContext}
+            onBackToSource={extractSourceContext ? () => setViewMode("document") : undefined}
+            onResumeQueue={extractSourceContext?.queueType === "queue-scroll" && queueScrollTab ? resumeQueueFromExtract : undefined}
+          />
+        </div>
+      )}
+      {viewMode === "cards" && (
+        <div className="absolute inset-0 overflow-auto bg-background p-6">
+          <LearningCardsList documentId={currentDocument.id} />
+        </div>
+      )}
       </div>
       {!embedded && isTabActive && tabId && hasStudyTrailControls && (
         <GuidedReadingPanel
@@ -9536,10 +9552,7 @@ export function DocumentViewer({
         onOverflow={handleSelectionBarOverflow}
         onDismiss={() => selectionController.dismiss({ suppressCurrentText: true })}
         aiAvailable={captureReader?.selection ? true : aiAvailability.available}
-        canReadAloud={
-          viewMode === "document" &&
-          (docType === "pdf" || docType === "epub" || docType === "markdown" || docType === "html")
-        }
+        canReadAloud={isDocumentView && isTextReader}
         onMeasure={selectionController.registerBarSize}
         readerContainerRef={containerRef}
         showLearnThis={Boolean(captureReader?.selection && !captureCardPreview)}
@@ -9790,16 +9803,17 @@ export function DocumentViewer({
       <AnnotationRemovalMenu
         key={documentId}
         documentId={documentId}
-        menu={contextMenuState?.annotations?.length ? contextMenuState : null}
+        menu={isReaderActive && contextMenuState?.annotations?.length ? contextMenuState : null}
         onClose={() => setContextMenuState(null)}
       />
-      {!contextMenuState?.annotations?.length && contextMenuState && contextMenuState.visible && (
+      {isReaderActive && !contextMenuState?.annotations?.length && contextMenuState?.visible && (
         <ContextMenu
           menuId="text-selection-context-menu"
           items={buildContextMenuItems(contextMenuState.selectedText, contextMenuState.selectionContext)}
           visible={contextMenuState.visible}
           position={{ x: contextMenuState.x, y: contextMenuState.y }}
           onClose={() => setContextMenuState(null)}
+          preserveSelection
         />
       )}
 

@@ -76,11 +76,12 @@ export function isMobileSelectionInViewerContent(
 }
 
 /**
- * Returns true when a mousedown outside the floating extract button should
- * clear the active document selection. Interactions with the extract button,
- * dialogs, context menus, or the Assistant panel must NOT clear selection.
+ * Keep selection intact during a context-menu gesture, including Ctrl+click
+ * on macOS, or when interacting with controls that can act on the selection.
  */
-export function shouldDismissViewerSelectionOnMouseDown(target: EventTarget | null): boolean {
+export function shouldDismissViewerSelectionForMouseEvent(event: MouseEvent): boolean {
+  if (event.button !== 0 || event.ctrlKey) return false;
+  const { target } = event;
   if (!(target instanceof Element)) return false;
   return !target.closest(
     "[data-extract-button='true'], [role='dialog'], .context-menu, [data-assistant-panel='true']",

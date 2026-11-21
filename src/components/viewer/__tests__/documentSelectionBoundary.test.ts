@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   isDesktopSelectionInViewerContent,
   isMobileSelectionInViewerContent,
-  shouldDismissViewerSelectionOnMouseDown,
+  shouldDismissViewerSelectionForMouseEvent,
 } from "../documentSelectionBoundary";
 
 function makeDomFixture() {
@@ -78,10 +78,17 @@ describe("documentSelectionBoundary", () => {
   it("does not dismiss viewer selection on mousedown inside the Assistant panel, extract button, dialog, or context menu", () => {
     const { viewerText, assistantText, extractBtn, ctxItem, dialogText } = makeDomFixture();
 
-    expect(shouldDismissViewerSelectionOnMouseDown(assistantText.parentElement)).toBe(false);
-    expect(shouldDismissViewerSelectionOnMouseDown(extractBtn)).toBe(false);
-    expect(shouldDismissViewerSelectionOnMouseDown(ctxItem)).toBe(false);
-    expect(shouldDismissViewerSelectionOnMouseDown(dialogText)).toBe(false);
-    expect(shouldDismissViewerSelectionOnMouseDown(viewerText.parentElement)).toBe(true);
+    function dismisses(target: Node, init?: MouseEventInit) {
+      const event = new MouseEvent("mousedown", init);
+      target.dispatchEvent(event);
+      return shouldDismissViewerSelectionForMouseEvent(event);
+    }
+    expect(dismisses(assistantText.parentElement!)).toBe(false);
+    expect(dismisses(extractBtn)).toBe(false);
+    expect(dismisses(ctxItem)).toBe(false);
+    expect(dismisses(dialogText)).toBe(false);
+    expect(dismisses(viewerText.parentElement!)).toBe(true);
+    expect(dismisses(viewerText.parentElement!, { button: 2 })).toBe(false);
+    expect(dismisses(viewerText.parentElement!, { ctrlKey: true })).toBe(false);
   });
 });

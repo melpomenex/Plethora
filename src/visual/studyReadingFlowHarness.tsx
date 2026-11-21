@@ -104,6 +104,8 @@ function beginAttempt(mode: 'exam' | 'practice'): AttemptDetail {
 
 const trailStorageKey = 'study-reading-flow-fixture';
 const missingDocument = new URLSearchParams(window.location.search).get('missing');
+const readerId = new URLSearchParams(window.location.search).get('reader');
+const Reader = readerId ? (await import('../components/viewer/DocumentViewer')).DocumentViewer : null;
 function readTrail(): StudyReadingTrail {
   return JSON.parse(localStorage.getItem(trailStorageKey) ?? 'null') ?? {
     planId: 'plan', versionId: 'v1', revision: 0, manifest: { assignments: [] }, session: null,
@@ -195,6 +197,9 @@ useTabsStore.setState({ tabs: [planTab], rootPane: pane, activeTabHistory: [plan
 function App() {
   const tabs = useTabsStore((state) => state.tabs);
   const root = useTabsStore((state) => state.rootPane);
+  if (Reader && readerId) {
+    return <main className="h-dvh"><Reader documentId={readerId} /></main>;
+  }
   return <main className="h-dvh">{root.type === 'tabs' && (
     <TabContent tabs={tabs} activeTabId={root.activeTabId} paneId={root.id} />
   )}</main>;
