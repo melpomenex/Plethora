@@ -314,12 +314,19 @@ export function MainLayout() {
 
     void initTabs();
 
-    // Warm the common tab chunks once the backend gate clears. The first tap
-    // on a cold tab otherwise races the WebView cold-start fetch-stall window
-    // and can spin until the user navigates away and back.
+    // Warm the common tab chunks shortly after mount (and once the backend gate
+    // clears, whichever comes first). JS chunks are static frontend assets and
+    // do not depend on the backend, so waiting for a cold IPC probe leaves
+    // early toolbar clicks racing the WebView cold-start fetch-stall window.
+    const prefetchTimer = window.setTimeout(() => {
+      prefetchCommonTabs();
+    }, 200);
     void whenBackendReady().then(() => {
       prefetchCommonTabs();
     });
+    return () => {
+      window.clearTimeout(prefetchTimer);
+    };
   }, []);
 
   useEffect(() => {

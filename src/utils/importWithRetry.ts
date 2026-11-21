@@ -19,7 +19,7 @@ export async function importWithRetry<T>(
   loader: () => Promise<T>,
   options: { timeoutMs?: number; retries?: number } = {}
 ): Promise<T> {
-  const { timeoutMs = 15_000, retries = 2 } = options;
+  const { timeoutMs = 5_000, retries = 2 } = options;
   let lastError: unknown = new Error(`chunk load failed: ${name}`);
 
   // Development-only instrumentation: cold chunk-fetch latency is the dominant

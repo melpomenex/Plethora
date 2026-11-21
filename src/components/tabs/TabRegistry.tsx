@@ -82,13 +82,21 @@ export const StudyPlansTab = debugLazy("StudyPlansTab", () => import("../study-p
  * loader once anyway, and calling these thunks early populates the same ESM
  * module cache the later lazy render reads.
  */
-const COMMON_TAB_LOADERS: Array<() => Promise<unknown>> = [
-  () => import("./DocumentsTab"),
-  () => import("../settings/SettingsPage"),
-  () => import("./QueueTab"),
-  () => import("./ReviewTab"),
-  () => import("./DashboardTab"),
-  () => import("./ContinueReadingTab"),
+const COMMON_TAB_LOADERS: Array<[string, () => Promise<unknown>]> = [
+  ["DocumentsTab", () => import("./DocumentsTab")],
+  ["SettingsPage", () => import("../settings/SettingsPage")],
+  ["QueueTab", () => import("./QueueTab")],
+  ["ReviewTab", () => import("./ReviewTab")],
+  ["DashboardTab", () => import("./DashboardTab")],
+  ["ContinueReadingTab", () => import("./ContinueReadingTab")],
+];
+
+const SECONDARY_TAB_LOADERS: Array<[string, () => Promise<unknown>]> = [
+  ["ExtractsTab", () => import("./ExtractsTab")],
+  ["AnalyticsTab", () => import("./AnalyticsTab")],
+  ["RSSReader", () => import("../media/RSSReader")],
+  ["LearningInsightsTab", () => import("./LearningInsightsTab")],
+  ["StudyPlansTab", () => import("../study-plans/StudyPlansTab")],
 ];
 
 let prefetchStarted = false;
@@ -96,11 +104,16 @@ let prefetchStarted = false;
 export function prefetchCommonTabs(): void {
   if (prefetchStarted) return;
   prefetchStarted = true;
-  for (const load of COMMON_TAB_LOADERS) {
-    // importWithRetry already retries + logs; failures here are non-fatal by
-    // design (the tab's own lazy loader will surface them if ever real).
-    void load().catch(() => {});
+  for (const [name, load] of COMMON_TAB_LOADERS) {
+    // importWithRetry retries stalled WebView fetches; failures here are
+    // non-fatal by design (the tab's own lazy loader surfaces real errors).
+    void importWithRetry(name, load).catch(() => {});
   }
+  setTimeout(() => {
+    for (const [name, load] of SECONDARY_TAB_LOADERS) {
+      void importWithRetry(name, load).catch(() => {});
+    }
+  }, 400);
 }
 
 export const TAB_TYPE_ICONS: Record<string, string> = {
