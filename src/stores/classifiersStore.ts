@@ -17,6 +17,7 @@ import {
 interface ClassifiersState {
   classifiers: RssClassifier[];
   isLoading: boolean;
+  hasLoaded: boolean;
   error: string | null;
 
   // Intelligence filter state
@@ -47,6 +48,7 @@ interface ClassifiersState {
 export const useClassifiersStore = create<ClassifiersState>((set, get) => ({
   classifiers: [],
   isLoading: false,
+  hasLoaded: false,
   error: null,
   intelligenceFilter: "all",
   showDisliked: false,
@@ -55,7 +57,7 @@ export const useClassifiersStore = create<ClassifiersState>((set, get) => ({
     set({ isLoading: true, error: null });
     try {
       const classifiers = await getClassifiersAuto(filters);
-      set({ classifiers, isLoading: false });
+      set({ classifiers, isLoading: false, hasLoaded: true });
     } catch (err) {
       set({ error: (err as Error).message, isLoading: false });
     }

@@ -154,7 +154,15 @@ pub fn update_clusters(
     let same: Vec<usize> = clusters
         .iter()
         .enumerate()
-        .filter(|(_, c)| c.sentiment == sentiment_str && c.dim == dim)
+        .filter(|(_, c)| {
+            c.sentiment == sentiment_str
+                && c.dim == dim
+                && (c.model.is_empty()
+                    || model.is_empty()
+                    || c.model == "rebuild"
+                    || model == "rebuild"
+                    || c.model == model)
+        })
         .map(|(i, _)| i)
         .collect();
 
@@ -347,12 +355,24 @@ pub async fn apply_feedback(
 /// Deterministically rebuild both cluster sets from the feedback table.
 pub async fn rebuild(repo: &Repository) -> Result<()> {
     let feedback = repo.get_all_rss_article_feedback().await?;
-    let item_ids: Vec<String> = feedback.iter().map(|f| f.0.clone()).collect();
-    let embeddings = repo.get_embeddings_for_items(&item_ids).await?;
-    let by_id: std::collections::HashMap<String, Vec<f32>> = embeddings
-        .into_iter()
-        .map(|e| (e.item_id, e.embedding))
-        .collect();
+    let mut query_ids: Vec<String> = Vec::with_capacity(feedback.len() * 2);
+    for (article_id, _, _, _) in &feedback {
+        query_ids.push(article_id.clone());
+        if !article_id.starts_with("rss-") {
+            query_ids.push(format!("rss-{article_id}"));
+        }
+    }
+    query_ids.sort();
+    query_ids.dedup();
+
+    let mut by_id: std::collections::HashMap<String, (Vec<f32>, String)> =
+        std::collections::HashMap::new();
+    for chunk in query_ids.chunks(450) {
+        let embeddings = repo.get_embeddings_for_items(chunk).await?;
+        for emb in embeddings {
+            by_id.insert(emb.item_id, (emb.embedding, emb.model));
+        }
+    }
 
     let mut clusters: Vec<PreferenceCluster> = Vec::new();
     let start = Utc::now() - chrono::Duration::days(3650);
@@ -371,14 +391,17 @@ pub async fn rebuild(repo: &Repository) -> Result<()> {
             cursor
         };
         cursor = replay_time;
-        if let Some(vector) = by_id.get(&article_id) {
+        let hit = by_id
+            .get(&article_id)
+            .or_else(|| by_id.get(&format!("rss-{article_id}")));
+        if let Some((vector, emb_model)) = hit {
             clusters = update_clusters(
                 clusters,
                 sentiment,
                 vector,
                 &article_id,
                 &title,
-                "rebuild",
+                emb_model,
                 replay_time,
             );
         }
@@ -429,17 +452,31 @@ pub async fn profile(repo: &Repository) -> Result<PreferenceProfile> {
 /// vectors stay local).
 pub async fn score_items(repo: &Repository, item_ids: &[String]) -> Result<Vec<SemanticScore>> {
     let clusters = repo.get_rss_preference_clusters(None::<&str>).await?;
-    let embeddings = repo.get_embeddings_for_items(item_ids).await?;
-    let by_id: std::collections::HashMap<String, Vec<f32>> = embeddings
-        .into_iter()
-        .map(|e| (e.item_id, e.embedding))
-        .collect();
+    let mut by_id: std::collections::HashMap<String, (Vec<f32>, String)> =
+        std::collections::HashMap::new();
+    for chunk in item_ids.chunks(450) {
+        let embeddings = repo.get_embeddings_for_items(chunk).await?;
+        for emb in embeddings {
+            by_id.insert(emb.item_id, (emb.embedding, emb.model));
+        }
+    }
     let now = Utc::now();
     Ok(item_ids
         .iter()
         .map(|id| match by_id.get(id) {
-            Some(vector) => {
-                let (score, driver) = score_vector(vector, &clusters, now);
+            Some((vector, emb_model)) => {
+                let compatible: Vec<PreferenceCluster> = clusters
+                    .iter()
+                    .filter(|c| {
+                        c.dim as usize == vector.len()
+                            && (c.model.is_empty()
+                                || emb_model.is_empty()
+                                || c.model == "rebuild"
+                                || c.model == *emb_model)
+                    })
+                    .cloned()
+                    .collect();
+                let (score, driver) = score_vector(vector, &compatible, now);
                 SemanticScore {
                     item_id: id.clone(),
                     score,
@@ -669,5 +706,51 @@ mod tests {
         assert!(score.is_none());
         let (score, _) = score_vector(&unit(16, 0.0), &clusters, now());
         assert!(score.is_none());
+    }
+
+    #[tokio::test]
+    async fn rebuild_resolves_rss_prefixed_embeddings_and_preserves_model() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        crate::database::migrations::run_migrations(&pool)
+            .await
+            .unwrap();
+        let repo = Repository::new(pool.clone());
+
+        sqlx::query(
+            "INSERT INTO rss_feeds (id, url, title, date_added) VALUES ('f1', 'https://ex.com/rss', 'Ex', '2026-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        sqlx::query(
+            "INSERT INTO rss_articles (id, feed_id, url, title, date_added) VALUES ('art-1', 'f1', 'https://ex.com/1', 'Inference Kernel', '2026-01-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let emb = crate::database::QueueItemEmbedding {
+            item_id: "rss-art-1".to_string(),
+            embedding: unit(8, 0.25),
+            content_hash: "h1".to_string(),
+            provider: "Ollama".to_string(),
+            model: "nomic-embed-text".to_string(),
+            dimension: 8,
+            created_at: 1000,
+        };
+        repo.upsert_embedding(&emb).await.unwrap();
+        repo.upsert_rss_article_feedback("art-1", "like", Utc::now())
+            .await
+            .unwrap();
+
+        rebuild(&repo).await.unwrap();
+        let clusters = repo.get_rss_preference_clusters(Some("like")).await.unwrap();
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(clusters[0].exemplar_article_id, "art-1");
+        assert_eq!(clusters[0].model, "nomic-embed-text");
     }
 }

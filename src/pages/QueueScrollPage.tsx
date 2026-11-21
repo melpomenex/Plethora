@@ -1905,6 +1905,18 @@ export function QueueScrollPage() {
           : filteredRssItems;
 
         // Score RSS items for relevance using classifiers + semantic preference
+        const classifierStoreState = useClassifiersStore.getState();
+        if (
+          typeof classifierStoreState.loadClassifiers === "function" &&
+          !classifierStoreState.hasLoaded &&
+          !classifierStoreState.isLoading
+        ) {
+          try {
+            await classifierStoreState.loadClassifiers();
+          } catch {
+            // Degrade gracefully when classifiers cannot be fetched.
+          }
+        }
         const classifiers = useClassifiersStore.getState().classifiers;
         const hasClassifiers = classifiers.length > 0;
 
@@ -1920,11 +1932,16 @@ export function QueueScrollPage() {
           // Base ranking still applies.
         }
 
+        const hasSemanticScores = Array.from(semanticScores.values()).some(
+          (entry) => entry.score != null && Number.isFinite(entry.score),
+        );
+        const hasRankingSignals = hasClassifiers || hasSemanticScores;
+
         rssItems = limitedRssItems.map(({ feed, item }) => {
           let relevanceScore: number | undefined;
           let engagementScore: number;
 
-          if (hasClassifiers) {
+          if (hasRankingSignals) {
             relevanceScore = scoreRssRelevance(
               {
                 itemTitle: item.title,
@@ -1968,9 +1985,9 @@ export function QueueScrollPage() {
 
         // Sort RSS items by relevance (highest first) — unless preferRecent is
         // enabled, in which case we keep the chronological order from above.
-        if (!rssSettings.preferRecent && hasClassifiers) {
+        if (!rssSettings.preferRecent && hasRankingSignals) {
           rssItems.sort((a, b) => (b.relevanceScore ?? 0.5) - (a.relevanceScore ?? 0.5));
-        } else if (rssSettings.preferRecent && hasClassifiers) {
+        } else if (rssSettings.preferRecent && hasRankingSignals) {
           // Within the chronological grouping, sort by relevance as tiebreaker
           rssItems.sort((a, b) => {
             const dateDiff = new Date(b.rssItem!.pubDate).getTime() - new Date(a.rssItem!.pubDate).getTime();
