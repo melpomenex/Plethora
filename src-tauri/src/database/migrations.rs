@@ -6089,6 +6089,102 @@ pub const MIGRATIONS: &[Migration] = &[
             ON formative_check_results(trail_item_id, created_at);
         "#,
     ),
+    Migration::new(
+        "155_rss_smart_feeds",
+        r#"
+        CREATE TABLE IF NOT EXISTS rss_smart_feeds (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            inclusion_criteria TEXT NOT NULL DEFAULT '',
+            exclusion_criteria TEXT NOT NULL DEFAULT '',
+            source_scope TEXT NOT NULL DEFAULT 'all'
+                CHECK(source_scope IN ('all', 'selected_feeds', 'selected_folders', 'external_discovery')),
+            source_scope_config TEXT NOT NULL DEFAULT '{}',
+            classification_mode TEXT NOT NULL DEFAULT 'fast_local'
+                CHECK(classification_mode IN ('fast_local', 'intelligent_local', 'cloud', 'hybrid')),
+            curation_strictness TEXT NOT NULL DEFAULT 'balanced'
+                CHECK(curation_strictness IN ('broad', 'balanced', 'strict')),
+            minimum_relevance REAL,
+            freshness_window_days INTEGER,
+            sort_order TEXT NOT NULL DEFAULT 'relevance'
+                CHECK(sort_order IN ('relevance', 'newest', 'oldest', 'unread_first')),
+            group_similar_stories INTEGER NOT NULL DEFAULT 1,
+            is_enabled INTEGER NOT NULL DEFAULT 1,
+            cloud_consent_granted INTEGER NOT NULL DEFAULT 0,
+            preferred_provider TEXT,
+            preferred_model TEXT,
+            definition_revision INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            last_evaluated_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rss_smart_feeds_enabled
+            ON rss_smart_feeds(is_enabled, updated_at);
+
+        CREATE TABLE IF NOT EXISTS rss_smart_feed_matches (
+            smart_feed_id TEXT NOT NULL REFERENCES rss_smart_feeds(id) ON DELETE CASCADE,
+            article_id TEXT NOT NULL REFERENCES rss_articles(id) ON DELETE CASCADE,
+            decision TEXT NOT NULL
+                CHECK(decision IN ('INCLUDE', 'EXCLUDE', 'UNCERTAIN', 'PENDING')),
+            relevance_score REAL NOT NULL DEFAULT 0.0,
+            ranking_score REAL NOT NULL DEFAULT 0.0,
+            decision_reason TEXT NOT NULL DEFAULT '',
+            matched_evidence TEXT NOT NULL DEFAULT '[]',
+            decision_source TEXT NOT NULL DEFAULT 'fast_local',
+            content_hash TEXT NOT NULL DEFAULT '',
+            definition_revision INTEGER NOT NULL DEFAULT 1,
+            classifier_version TEXT NOT NULL DEFAULT 'v1',
+            embedding_provider TEXT NOT NULL DEFAULT '',
+            embedding_model TEXT NOT NULL DEFAULT '',
+            evaluation_status TEXT NOT NULL DEFAULT 'pending'
+                CHECK(evaluation_status IN ('pending', 'completed', 'completed_lexical', 'deferred', 'error')),
+            error_message TEXT,
+            is_user_override INTEGER NOT NULL DEFAULT 0,
+            evaluated_at TEXT NOT NULL,
+            PRIMARY KEY (smart_feed_id, article_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_smart_feed_matches_feed_decision_rank
+            ON rss_smart_feed_matches(smart_feed_id, decision, ranking_score DESC, evaluated_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_smart_feed_matches_article
+            ON rss_smart_feed_matches(article_id, decision);
+
+        CREATE TABLE IF NOT EXISTS rss_smart_feed_feedback (
+            id TEXT PRIMARY KEY,
+            smart_feed_id TEXT NOT NULL REFERENCES rss_smart_feeds(id) ON DELETE CASCADE,
+            article_id TEXT NOT NULL REFERENCES rss_articles(id) ON DELETE CASCADE,
+            feedback_type TEXT NOT NULL
+                CHECK(feedback_type IN ('SHOULD_INCLUDE', 'SHOULD_EXCLUDE', 'UNDO')),
+            previous_decision TEXT,
+            note TEXT,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_smart_feed_feedback_feed_created
+            ON rss_smart_feed_feedback(smart_feed_id, created_at ASC);
+
+        CREATE INDEX IF NOT EXISTS idx_smart_feed_feedback_article
+            ON rss_smart_feed_feedback(smart_feed_id, article_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS rss_smart_feed_embeddings (
+            smart_feed_id TEXT NOT NULL REFERENCES rss_smart_feeds(id) ON DELETE CASCADE,
+            role TEXT NOT NULL
+                CHECK(role IN ('positive', 'negative', 'feedback_pos', 'feedback_neg')),
+            definition_revision INTEGER NOT NULL DEFAULT 1,
+            provider TEXT NOT NULL DEFAULT '',
+            model TEXT NOT NULL DEFAULT '',
+            dimension INTEGER NOT NULL DEFAULT 0,
+            embedding BLOB NOT NULL,
+            weight REAL NOT NULL DEFAULT 1.0,
+            content_hash TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (smart_feed_id, role)
+        );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -9204,5 +9300,113 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(hits, 1);
+    }
+
+    #[tokio::test]
+    async fn migration_155_rss_smart_feeds() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        run_migrations(&pool)
+            .await
+            .expect("migrations must apply cleanly");
+
+        sqlx::query(
+            "INSERT INTO rss_feeds (id, url, title, date_added)
+             VALUES ('feed-sf-1', 'https://example.com/rss.xml', 'Example Feed', '2026-11-20T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO rss_articles (id, feed_id, url, title, date_added)
+             VALUES ('art-sf-1', 'feed-sf-1', 'https://example.com/post/1', 'Reasoning Model Released', '2026-11-20T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO rss_smart_feeds (id, name, description, created_at, updated_at)
+             VALUES ('sf-1', 'AI News', 'Model releases and inference research', '2026-11-20T00:00:00Z', '2026-11-20T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO rss_smart_feed_matches (smart_feed_id, article_id, decision, relevance_score, ranking_score, evaluated_at)
+             VALUES ('sf-1', 'art-sf-1', 'INCLUDE', 0.91, 0.88, '2026-11-20T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO rss_smart_feed_feedback (id, smart_feed_id, article_id, feedback_type, previous_decision, created_at)
+             VALUES ('fb-1', 'sf-1', 'art-sf-1', 'SHOULD_INCLUDE', 'UNCERTAIN', '2026-11-20T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO rss_smart_feed_embeddings (smart_feed_id, role, definition_revision, provider, model, dimension, embedding, updated_at)
+             VALUES ('sf-1', 'positive', 1, 'mock', 'mock-8', 2, X'0000803F00000000', '2026-11-20T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // Invalid decision must fail CHECK constraint
+        let bad_decision = sqlx::query(
+            "INSERT INTO rss_smart_feed_matches (smart_feed_id, article_id, decision, evaluated_at)
+             VALUES ('sf-1', 'art-sf-1', 'INVALID', '2026-11-20T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(bad_decision.is_err());
+
+        // Deleting Smart Feed cascades derived tables while preserving rss_articles
+        sqlx::query("DELETE FROM rss_smart_feeds WHERE id = 'sf-1'")
+            .execute(&pool)
+            .await
+            .unwrap();
+
+        let (matches_left,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM rss_smart_feed_matches WHERE smart_feed_id = 'sf-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let (feedback_left,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM rss_smart_feed_feedback WHERE smart_feed_id = 'sf-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let (emb_left,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM rss_smart_feed_embeddings WHERE smart_feed_id = 'sf-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        let (articles_left,): (i64,) =
+            sqlx::query_as("SELECT count(*) FROM rss_articles WHERE id = 'art-sf-1'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        assert_eq!(matches_left, 0);
+        assert_eq!(feedback_left, 0);
+        assert_eq!(emb_left, 0);
+        assert_eq!(articles_left, 1, "Deleting a Smart Feed must NEVER delete underlying rss_articles");
+
+        let fk_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(fk_violations.is_empty(), "FK check failed: {:?}", fk_violations);
     }
 }

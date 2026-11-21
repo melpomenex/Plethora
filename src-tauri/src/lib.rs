@@ -19,6 +19,7 @@ mod entitlements;
 pub mod error;
 mod generator;
 mod rss_preferences;
+pub mod rss_smart_feeds;
 // Linux graphics policy: single owner of the WebKitGTK acceleration env
 // decision (PLETHORA_GPU_MODE), applied from main() before any webview.
 pub mod graphics;
@@ -1311,6 +1312,7 @@ pub fn run() {
                 app.manage(AIState {
                     config: Arc::new(std::sync::Mutex::new(saved_ai_config)),
                 });
+                app.manage(rss_smart_feeds::worker::SmartFeedWorkerState::new());
                 app.manage(FocusTimer::new());
                 app.manage(media_control::MediaControlBridge::default());
                 app.manage(media_compat::jobs::MediaCompatState::new());
@@ -2381,6 +2383,20 @@ pub fn run() {
             commands::score_rss_items_semantic,
             commands::rebuild_rss_preference_profile,
             commands::get_rss_articles_with_intelligence,
+            commands::create_rss_smart_feed,
+            commands::get_rss_smart_feeds,
+            commands::get_rss_smart_feed,
+            commands::update_rss_smart_feed,
+            commands::delete_rss_smart_feed,
+            commands::get_rss_smart_feed_articles,
+            commands::evaluate_rss_smart_feed,
+            commands::cancel_rss_smart_feed_evaluation,
+            commands::get_rss_smart_feed_progress,
+            commands::submit_rss_smart_feed_feedback,
+            commands::get_rss_smart_feed_capabilities,
+            commands::get_article_smart_feed_memberships,
+            commands::export_rss_smart_feeds,
+            commands::import_rss_smart_feeds,
             commands::mark_rss_article_unread,
             commands::mark_rss_articles_before_date_read,
             commands::mark_rss_articles_after_date_read,

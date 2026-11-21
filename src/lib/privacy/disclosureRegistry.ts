@@ -275,6 +275,27 @@ export const DISCLOSURE_REGISTRY: Record<string, PrivacyDisclosure> = {
       purposes: [],
     },
   },
+  rss_smart_feeds: {
+    id: 'rss_smart_feeds',
+    name: 'RSS Smart Feeds (Optional Cloud / Hybrid Classification)',
+    category: 'ai',
+    dataLeavesDevice: true,
+    trigger: 'opt_in',
+    destination: 'Selected LLM or Embedding Provider (only when Hybrid, Cloud, or paid cloud embeddings are explicitly consented)',
+    retention: 'Ephemeral per evaluation request (zero persistent server profile)',
+    encryptionState: 'in_transit_tls',
+    thirdPartyInvolvement: 'User-configured cloud provider only when opted in; none in Fast Local or Intelligent Local (Ollama) modes',
+    userDeletable: true,
+    localFallback: 'Fast Local hybrid lexical + on-device/Ollama embeddings (default, zero network egress)',
+    description:
+      'Smart Feeds run locally by default. Only when you explicitly choose Hybrid or Cloud mode with per-feed consent (or enable paid cloud embeddings) are the Smart Feed topic definition and candidate article title/summary/excerpt sent to your configured provider — never reading history, library documents, or Study Plans.',
+    labelMapping: {
+      dataTypes: ['user_content'],
+      linkedToIdentity: false,
+      usedForTracking: false,
+      purposes: ['app_functionality'],
+    },
+  },
 };
 
 /**

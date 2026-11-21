@@ -1,4 +1,5 @@
 import { recentFeatureEn } from "./recentFeatures/en";
+import { smartFeedsEn } from "./smartFeeds";
 export type Dict = Record<string, string>;
 
 export const en: Dict = {
@@ -7821,4 +7822,5 @@ export const en: Dict = {
   "itemDetails.type.videoextract": "Video extract",
 
   ...recentFeatureEn,
+  ...smartFeedsEn,
 };

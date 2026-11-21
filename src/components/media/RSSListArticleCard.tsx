@@ -48,6 +48,7 @@ export interface RSSListArticleCardProps {
   onSelect: (feed: Feed, item: FeedItem) => void;
   onContextMenu: (event: React.MouseEvent) => void;
   onMenuKeyDown: (event: React.KeyboardEvent) => void;
+  extraContent?: React.ReactNode;
 }
 
 function imageUrlFor(item: FeedItem): string | undefined {
@@ -93,6 +94,7 @@ function RSSListArticleCardImpl({
   onSelect,
   onContextMenu,
   onMenuKeyDown,
+  extraContent,
 }: RSSListArticleCardProps) {
   const { t } = useI18n();
   const resolved = useMemo(() => resolveRssPreferences(preferences ?? {}), [preferences]);
@@ -503,6 +505,7 @@ function RSSListArticleCardImpl({
               )}
               {showAuthorLine && <p className="rss-list-author">by {item.author}</p>}
             </div>
+            {extraContent}
           </div>
         </div>
       </article>

@@ -13,7 +13,9 @@ import {
   TrendUp,
 } from "@phosphor-icons/react";
 import { type Feed, type FeedItem, formatFeedDate } from "../../api/rss";
+import type { SmartFeedProgress, SmartFeedWithStats } from "../../api/rss-smart-feeds";
 import { useI18n } from "../../lib/i18n";
+import { SmartFeedsDashboardSection } from "./smartFeeds/SmartFeedsDashboardSection";
 
 interface RSSDashboardProps {
   feeds: Feed[];
@@ -28,6 +30,13 @@ interface RSSDashboardProps {
   onOpenShortcutsHelp: () => void;
   onSyncAll: () => void;
   isSyncing: boolean;
+  smartFeeds?: SmartFeedWithStats[];
+  smartFeedProgressById?: Record<string, SmartFeedProgress>;
+  onSelectSmartFeed?: (feed: SmartFeedWithStats) => void;
+  onCreateSmartFeed?: () => void;
+  onEditSmartFeed?: (feed: SmartFeedWithStats) => void;
+  onRefreshSmartFeed?: (feed: SmartFeedWithStats) => void;
+  onCancelSmartFeed?: (feed: SmartFeedWithStats) => void;
 }
 
 export function RSSDashboard({
@@ -42,7 +51,14 @@ export function RSSDashboard({
   onOpenSemanticGraph,
   onOpenShortcutsHelp,
   onSyncAll,
-  isSyncing
+  isSyncing,
+  smartFeeds,
+  smartFeedProgressById,
+  onSelectSmartFeed,
+  onCreateSmartFeed,
+  onEditSmartFeed,
+  onRefreshSmartFeed,
+  onCancelSmartFeed,
 }: RSSDashboardProps) {
   const { t } = useI18n();
 
@@ -169,6 +185,18 @@ export function RSSDashboard({
             </div>
           </div>
         </div>
+
+        {onCreateSmartFeed && onSelectSmartFeed && (
+          <SmartFeedsDashboardSection
+            smartFeeds={smartFeeds ?? []}
+            progressByFeedId={smartFeedProgressById ?? {}}
+            onSelect={onSelectSmartFeed}
+            onCreate={onCreateSmartFeed}
+            onEdit={onEditSmartFeed ?? onSelectSmartFeed}
+            onRefresh={onRefreshSmartFeed ?? onSelectSmartFeed}
+            onCancel={onCancelSmartFeed}
+          />
+        )}
 
         {/* Quick Actions & Keyboard Shortcuts */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -1,5 +1,6 @@
 import { Dict, en } from "./en";
 import { recentFeatureZh } from "./recentFeatures/zh";
+import { smartFeedsZh } from "./smartFeeds";
 
 export const zh: Dict = {
   "studyPlans.reading.heading": "引导阅读",
@@ -6640,4 +6641,5 @@ export const zh: Dict = {
   "studyPlans.title": "学习计划",
   "studyPlans.navLabel": "学习计划",
   ...recentFeatureZh,
+  ...smartFeedsZh,
 };

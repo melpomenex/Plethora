@@ -723,9 +723,12 @@ pub async fn create_rss_article(
     summary: Option<String>,
     image_url: Option<String>,
     categories: Option<Vec<String>>,
+    app: tauri::AppHandle,
     repo: State<'_, Repository>,
+    ai_state: State<'_, crate::commands::ai::AIState>,
+    smart_feed_worker: State<'_, crate::rss_smart_feeds::worker::SmartFeedWorkerState>,
 ) -> Result<RssArticle> {
-    upsert_rss_article(
+    let created = upsert_rss_article(
         repo.pool(),
         RssArticleInput {
             categories: categories.unwrap_or_default(),
@@ -740,7 +743,15 @@ pub async fn create_rss_article(
             image_url,
         },
     )
-    .await
+    .await?;
+    crate::rss_smart_feeds::worker::spawn_background_articles_evaluation(
+        repo.pool().clone(),
+        smart_feed_worker.inner().clone(),
+        app,
+        vec![created.id.clone()],
+        ai_state.config.lock().ok().and_then(|g| g.clone()),
+    );
+    Ok(created)
 }
 
 /// Bulk-create/upsert many RSS articles in a single IPC call. Each article is
@@ -751,13 +762,24 @@ pub async fn create_rss_article(
 #[tauri::command]
 pub async fn bulk_create_rss_articles(
     articles: Vec<RssArticleInput>,
+    app: tauri::AppHandle,
     repo: State<'_, Repository>,
+    ai_state: State<'_, crate::commands::ai::AIState>,
+    smart_feed_worker: State<'_, crate::rss_smart_feeds::worker::SmartFeedWorkerState>,
 ) -> Result<Vec<RssArticle>> {
     let pool = repo.pool();
     let mut out = Vec::with_capacity(articles.len());
     for article in articles {
         out.push(upsert_rss_article(pool, article).await?);
     }
+    let article_ids: Vec<String> = out.iter().map(|a| a.id.clone()).collect();
+    crate::rss_smart_feeds::worker::spawn_background_articles_evaluation(
+        pool.clone(),
+        smart_feed_worker.inner().clone(),
+        app,
+        article_ids,
+        ai_state.config.lock().ok().and_then(|g| g.clone()),
+    );
     Ok(out)
 }
 
@@ -1686,7 +1708,10 @@ pub struct FullContentResponse {
 pub async fn fetch_article_full_content(
     article_id: String,
     article_url: String,
+    app: tauri::AppHandle,
     repo: State<'_, Repository>,
+    ai_state: State<'_, crate::commands::ai::AIState>,
+    smart_feed_worker: State<'_, crate::rss_smart_feeds::worker::SmartFeedWorkerState>,
 ) -> Result<FullContentResponse> {
     use readable_readability::Readability;
     use reqwest::Client;
@@ -1786,6 +1811,14 @@ pub async fn fetch_article_full_content(
     .map_err(|e| {
         crate::error::PlethoraError::Internal(format!("Failed to store full content: {}", e))
     })?;
+
+    crate::rss_smart_feeds::worker::spawn_background_articles_evaluation(
+        repo.pool().clone(),
+        smart_feed_worker.inner().clone(),
+        app,
+        vec![article_id.clone()],
+        ai_state.config.lock().ok().and_then(|g| g.clone()),
+    );
 
     Ok(FullContentResponse {
         article_id,

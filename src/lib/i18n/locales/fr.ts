@@ -1,5 +1,6 @@
 import { Dict, en } from "./en";
 import { recentFeatureFr } from "./recentFeatures/fr";
+import { smartFeedsFr } from "./smartFeeds";
 
 export const fr: Dict = {
   "studyPlans.reading.heading": "Lecture guidée",
@@ -6750,4 +6751,5 @@ export const fr: Dict = {
   "contextMenu.viewAllStudyPlans": "Voir tous les plans d'étude",
   "contextMenu.copyGoal": "Copier l'objectif",
   ...recentFeatureFr,
+  ...smartFeedsFr,
 };

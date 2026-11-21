@@ -1,5 +1,6 @@
 import { Dict, en } from "./en";
 import { recentFeatureJa } from "./recentFeatures/ja";
+import { smartFeedsJa } from "./smartFeeds";
 
 export const ja: Dict = {
   "studyPlans.reading.heading": "ガイド付き読書",
@@ -6661,4 +6662,5 @@ export const ja: Dict = {
   "contextMenu.viewAllStudyPlans": "すべての学習プランを表示",
   "contextMenu.copyGoal": "目標をコピー",
   ...recentFeatureJa,
+  ...smartFeedsJa,
 };

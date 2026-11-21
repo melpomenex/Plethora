@@ -350,6 +350,21 @@
     "animated-image/palette-histogram-12x64": {
       "cost": 11.93,
       "reason": "add-animated-image-theme-backgrounds: weighted OKLCH histogram finalization for 12 seeded 64x64 RGBA samples, measured with the full anchor-normalized local bench gate on 2026-11-20."
+    },
+    "smartFeeds/evaluate-500-articles-10-feeds": {
+      "cost": 176,
+      "tolerance": 1.5,
+      "reason": "add-ai-smart-rss-feeds: seeded 500 articles across 10 feeds pure-TS hybrid curation pipeline, measured with the full anchor-normalized local bench gate."
+    },
+    "smartFeeds/evaluate-5000-articles-10-feeds": {
+      "cost": 1442,
+      "tolerance": 1.5,
+      "reason": "add-ai-smart-rss-feeds: seeded 5000 articles across 10 feeds pure-TS hybrid curation pipeline, measured with the full anchor-normalized local bench gate."
+    },
+    "smartFeeds/incremental-cached-5000-articles": {
+      "cost": 67.93,
+      "tolerance": 1.5,
+      "reason": "add-ai-smart-rss-feeds: seeded incremental cached skip path over 5000 articles, measured with the full anchor-normalized local bench gate."
     }
   }
 }

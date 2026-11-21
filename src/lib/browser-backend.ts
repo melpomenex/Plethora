@@ -1,5 +1,6 @@
 import { compareManualQueueOrder, resolveDisplaySlider } from "../utils/queueManualOrder";
 import { browserChatCompletion, prepareBrowserContextRequest } from "./browserLlmTransport";
+import { registerBrowserSmartFeedHandlers } from "./browserSmartFeedsBackend";
 /**
  * Browser backend command handlers
  * Maps Tauri command names to IndexedDB operations
@@ -5962,6 +5963,7 @@ commandHandlers.recover_recording_session = sessionUnavailable;
 commandHandlers.stage_session_media = sessionUnavailable;
 commandHandlers.export_partial_recording = sessionUnavailable;
 commandHandlers.import_session_transcript = sessionUnavailable;
+registerBrowserSmartFeedHandlers(commandHandlers);
 
 /**
  * Execute a browser command

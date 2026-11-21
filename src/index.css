@@ -4851,3 +4851,21 @@
 .queue-priority-editor :disabled,
 .queue-priority-editor [aria-disabled="true"] { cursor: wait; opacity: 0.6; }
 :root[data-display-mode="eink"] .queue-priority-selected { border: 2px solid currentColor; }
+
+/* Native <dialog> scroll containment and accessible validation states */
+dialog:modal {
+  overscroll-behavior: contain;
+}
+dialog::backdrop {
+  overflow: hidden;
+  overscroll-behavior: contain;
+  background: rgb(0 0 0 / 0.52);
+  backdrop-filter: blur(2px);
+}
+.smart-feed-dialog :is(input, textarea, select):user-invalid {
+  border-color: var(--color-destructive, #dc2626);
+}
+.smart-feed-dialog :is(button, input, textarea, select):focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}

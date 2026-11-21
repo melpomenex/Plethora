@@ -34,6 +34,7 @@ Plethora is built on the philosophy that reading, thinking, and note-taking are 
 | `store_transactions` | Store Transactions & Entitlements | Manual (purchase/restore/renewal) | Apple App Store; signed records to Plethora billing server | **In-Transit TLS** | Minimal transaction records for accounting/refunds (no content) | Apple (StoreKit 2 / ASNS) | None (billing needs Apple); app fully usable free |
 | `web_analytics` | Web Analytics (web/PWA builds only) | Automatic | Vercel Analytics | **In-Transit TLS** | Aggregated cookieless metrics | Vercel (aggregated, no content) | Never loaded in native desktop/iOS builds |
 | `telemetry_crash_reporting` | Diagnostics | **None — not shipped** | **No crash/telemetry SDK ships today** | N/A (no egress) | No data collected | None | Complete disablement (default) |
+| `rss_smart_feeds` | Smart Feed topic definition & candidate article title/excerpt | Opt-in (`Hybrid`/`Cloud` consent or paid cloud embeddings) | Configured AI / Embedding Provider | **In-Transit TLS** | Ephemeral per request | User-selected provider (opt-in only) | Fast Local lexical + on-device/Ollama embeddings (default) |
 
 > **Correction log (Change C, 2026-08):** the `telemetry_crash_reporting` row previously described an
 > opt-in telemetry endpoint that does not exist in shipped builds — no crash-reporting or analytics SDK

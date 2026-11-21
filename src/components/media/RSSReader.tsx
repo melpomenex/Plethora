@@ -75,6 +75,25 @@ import {
 } from "../../api/rss-reading-lists";
 import { CreateEditReadingListDialog } from "./readingLists/CreateEditReadingListDialog";
 import { ReadingListPanel } from "./readingLists/ReadingListPanel";
+import {
+  getArticleSmartFeedMemberships,
+  getSmartFeedArticles,
+  type CreateSmartFeedInput,
+  type SmartFeedArticleItem,
+  type SmartFeedArticlesResponse,
+  type SmartFeedBadge,
+  type SmartFeedClusterMember,
+  type SmartFeedFeedbackType,
+  type SmartFeedMatchDecision,
+  type SmartFeedSortOrder,
+  type SmartFeedWithStats,
+  type UpdateSmartFeedInput,
+} from "../../api/rss-smart-feeds";
+import { useSmartFeedsStore } from "../../stores/smartFeedsStore";
+import { SmartFeedsSidebarSection } from "./smartFeeds/SmartFeedsSidebarSection";
+import { SmartFeedDialog } from "./smartFeeds/SmartFeedDialog";
+import { SmartFeedHeaderBar } from "./smartFeeds/SmartFeedHeaderBar";
+import { SmartFeedArticleExtras } from "./smartFeeds/SmartFeedArticleExtras";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { RSSCustomizationPanel, RSSUserPreferenceUpdate } from "./RSSCustomizationPanel";
 import { NewsletterDirectory } from "../newsletter/NewsletterDirectory";
@@ -206,6 +225,160 @@ export function RSSReader() {
     feedIds: Set<string>;
   } | null>(null);
 
+  // Smart Feeds state
+  const smartFeeds = useSmartFeedsStore((s) => s.smartFeeds);
+  const smartFeedProgressById = useSmartFeedsStore((s) => s.progressByFeedId);
+  const smartFeedCapabilities = useSmartFeedsStore((s) => s.capabilities);
+  const pendingFeedbackByFeed = useSmartFeedsStore((s) => s.pendingFeedbackByFeed);
+  const loadSmartFeeds = useSmartFeedsStore((s) => s.loadSmartFeeds);
+  const loadSmartFeedCapabilities = useSmartFeedsStore((s) => s.loadCapabilities);
+  const bindSmartFeedEvents = useSmartFeedsStore((s) => s.bindTauriEvents);
+  const createSmartFeed = useSmartFeedsStore((s) => s.createSmartFeed);
+  const updateSmartFeed = useSmartFeedsStore((s) => s.updateSmartFeed);
+  const deleteSmartFeed = useSmartFeedsStore((s) => s.deleteSmartFeed);
+  const evaluateSmartFeed = useSmartFeedsStore((s) => s.evaluateSmartFeed);
+  const cancelSmartFeedEvaluation = useSmartFeedsStore((s) => s.cancelEvaluation);
+  const submitSmartFeedFeedback = useSmartFeedsStore((s) => s.submitFeedback);
+  const clearPendingFeedbackForFeed = useSmartFeedsStore((s) => s.clearPendingFeedbackForFeed);
+  const exportSmartFeeds = useSmartFeedsStore((s) => s.exportAll);
+  const importSmartFeedsPayload = useSmartFeedsStore((s) => s.importPayload);
+
+  const [activeSmartFeedId, setActiveSmartFeedId] = useState<string | null>(null);
+  const [activeSmartFeedBucket, setActiveSmartFeedBucket] =
+    useState<SmartFeedMatchDecision>("INCLUDE");
+  const [activeSmartFeedSort, setActiveSmartFeedSort] = useState<SmartFeedSortOrder | null>(null);
+  const [activeSmartFeedGroupStories, setActiveSmartFeedGroupStories] = useState<boolean | null>(
+    null,
+  );
+  const [activeSmartFeedData, setActiveSmartFeedData] = useState<SmartFeedArticlesResponse | null>(
+    null,
+  );
+  const [smartFeedDialogOpen, setSmartFeedDialogOpen] = useState(false);
+  const [editingSmartFeed, setEditingSmartFeed] = useState<SmartFeedWithStats | null>(null);
+  const [smartFeedToast, setSmartFeedToast] = useState<{
+    message: string;
+    smartFeedId: string;
+    articleId: string;
+    canUndo: boolean;
+  } | null>(null);
+  const [selectedArticleSmartMemberships, setSelectedArticleSmartMemberships] = useState<
+    SmartFeedBadge[]
+  >([]);
+
+  const activeSmartFeed = useMemo(
+    () =>
+      activeSmartFeedId
+        ? smartFeeds.find((f) => f.id === activeSmartFeedId) ??
+          activeSmartFeedData?.smart_feed ??
+          null
+        : null,
+    [activeSmartFeedId, smartFeeds, activeSmartFeedData?.smart_feed],
+  );
+
+  const smartFeedArticleMetaById = useMemo(() => {
+    const map = new Map<string, SmartFeedArticleItem>();
+    if (activeSmartFeedData) {
+      for (const art of activeSmartFeedData.articles) {
+        map.set(art.article_id, art);
+      }
+    }
+    return map;
+  }, [activeSmartFeedData]);
+
+  const refreshActiveSmartFeedArticles = useCallback(
+    async (
+      feedId: string,
+      bucket: SmartFeedMatchDecision,
+      sortOrder?: SmartFeedSortOrder | null,
+      groupStories?: boolean | null,
+      search?: string,
+    ) => {
+      try {
+        const resp = await getSmartFeedArticles(feedId, {
+          bucket,
+          sort_order: sortOrder ?? undefined,
+          group_similar_stories: groupStories ?? undefined,
+          search: search?.trim() ? search.trim() : undefined,
+        });
+        setActiveSmartFeedData(resp);
+      } catch (err) {
+        console.error("Failed to load Smart Feed articles:", err);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    void loadSmartFeeds();
+    void loadSmartFeedCapabilities();
+    void bindSmartFeedEvents();
+  }, [loadSmartFeeds, loadSmartFeedCapabilities, bindSmartFeedEvents]);
+
+  useEffect(() => {
+    if (!activeSmartFeedId) {
+      setActiveSmartFeedData(null);
+      return;
+    }
+    void refreshActiveSmartFeedArticles(
+      activeSmartFeedId,
+      activeSmartFeedBucket,
+      activeSmartFeedSort,
+      activeSmartFeedGroupStories,
+      searchQuery,
+    );
+  }, [
+    activeSmartFeedId,
+    activeSmartFeedBucket,
+    activeSmartFeedSort,
+    activeSmartFeedGroupStories,
+    searchQuery,
+    refreshActiveSmartFeedArticles,
+  ]);
+
+  const activeSmartFeedProgressPhase = activeSmartFeedId
+    ? smartFeedProgressById[activeSmartFeedId]?.phase
+    : undefined;
+  useEffect(() => {
+    if (activeSmartFeedId && activeSmartFeedProgressPhase === "completed") {
+      void refreshActiveSmartFeedArticles(
+        activeSmartFeedId,
+        activeSmartFeedBucket,
+        activeSmartFeedSort,
+        activeSmartFeedGroupStories,
+        searchQuery,
+      );
+    }
+  }, [
+    activeSmartFeedId,
+    activeSmartFeedProgressPhase,
+    activeSmartFeedBucket,
+    activeSmartFeedSort,
+    activeSmartFeedGroupStories,
+    searchQuery,
+    refreshActiveSmartFeedArticles,
+  ]);
+
+  useEffect(() => {
+    const artId = selectedItem?.id;
+    if (!artId) {
+      setSelectedArticleSmartMemberships([]);
+      return;
+    }
+    let cancelled = false;
+    getArticleSmartFeedMemberships([artId])
+      .then((badgesByArticle) => {
+        if (!cancelled) {
+          setSelectedArticleSmartMemberships(badgesByArticle[artId] ?? []);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setSelectedArticleSmartMemberships([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedItem?.id, smartFeeds]);
+
   // Load reading lists on mount.
   useEffect(() => {
     let cancelled = false;
@@ -332,6 +505,7 @@ export function RSSReader() {
     if (listFeeds.length === 0) return;
     setSelectedFeed(null);
     setSelectedFolderId(null);
+    setActiveSmartFeedId(null);
     setActiveReadingListFeeds({ id: list.id, name: list.name, feedIds: ids });
     handleViewModeChange("all");
   }, [feeds]);
@@ -537,6 +711,56 @@ export function RSSReader() {
 
     let resultList: Array<{ feed: Feed; item: FeedItem }> = [];
 
+    if (activeSmartFeedId) {
+      const artFeedMap = new Map<string, Feed>();
+      const artItemMap = new Map<string, FeedItem>();
+      feeds.forEach((f) => {
+        artFeedMap.set(f.id, f);
+        f.items.forEach((it) => artItemMap.set(it.id, it));
+      });
+      const sfEntries = (activeSmartFeedData?.articles ?? []).map((sfArt) => {
+        const nowIso = sfArt.published_date ?? sfArt.date_added;
+        const liveFeed: Feed = artFeedMap.get(sfArt.feed_id) ?? {
+          id: sfArt.feed_id,
+          title: sfArt.feed_title || t("smartFeeds.unknownFeed"),
+          description: "",
+          link: sfArt.url,
+          feedUrl: sfArt.url,
+          lastUpdated: nowIso,
+          lastFetched: nowIso,
+          updateInterval: 60,
+          subscribeDate: nowIso,
+          items: [],
+          unreadCount: 0,
+        };
+        const liveItem = artItemMap.get(sfArt.article_id);
+        const item: FeedItem = liveItem
+          ? {
+              ...liveItem,
+              read: sfArt.is_read || liveItem.read,
+              fullContent: liveItem.fullContent ?? sfArt.full_content ?? undefined,
+            }
+          : {
+              id: sfArt.article_id,
+              feedId: sfArt.feed_id,
+              title: sfArt.title,
+              link: sfArt.url,
+              description: sfArt.summary ?? sfArt.content ?? "",
+              content: sfArt.content ?? sfArt.summary ?? "",
+              fullContent: sfArt.full_content ?? undefined,
+              pubDate: nowIso,
+              author: sfArt.author ?? undefined,
+              categories: sfArt.categories,
+              read: sfArt.is_read,
+              favorite: false,
+              guid: sfArt.guid ?? undefined,
+            };
+        return { feed: liveFeed, item };
+      });
+      setItems(sfEntries);
+      return;
+    }
+
     if (viewMode === "all") {
       let items: Array<{ feed: Feed; item: FeedItem }> = [];
       if (selectedFeed) {
@@ -594,7 +818,7 @@ export function RSSReader() {
     const sortedList = applySortingPreferences(filteredList);
 
     setItems(sortedList);
-  }, [viewMode, selectedFeed, selectedFolderId, groupedFeeds, feeds, searchQuery, selectedTagFilter, selectedTagIds, articleTags, intelligenceFilter, showDisliked, preferences, applyFilterPreferences, applySortingPreferences, activeReadingListFeeds, sessionReadItemIds, selectedItem?.id]);
+  }, [viewMode, selectedFeed, selectedFolderId, groupedFeeds, feeds, searchQuery, selectedTagFilter, selectedTagIds, articleTags, intelligenceFilter, showDisliked, preferences, applyFilterPreferences, applySortingPreferences, activeReadingListFeeds, activeSmartFeedId, activeSmartFeedData, sessionReadItemIds, selectedItem?.id, t]);
 
   useEffect(() => {
     void loadTags();
@@ -674,14 +898,14 @@ export function RSSReader() {
 
   useEffect(() => {
     if (!isMobile) return;
-    if (!mobileSelectedFeedId) {
+    if (!mobileSelectedFeedId && !activeSmartFeedId) {
       setMobileView("feeds");
       return;
     }
     if (!mobileSelectedItemId) {
       setMobileView("items");
     }
-  }, [isMobile, mobileSelectedFeedId, mobileSelectedItemId]);
+  }, [isMobile, mobileSelectedFeedId, activeSmartFeedId, mobileSelectedItemId]);
 
   const loadFeeds = useCallback(async () => {
     const feeds = await getSubscribedFeedsAuto();
@@ -809,6 +1033,24 @@ export function RSSReader() {
             // unread counts are visible in the active pane.
             await loadFeeds();
             setLastAutoRefresh(new Date());
+            if (!isTauri()) {
+              const enabledSmartFeeds = useSmartFeedsStore
+                .getState()
+                .smartFeeds.filter((sf) => sf.is_enabled);
+              for (const sf of enabledSmartFeeds) {
+                await evaluateSmartFeed(sf.id);
+              }
+            }
+            await loadSmartFeeds();
+            if (activeSmartFeedId) {
+              void refreshActiveSmartFeedArticles(
+                activeSmartFeedId,
+                activeSmartFeedBucket,
+                activeSmartFeedSort,
+                activeSmartFeedGroupStories,
+                searchQuery,
+              );
+            }
           } catch (error) {
             console.error("[RSS Auto-Refresh] Failed to reload feeds:", error);
             result = summarizeRssRefresh(counts, true);
@@ -1056,15 +1298,31 @@ export function RSSReader() {
         return itemObj;
       })
     );
+    setActiveSmartFeedData((prev) => {
+      if (!prev) return prev;
+      let changed = false;
+      const nextArticles = prev.articles.map((art) => {
+        if (art.article_id === item.id && !art.is_read) {
+          changed = true;
+          return { ...art, is_read: true };
+        }
+        return art;
+      });
+      return changed ? { ...prev, articles: nextArticles } : prev;
+    });
 
     // Update selectedItem locally
     setSelectedItem({ ...item, read: true });
     setSelectedItemFeed(feed);
 
     // Call API in background
-    markItemReadAuto(feed.id, item.id, true).catch((err) => {
-      console.error("Failed to mark item read in backend:", err);
-    });
+    markItemReadAuto(feed.id, item.id, true)
+      .then(() => {
+        if (activeSmartFeedId) void loadSmartFeeds();
+      })
+      .catch((err) => {
+        console.error("Failed to mark item read in backend:", err);
+      });
 
     if (isMobile) {
       setMobileView("reader");
@@ -1326,7 +1584,201 @@ export function RSSReader() {
     viewMode === "all" && selectedFeed
       ? `${selectedFeed.items.length} ${t("common.items")}`
       : `${items.length} ${t("common.items")}`;
+  const handleSelectSmartFeedById = useCallback(
+    (id: string) => {
+      clearPendingFeedbackForFeed(id);
+      setSelectedFeed(null);
+      setSelectedFolderId(null);
+      setActiveReadingListFeeds(null);
+      setSelectedTagIds(new Set());
+      setActiveSmartFeedId(id);
+      setActiveSmartFeedBucket("INCLUDE");
+      setActiveSmartFeedSort(null);
+      setActiveSmartFeedGroupStories(null);
+      setSearchQuery("");
+      setViewMode("all");
+      setLastNonSearchViewMode("all");
+      if (isMobile) {
+        setMobileView("items");
+      }
+    },
+    [clearPendingFeedbackForFeed, isMobile],
+  );
+
+  const handleOpenClusterArticle = useCallback(
+    (member: SmartFeedClusterMember) => {
+      const pubIso = member.published_date ?? new Date().toISOString();
+      const matchFeed: Feed = feeds.find((f) => f.id === member.feed_id) ?? {
+        id: member.feed_id,
+        title: member.feed_title || t("smartFeeds.unknownFeed"),
+        description: "",
+        link: member.url,
+        feedUrl: member.url,
+        lastUpdated: pubIso,
+        lastFetched: pubIso,
+        updateInterval: 60,
+        subscribeDate: pubIso,
+        items: [],
+        unreadCount: 0,
+      };
+      const matchItem: FeedItem = matchFeed.items.find((i) => i.id === member.article_id) ?? {
+        id: member.article_id,
+        feedId: member.feed_id,
+        title: member.title,
+        link: member.url,
+        description: "",
+        content: "",
+        categories: [],
+        pubDate: pubIso,
+        read: false,
+        favorite: false,
+      };
+      void handleItemClick(matchFeed, matchItem);
+    },
+    [feeds, t],
+  );
+
+  const handleSmartFeedFeedback = useCallback(
+    async (
+      smartFeedId: string,
+      articleId: string,
+      feedbackType: SmartFeedFeedbackType,
+    ) => {
+      try {
+        const res = await submitSmartFeedFeedback(smartFeedId, articleId, feedbackType);
+        // Preserve viewport stability: keep the row in place with updated feedback state.
+        setActiveSmartFeedData((prev) => {
+          if (!prev || prev.smart_feed.id !== smartFeedId) return prev;
+          return {
+            ...prev,
+            articles: prev.articles.map((a) =>
+              a.article_id === articleId
+                ? {
+                    ...a,
+                    active_feedback: res.active_feedback ?? null,
+                    is_user_override: res.is_user_override,
+                    decision_reason: res.decision_reason,
+                  }
+                : a,
+            ),
+          };
+        });
+        setSmartFeedToast(
+          feedbackType === "UNDO"
+            ? {
+                message: t("smartFeeds.feedbackUndone"),
+                smartFeedId,
+                articleId,
+                canUndo: false,
+              }
+            : {
+                message:
+                  feedbackType === "SHOULD_INCLUDE"
+                    ? t("smartFeeds.toastMarkedInclude")
+                    : t("smartFeeds.toastMarkedExclude"),
+                smartFeedId,
+                articleId,
+                canUndo: true,
+              },
+        );
+      } catch (err) {
+        console.error("Failed to submit Smart Feed feedback:", err);
+      }
+    },
+    [submitSmartFeedFeedback, t],
+  );
+
+  const handleSaveSmartFeed = useCallback(
+    async (
+      payload: CreateSmartFeedInput | UpdateSmartFeedInput,
+      editingId?: string,
+    ) => {
+      if (editingId) {
+        const updated = await updateSmartFeed(editingId, payload as UpdateSmartFeedInput, true);
+        if (!isTauri()) {
+          await evaluateSmartFeed(updated.id, { forceReevaluate: true, waitForCompletion: true });
+        }
+        if (activeSmartFeedId === updated.id) {
+          await refreshActiveSmartFeedArticles(
+            updated.id,
+            activeSmartFeedBucket,
+            activeSmartFeedSort,
+            activeSmartFeedGroupStories,
+            searchQuery,
+          );
+        }
+      } else {
+        const created = await createSmartFeed(payload as CreateSmartFeedInput);
+        setSelectedFeed(null);
+        setSelectedFolderId(null);
+        setActiveReadingListFeeds(null);
+        setActiveSmartFeedId(created.id);
+        setActiveSmartFeedBucket("INCLUDE");
+        setActiveSmartFeedSort(null);
+        setActiveSmartFeedGroupStories(null);
+        setSearchQuery("");
+        setViewMode("all");
+        if (!isTauri()) {
+          await evaluateSmartFeed(created.id, { waitForCompletion: true });
+        }
+        await refreshActiveSmartFeedArticles(created.id, "INCLUDE", null, null, "");
+      }
+    },
+    [
+      updateSmartFeed,
+      createSmartFeed,
+      evaluateSmartFeed,
+      activeSmartFeedId,
+      activeSmartFeedBucket,
+      activeSmartFeedSort,
+      activeSmartFeedGroupStories,
+      searchQuery,
+      refreshActiveSmartFeedArticles,
+    ],
+  );
+
+  const handleRefreshSmartFeed = useCallback(
+    async (sf: SmartFeedWithStats) => {
+      await evaluateSmartFeed(sf.id, { waitForCompletion: !isTauri() });
+      if (activeSmartFeedId === sf.id) {
+        await refreshActiveSmartFeedArticles(
+          sf.id,
+          activeSmartFeedBucket,
+          activeSmartFeedSort,
+          activeSmartFeedGroupStories,
+          searchQuery,
+        );
+      }
+    },
+    [
+      evaluateSmartFeed,
+      activeSmartFeedId,
+      activeSmartFeedBucket,
+      activeSmartFeedSort,
+      activeSmartFeedGroupStories,
+      searchQuery,
+      refreshActiveSmartFeedArticles,
+    ],
+  );
+
+  const handleDeleteSmartFeed = useCallback(
+    async (sf: SmartFeedWithStats) => {
+      await deleteSmartFeed(sf.id);
+      if (activeSmartFeedId === sf.id) {
+        setActiveSmartFeedId(null);
+        setActiveSmartFeedData(null);
+      }
+      if (smartFeedToast?.smartFeedId === sf.id) {
+        setSmartFeedToast(null);
+      }
+    },
+    [deleteSmartFeed, activeSmartFeedId, smartFeedToast?.smartFeedId],
+  );
+
   const handleViewModeChange = (mode: ViewMode) => {
+    if (mode !== "search") {
+      setActiveSmartFeedId(null);
+    }
     setViewMode(mode);
     if (mode !== "search") {
       setLastNonSearchViewMode(mode);
@@ -1335,6 +1787,9 @@ export function RSSReader() {
   };
   const handleSearchChange = (value: string) => {
     setSearchQuery(value);
+    if (activeSmartFeedId) {
+      return;
+    }
     if (value.trim().length > 0) {
       setViewMode("search");
     } else {
@@ -2086,6 +2541,10 @@ export function RSSReader() {
         selectedFeedId: selectedFeed?.id ?? null,
         selectedFolderId,
         readingListId: activeReadingListFeeds?.id ?? null,
+        activeSmartFeedId,
+        activeSmartFeedBucket,
+        activeSmartFeedSort,
+        activeSmartFeedGroupStories,
         readingListFeeds: activeReadingListFeeds
           ? Array.from(activeReadingListFeeds.feedIds).sort()
           : [],
@@ -2113,6 +2572,10 @@ export function RSSReader() {
       selectedFeed?.id,
       selectedFolderId,
       activeReadingListFeeds,
+      activeSmartFeedId,
+      activeSmartFeedBucket,
+      activeSmartFeedSort,
+      activeSmartFeedGroupStories,
       selectedTagIds,
       selectedTagFilter,
       searchQuery,
@@ -2586,10 +3049,12 @@ export function RSSReader() {
                   onClick={() => {
                     setSelectedFeed(null);
                     setSelectedFolderId(null);
+                    setActiveReadingListFeeds(null);
+                    setActiveSmartFeedId(null);
                     handleViewModeChange("all");
                   }}
                   className={`px-1 py-1.5 text-xs font-medium rounded-md transition-all ${
-                    viewMode === "all"
+                    viewMode === "all" && !activeSmartFeedId
                       ? "bg-primary text-primary-foreground shadow-sm font-semibold"
                       : "text-muted-foreground hover:bg-muted/70"
                   }`}
@@ -2667,6 +3132,26 @@ export function RSSReader() {
               className="flex-1 min-h-0 overflow-hidden"
             >
             <div className="h-full min-h-0 overflow-y-auto overscroll-contain" data-scroll-container="true">
+              <SmartFeedsSidebarSection
+                smartFeeds={smartFeeds}
+                activeSmartFeedId={activeSmartFeedId}
+                progressByFeedId={smartFeedProgressById}
+                onSelect={(sf) => handleSelectSmartFeedById(sf.id)}
+                onCreate={() => {
+                  setEditingSmartFeed(null);
+                  setSmartFeedDialogOpen(true);
+                }}
+                onEdit={(sf) => {
+                  setEditingSmartFeed(sf);
+                  setSmartFeedDialogOpen(true);
+                }}
+                onRefresh={(sf) => {
+                  void handleRefreshSmartFeed(sf);
+                }}
+                onDelete={(sf) => {
+                  void handleDeleteSmartFeed(sf);
+                }}
+              />
               {feeds.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">
                   <Rss className="w-12 h-12 mx-auto mb-3 opacity-50" />
@@ -2766,6 +3251,7 @@ export function RSSReader() {
                           setSelectedFeed(null);
                           setSelectedFolderId((prev) => (prev === section.id ? null : section.id));
                           setActiveReadingListFeeds(null);
+                          setActiveSmartFeedId(null);
                           handleViewModeChange("all");
                         }}
                         className={`w-full px-3 py-2 flex items-center justify-between gap-2 text-xs uppercase tracking-[0.18em] cursor-pointer transition-colors ${
@@ -2892,6 +3378,7 @@ export function RSSReader() {
                               setSelectedFeed(feed);
                               setSelectedFolderId(null);
                               setActiveReadingListFeeds(null);
+                              setActiveSmartFeedId(null);
                               handleViewModeChange("all");
                               if (isMobile) {
                                 setMobileView("items");
@@ -2998,6 +3485,7 @@ export function RSSReader() {
                               setSelectedFeed(feed);
                               setSelectedFolderId(null);
                               setActiveReadingListFeeds(null);
+                              setActiveSmartFeedId(null);
                               handleViewModeChange("all");
                               if (isMobile) {
                                 setMobileView("items");
@@ -3064,6 +3552,7 @@ export function RSSReader() {
                         <button
                           key={tag.id}
                           onClick={() => {
+                            setActiveSmartFeedId(null);
                             setViewMode("favorites");
                             setSelectedTagIds(new Set([tag.id]));
                             setTagFilter(tag.id);
@@ -3148,39 +3637,76 @@ export function RSSReader() {
                 </div>
               )}
               <div className="px-5 pt-4 pb-3 border-b border-border/70 bg-gradient-to-b from-muted/20 via-muted/10 to-transparent">
-                <div className="flex items-center justify-between gap-3">
-                  <div className="min-w-0">
-                    <h3 className="text-base font-semibold text-foreground truncate">
-                      {itemsTitle}
-                    </h3>
-                    <p className="text-xs text-muted-foreground">{itemsSubtitle}</p>
-                  </div>
-                  {selectedFeed && (viewMode === "all" || viewMode === "unread") && (
-                    <div className="flex items-center gap-1">
-                      <button
-                        onClick={() => handleRefreshFeed(selectedFeed)}
-                        className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded-lg mobile-density-tap"
-                        title={t("rssReader.refreshFeed")}
-                      >
-                        <ArrowsClockwise className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleMarkAllRead(selectedFeed.id)}
-                        className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded-lg mobile-density-tap"
-                        title={t("rssReader.markAllRead")}
-                      >
-                        <CheckCircle className="w-4 h-4" />
-                      </button>
-                      <button
-                        onClick={() => handleRemoveFeed(selectedFeed.id)}
-                        className="p-2 text-destructive hover:bg-destructive/20 rounded-lg mobile-density-tap"
-                        title={t("rssReader.unsubscribe")}
-                      >
-                        <Trash className="w-4 h-4" />
-                      </button>
+                {activeSmartFeed ? (
+                  <SmartFeedHeaderBar
+                    feed={activeSmartFeed}
+                    progress={smartFeedProgressById[activeSmartFeed.id]}
+                    bucket={activeSmartFeedBucket}
+                    sortOrder={activeSmartFeedSort ?? activeSmartFeed.sort_order}
+                    groupSimilarStories={
+                      activeSmartFeedGroupStories ?? activeSmartFeed.group_similar_stories
+                    }
+                    onBucketChange={(nextBucket) => {
+                      clearPendingFeedbackForFeed(activeSmartFeed.id);
+                      setActiveSmartFeedBucket(nextBucket);
+                    }}
+                    onSortOrderChange={(nextSort) => setActiveSmartFeedSort(nextSort)}
+                    onToggleGroupStories={() =>
+                      setActiveSmartFeedGroupStories((prev) =>
+                        !(prev ?? activeSmartFeed.group_similar_stories),
+                      )
+                    }
+                    onRefresh={() => {
+                      void handleRefreshSmartFeed(activeSmartFeed);
+                    }}
+                    onCancel={() => {
+                      void cancelSmartFeedEvaluation(activeSmartFeed.id);
+                    }}
+                    onEdit={() => {
+                      setEditingSmartFeed(activeSmartFeed);
+                      setSmartFeedDialogOpen(true);
+                    }}
+                    onDelete={() => {
+                      void handleDeleteSmartFeed(activeSmartFeed);
+                    }}
+                    isMobile={isMobile}
+                    onBackToFeeds={() => setMobileView("feeds")}
+                  />
+                ) : (
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-base font-semibold text-foreground truncate">
+                        {itemsTitle}
+                      </h3>
+                      <p className="text-xs text-muted-foreground">{itemsSubtitle}</p>
                     </div>
-                  )}
-                </div>
+                    {selectedFeed && (viewMode === "all" || viewMode === "unread") && (
+                      <div className="flex items-center gap-1">
+                        <button
+                          onClick={() => handleRefreshFeed(selectedFeed)}
+                          className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded-lg mobile-density-tap"
+                          title={t("rssReader.refreshFeed")}
+                        >
+                          <ArrowsClockwise className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleMarkAllRead(selectedFeed.id)}
+                          className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted/70 rounded-lg mobile-density-tap"
+                          title={t("rssReader.markAllRead")}
+                        >
+                          <CheckCircle className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => handleRemoveFeed(selectedFeed.id)}
+                          className="p-2 text-destructive hover:bg-destructive/20 rounded-lg mobile-density-tap"
+                          title={t("rssReader.unsubscribe")}
+                        >
+                          <Trash className="w-4 h-4" />
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 <div className="mt-3 relative">
                   <MagnifyingGlass className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
@@ -3188,35 +3714,76 @@ export function RSSReader() {
                     type="text"
                     value={searchQuery}
                     onChange={(e) => handleSearchChange(e.target.value)}
-                    placeholder={t("rssReader.searchArticles")}
+                    placeholder={
+                      activeSmartFeed
+                        ? t("smartFeeds.searchPlaceholder")
+                        : t("rssReader.searchArticles")
+                    }
                     className="w-full pl-9 pr-3 py-2 bg-background/80 border border-border/70 rounded-lg text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/60"
                   />
                 </div>
 
                 {/* View mode switchers */}
-                <div className="mt-2 flex items-center gap-2">
-                  <StoryViewModeSwitcher
-                    currentMode={storyViewMode}
-                    onModeChange={setStoryViewMode}
-                    compact
-                  />
-                  <div className="flex items-center bg-muted/60 rounded-lg p-0.5">
-                    {(["list", "magazine", "grid"] as const).map((mode) => (
+                {!activeSmartFeed && (
+                  <div className="mt-2 flex items-center gap-2">
+                    <StoryViewModeSwitcher
+                      currentMode={storyViewMode}
+                      onModeChange={setStoryViewMode}
+                      compact
+                    />
+                    <div className="flex items-center bg-muted/60 rounded-lg p-0.5">
+                      {(["list", "magazine", "grid"] as const).map((mode) => (
+                        <button
+                          key={mode}
+                          onClick={() => setArticleLayout(mode)}
+                          className={`px-1.5 py-1 text-[10px] font-medium rounded-md capitalize transition-colors ${
+                            articleLayout === mode
+                              ? "bg-background text-foreground shadow-sm"
+                              : "text-muted-foreground hover:text-foreground"
+                          }`}
+                        >
+                          {mode}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {smartFeedToast && (
+                <div
+                  role="status"
+                  aria-live="polite"
+                  className="mx-3 mt-2 px-3 py-2 rounded-lg border border-primary/30 bg-primary/10 text-xs flex items-center justify-between gap-2"
+                >
+                  <span className="text-foreground">{smartFeedToast.message}</span>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {smartFeedToast.canUndo && (
                       <button
-                        key={mode}
-                        onClick={() => setArticleLayout(mode)}
-                        className={`px-1.5 py-1 text-[10px] font-medium rounded-md capitalize transition-colors ${
-                          articleLayout === mode
-                            ? "bg-background text-foreground shadow-sm"
-                            : "text-muted-foreground hover:text-foreground"
-                        }`}
+                        type="button"
+                        onClick={() => {
+                          void handleSmartFeedFeedback(
+                            smartFeedToast.smartFeedId,
+                            smartFeedToast.articleId,
+                            "UNDO",
+                          );
+                        }}
+                        className="font-semibold text-primary hover:underline"
                       >
-                        {mode}
+                        {t("smartFeeds.undoFeedback")}
                       </button>
-                    ))}
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setSmartFeedToast(null)}
+                      className="text-muted-foreground hover:text-foreground"
+                      aria-label={t("common.close")}
+                    >
+                      <X className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
                   </div>
                 </div>
-              </div>
+              )}
 
               {/* MagnifyingGlass results (FTS5) */}
               {viewMode === "search" && searchQuery && (
@@ -3246,9 +3813,13 @@ export function RSSReader() {
               >
               {items.length === 0 && !(viewMode === "search" && searchQuery) ? (
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain p-8 text-center text-muted-foreground mobile-density-section" data-scroll-container="true">
-                  {viewMode === "unread" ? t("rssReader.noUnread") : t("rssReader.noArticles")}
+                  {activeSmartFeed
+                    ? t("smartFeeds.emptyBucket")
+                    : viewMode === "unread"
+                      ? t("rssReader.noUnread")
+                      : t("rssReader.noArticles")}
                 </div>
-              ) : articleLayout === "magazine" ? (
+              ) : !activeSmartFeed && articleLayout === "magazine" ? (
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain transition-all duration-300" data-scroll-container="true">
                   <MagazineLayout
                     preferences={preferences}
@@ -3264,7 +3835,7 @@ export function RSSReader() {
                     excerptLength={preferences?.excerpt_length ?? 150}
                   />
                 </div>
-              ) : articleLayout === "grid" ? (
+              ) : !activeSmartFeed && articleLayout === "grid" ? (
                 <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain transition-all duration-300" data-scroll-container="true">
                   <GridLayout
                     preferences={preferences}
@@ -3285,6 +3856,7 @@ export function RSSReader() {
                       const entry = items[virtualRow.index];
                       if (!entry) return null;
                       const { feed, item } = entry;
+                      const sfMeta = activeSmartFeedId ? smartFeedArticleMetaById.get(item.id) : undefined;
                       return (
                         <RSSListArticleCard
                           key={`${rssListScopeKey}:${feed.id}:${item.id}`}
@@ -3302,6 +3874,19 @@ export function RSSReader() {
                           }
                           onContextMenu={(e) => openArticleMenu(feed, item, e)}
                           onMenuKeyDown={(e) => articleMenuKeyDown(feed, item, e)}
+                          extraContent={
+                            sfMeta && activeSmartFeedId ? (
+                              <SmartFeedArticleExtras
+                                article={sfMeta}
+                                pendingFeedback={pendingFeedbackByFeed[activeSmartFeedId]?.[item.id]}
+                                onFeedback={(type) => {
+                                  void handleSmartFeedFeedback(activeSmartFeedId, item.id, type);
+                                }}
+                                onSelectSiblingSmartFeed={(sid) => handleSelectSmartFeedById(sid)}
+                                onOpenClusterArticle={handleOpenClusterArticle}
+                              />
+                            ) : undefined
+                          }
                         />
                       );
                     })}
@@ -3462,6 +4047,46 @@ export function RSSReader() {
                         )}
                       </div>
                     )}
+                    {selectedItem &&
+                      ((activeSmartFeedId && smartFeedArticleMetaById.has(selectedItem.id)) ||
+                        selectedArticleSmartMemberships.length > 0) && (
+                        <div className="px-6 py-2 border-b border-border/50 bg-primary/5">
+                          {activeSmartFeedId && smartFeedArticleMetaById.has(selectedItem.id) ? (
+                            <SmartFeedArticleExtras
+                              compact
+                              article={smartFeedArticleMetaById.get(selectedItem.id)!}
+                              pendingFeedback={
+                                pendingFeedbackByFeed[activeSmartFeedId]?.[selectedItem.id]
+                              }
+                              onFeedback={(type) => {
+                                void handleSmartFeedFeedback(
+                                  activeSmartFeedId,
+                                  selectedItem.id,
+                                  type,
+                                );
+                              }}
+                              onSelectSiblingSmartFeed={(sid) => handleSelectSmartFeedById(sid)}
+                              onOpenClusterArticle={handleOpenClusterArticle}
+                            />
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-1.5 text-xs">
+                              <span className="text-[11px] font-medium text-muted-foreground">
+                                {t("smartFeeds.inSmartFeedsLabel")}
+                              </span>
+                              {selectedArticleSmartMemberships.map((badge) => (
+                                <button
+                                  key={badge.smart_feed_id}
+                                  type="button"
+                                  onClick={() => handleSelectSmartFeedById(badge.smart_feed_id)}
+                                  className="px-2 py-0.5 rounded-full border border-primary/30 bg-background text-primary hover:bg-primary/10 text-[11px] transition-colors"
+                                >
+                                  {badge.smart_feed_name}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     <div className="flex-1 flex min-h-0 relative overflow-hidden">
                       <div
                         className="flex-1 overflow-y-auto transition-colors duration-200"
@@ -3599,11 +4224,13 @@ export function RSSReader() {
                     selectedRssItemsCount={rssStudy.selectedRssItems.length}
                     onViewModeChange={handleViewModeChange}
                     onSelectArticle={(feed, item) => {
+                      setActiveSmartFeedId(null);
                       setSelectedFeed(feed);
                       setSelectedItem(item);
                       setSelectedItemFeed(feed);
                     }}
                     onSelectFeed={(feed) => {
+                      setActiveSmartFeedId(null);
                       setSelectedFeed(feed);
                       handleViewModeChange("all");
                     }}
@@ -3614,6 +4241,23 @@ export function RSSReader() {
                     onOpenShortcutsHelp={() => setShowKeyboardHelp(true)}
                     onSyncAll={() => refreshAllFeeds("manual")}
                     isSyncing={isAutoRefreshing}
+                    smartFeeds={smartFeeds}
+                    smartFeedProgressById={smartFeedProgressById}
+                    onSelectSmartFeed={(sf) => handleSelectSmartFeedById(sf.id)}
+                    onCreateSmartFeed={() => {
+                      setEditingSmartFeed(null);
+                      setSmartFeedDialogOpen(true);
+                    }}
+                    onEditSmartFeed={(sf) => {
+                      setEditingSmartFeed(sf);
+                      setSmartFeedDialogOpen(true);
+                    }}
+                    onRefreshSmartFeed={(sf) => {
+                      void handleRefreshSmartFeed(sf);
+                    }}
+                    onCancelSmartFeed={(sf) => {
+                      void cancelSmartFeedEvaluation(sf.id);
+                    }}
                   />
                 )}
               </div>
@@ -3723,6 +4367,22 @@ export function RSSReader() {
             setDialogPrefill(null);
           }}
           onSave={handleSaveReadingList}
+        />
+
+        {/* Create / Edit Smart Feed Dialog */}
+        <SmartFeedDialog
+          isOpen={smartFeedDialogOpen}
+          editing={editingSmartFeed}
+          feeds={feeds}
+          sections={groupedFeeds.sections}
+          capabilities={smartFeedCapabilities}
+          onClose={() => {
+            setSmartFeedDialogOpen(false);
+            setEditingSmartFeed(null);
+          }}
+          onSave={handleSaveSmartFeed}
+          onExport={exportSmartFeeds}
+          onImport={importSmartFeedsPayload}
         />
       </div>
 
