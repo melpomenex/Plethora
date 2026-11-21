@@ -79,7 +79,7 @@ export type { YouTubeTranscriptSegment };
  */
 export function extractYouTubeID(url: string): string | null {
   const patterns = [
-    /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
+    /(?:youtube\.com\/watch\?(?:[^#]*&)?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
     /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
     /youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
     /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
@@ -338,14 +338,217 @@ export async function searchYouTube(_query: string): Promise<YouTubeSearchResult
   return [];
 }
 
+interface RawYtdlpPlaylistEntry {
+  id?: string;
+  url?: string;
+  title?: string;
+  description?: string;
+  channel?: string;
+  uploader?: string;
+  playlist_uploader?: string;
+  channel_id?: string;
+  uploader_id?: string;
+  playlist_uploader_id?: string;
+  duration?: number | string | null;
+  view_count?: number | null;
+  upload_date?: string;
+  thumbnail?: string;
+  thumbnails?: Array<{ url?: string }>;
+  playlist_title?: string;
+}
+
+interface RawYtdlpPlaylistResponse {
+  id?: string;
+  title?: string;
+  description?: string;
+  channel?: string;
+  channel_id?: string;
+  channelId?: string;
+  thumbnail?: string;
+  entries?: RawYtdlpPlaylistEntry[];
+}
+
+function resolvePlaylistEntryVideoId(entry: RawYtdlpPlaylistEntry): string | null {
+  if (typeof entry.id === "string" && entry.id.trim()) {
+    const trimmed = entry.id.trim();
+    return extractYouTubeID(trimmed) || trimmed;
+  }
+  if (typeof entry.url === "string" && entry.url.trim()) {
+    const trimmed = entry.url.trim();
+    return extractYouTubeID(trimmed) || (/^[a-zA-Z0-9_-]{11}$/.test(trimmed) ? trimmed : null);
+  }
+  return null;
+}
+
+/**
+ * Normalize raw yt-dlp playlist JSON into a YouTubePlaylist object
+ */
+export function normalizeYtdlpPlaylist(
+  playlistId: string,
+  raw: RawYtdlpPlaylistResponse
+): YouTubePlaylist | null {
+  const rawEntries = Array.isArray(raw?.entries) ? raw.entries : [];
+  const firstEntry = rawEntries[0];
+  const playlistChannel =
+    raw.channel ||
+    firstEntry?.playlist_uploader ||
+    firstEntry?.channel ||
+    firstEntry?.uploader ||
+    "Unknown Channel";
+  const playlistChannelId =
+    raw.channel_id ||
+    raw.channelId ||
+    firstEntry?.playlist_uploader_id ||
+    firstEntry?.channel_id ||
+    firstEntry?.uploader_id ||
+    "";
+
+  const videos: YouTubeVideo[] = [];
+  for (const entry of rawEntries) {
+    if (!entry || typeof entry !== "object") continue;
+    const videoId = resolvePlaylistEntryVideoId(entry);
+    if (!videoId) continue;
+
+    const thumbFromList =
+      Array.isArray(entry.thumbnails) && entry.thumbnails.length > 0
+        ? entry.thumbnails[entry.thumbnails.length - 1]?.url || entry.thumbnails[0]?.url
+        : undefined;
+    const thumbnail = entry.thumbnail || thumbFromList || getYouTubeThumbnail(videoId, "high");
+
+    const duration =
+      typeof entry.duration === "number" && Number.isFinite(entry.duration)
+        ? Math.max(0, Math.round(entry.duration))
+        : typeof entry.duration === "string"
+          ? entry.duration.startsWith("PT")
+            ? parseYouTubeDuration(entry.duration)
+            : Math.max(0, Math.round(Number(entry.duration) || 0))
+          : 0;
+
+    videos.push({
+      id: videoId,
+      title: entry.title || `Video ${videos.length + 1}`,
+      description: entry.description || "",
+      channel: entry.channel || entry.uploader || playlistChannel,
+      channelId: entry.channel_id || entry.uploader_id || playlistChannelId,
+      duration,
+      viewCount: typeof entry.view_count === "number" ? entry.view_count : 0,
+      uploadDate: entry.upload_date || "",
+      thumbnail,
+      publishDate: entry.upload_date || "",
+      tags: [],
+      category: "",
+      liveContent: false,
+    });
+  }
+
+  if (videos.length === 0 && !raw?.title) {
+    return null;
+  }
+
+  const title =
+    raw.title && raw.title !== "Unknown Playlist"
+      ? raw.title
+      : firstEntry?.playlist_title || raw.title || "YouTube Playlist";
+
+  return {
+    id: raw.id || playlistId,
+    title,
+    description: raw.description || "",
+    channel: playlistChannel,
+    channelId: playlistChannelId,
+    videoCount: videos.length,
+    thumbnail: raw.thumbnail || videos[0]?.thumbnail || "",
+    videos,
+  };
+}
+
 /**
  * Fetch YouTube playlist info
+ * Uses Tauri backend `get_youtube_playlist_info` (yt-dlp --flat-playlist) first,
+ * falling back to YouTube Data API v3 (`fetchPlaylistInfo`) when configured.
  */
-export async function fetchYouTubePlaylist(_playlistId: string): Promise<YouTubePlaylist | null> {
-  console.warn(
-    "YouTube playlist fetching requires backend processing (yt-dlp). " +
-    "This will be available in the Tauri backend."
-  );
+export async function fetchYouTubePlaylist(urlOrPlaylistId: string): Promise<YouTubePlaylist | null> {
+  const trimmed = (urlOrPlaylistId || "").trim();
+  if (!trimmed) return null;
+
+  const playlistId = extractPlaylistID(trimmed) || (trimmed.startsWith("http") ? null : trimmed);
+  if (!playlistId) return null;
+
+  const playlistUrl = `https://www.youtube.com/playlist?list=${playlistId}`;
+
+  // Method 1: Try Tauri backend yt-dlp command
+  if (isTauri() && !isNativeMobile()) {
+    try {
+      const { invokeCommand } = await import("../lib/tauri");
+      const raw = await invokeCommand<RawYtdlpPlaylistResponse | null>(
+        "get_youtube_playlist_info",
+        { url: playlistUrl }
+      );
+      if (raw) {
+        const normalized = normalizeYtdlpPlaylist(playlistId, raw);
+        if (normalized && normalized.videos.length > 0) {
+          return normalized;
+        }
+      }
+    } catch (error) {
+      console.error("[YouTube] Tauri playlist fetch failed, trying fallbacks:", error);
+    }
+  }
+
+  // Method 2: Fallback to YouTube Data API v3 if API key is configured
+  try {
+    const {
+      isYouTubeApiEnabled,
+      fetchPlaylistInfo,
+      fetchVideoDurations,
+      parseDuration,
+    } = await import("../lib/youtubeDataApi");
+
+    if (isYouTubeApiEnabled()) {
+      const apiPlaylist = await fetchPlaylistInfo(playlistId);
+      let durationMap = new Map<string, string>();
+      try {
+        durationMap = await fetchVideoDurations(apiPlaylist.videos.map((v) => v.videoId));
+      } catch (durationError) {
+        console.warn("[YouTube] Failed to fetch playlist video durations:", durationError);
+      }
+
+      const videos: YouTubeVideo[] = apiPlaylist.videos.map((item) => {
+        const isoDuration = durationMap.get(item.videoId) || item.duration;
+        return {
+          id: item.videoId,
+          title: item.title || "YouTube Video",
+          description: item.description || "",
+          channel: apiPlaylist.channelTitle || "Unknown Channel",
+          channelId: apiPlaylist.channelId || "",
+          duration: isoDuration ? parseDuration(isoDuration) : 0,
+          viewCount: 0,
+          uploadDate: "",
+          thumbnail: item.thumbnail || getYouTubeThumbnail(item.videoId, "high"),
+          publishDate: "",
+          tags: [],
+          category: "",
+          liveContent: false,
+        };
+      });
+
+      return {
+        id: apiPlaylist.id || playlistId,
+        title: apiPlaylist.title || "YouTube Playlist",
+        description: apiPlaylist.description || "",
+        channel: apiPlaylist.channelTitle || "Unknown Channel",
+        channelId: apiPlaylist.channelId || "",
+        videoCount: apiPlaylist.itemCount || videos.length,
+        thumbnail:
+          apiPlaylist.thumbnail ||
+          videos[0]?.thumbnail ||
+          (videos[0] ? getYouTubeThumbnail(videos[0].id, "high") : ""),
+        videos,
+      };
+    }
+  } catch (error) {
+    console.error("[YouTube] YouTube Data API playlist fetch failed:", error);
+  }
 
   return null;
 }

@@ -251,7 +251,13 @@ export function GlobalSearch({
 
   // URL detection and import state
   const urlDetection = useURLDetector(query);
-  const { data: urlMetadata, isLoading: isMetadataLoading, error: metadataError } = useURLMetadata(
+  const {
+    data: urlMetadata,
+    playlistData: urlPlaylistData,
+    isLoading: isMetadataLoading,
+    error: metadataError,
+    retry: retryMetadata,
+  } = useURLMetadata(
     urlDetection.type,
     urlDetection.url,
     { debounceMs: 500, enabled: urlDetection.isURL }
@@ -438,6 +444,16 @@ export function GlobalSearch({
   const handleURLImport = useCallback(async (options: ImportOptions) => {
     if (!urlDetection.isURL) return;
 
+    if (options.youtubeMode === "playlist" && options.selectedVideoIds && options.selectedVideoIds.length > 0) {
+      const count = options.selectedVideoIds.length;
+      const playlistTitle = (urlPlaylistData || (urlMetadata as any))?.title || "YouTube Playlist";
+      toast.success(
+        `Imported ${count} video${count === 1 ? "" : "s"}`,
+        `From ${playlistTitle}`
+      );
+      return;
+    }
+
     try {
       const result = await importURL(urlDetection.type, urlDetection.url, {
         tags: options.tags,
@@ -491,7 +507,7 @@ export function GlobalSearch({
         err instanceof Error ? err.message : "Unknown error"
       );
     }
-  }, [urlDetection, urlMetadata, importURL, toast, setIsOpen, onNavigateToDocument]);
+  }, [urlDetection, urlMetadata, urlPlaylistData, importURL, toast, setIsOpen, onNavigateToDocument]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -607,6 +623,8 @@ export function GlobalSearch({
           urlType={urlDetection.type}
           url={urlDetection.url}
           urlMetadata={urlMetadata}
+          urlPlaylistData={urlPlaylistData}
+          onRetryMetadata={retryMetadata}
           isMetadataLoading={isMetadataLoading}
           metadataError={metadataError}
           onImport={handleURLImport}
@@ -745,6 +763,8 @@ export function GlobalSearch({
                     urlType={urlDetection.type}
                     url={urlDetection.url}
                     data={urlMetadata}
+                    playlistData={urlPlaylistData}
+                    onRetry={retryMetadata}
                     isLoading={isMetadataLoading}
                     error={metadataError}
                     onImport={handleURLImport}
@@ -1104,6 +1124,8 @@ interface CommandHubLayerProps {
   urlType: URLType;
   url: string;
   urlMetadata: unknown;
+  urlPlaylistData?: unknown;
+  onRetryMetadata?: () => void;
   isMetadataLoading: boolean;
   metadataError: unknown;
   onImport: (options: ImportOptions) => Promise<void>;
@@ -1146,6 +1168,8 @@ function CommandHubLayer(props: CommandHubLayerProps) {
     urlType,
     url,
     urlMetadata,
+    urlPlaylistData,
+    onRetryMetadata,
     isMetadataLoading,
     metadataError,
     onImport,
@@ -1745,6 +1769,8 @@ function CommandHubLayer(props: CommandHubLayerProps) {
             urlType={urlType}
             url={url}
             data={urlMetadata as never}
+            playlistData={urlPlaylistData as never}
+            onRetry={onRetryMetadata}
             isLoading={isMetadataLoading}
             error={metadataError as never}
             onImport={onImport}

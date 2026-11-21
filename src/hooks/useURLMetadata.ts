@@ -7,7 +7,11 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { invokeCommand, isTauri } from "../lib/tauri";
 import { URLType } from "./useURLDetector";
 import {
+  extractPlaylistID,
+  extractYouTubeID,
+  fetchYouTubePlaylist,
   fetchYouTubeVideoInfo,
+  type YouTubePlaylist,
   type YouTubeVideo,
 } from "../api/youtube";
 import {
@@ -40,6 +44,26 @@ export interface DuplicateCheckResult {
   };
 }
 
+export function isYouTubePlaylistData(data: unknown): data is YouTubePlaylist {
+  return Boolean(
+    data &&
+      typeof data === "object" &&
+      "videos" in data &&
+      Array.isArray((data as YouTubePlaylist).videos)
+  );
+}
+
+export function findImportedYouTubeDocument(
+  videoId: string,
+  documents: Array<{ id: string; title: string; filePath: string; fileType: string }>
+): { id: string; title: string } | undefined {
+  if (!videoId) return undefined;
+  const existing = documents.find(
+    (doc) => doc.fileType === "youtube" && doc.filePath?.includes(videoId)
+  );
+  return existing ? { id: existing.id, title: existing.title } : undefined;
+}
+
 /**
  * Check if a URL has already been imported
  */
@@ -49,15 +73,10 @@ export function checkForDuplicate(
   documents: Array<{ id: string; title: string; filePath: string; fileType: string; metadata?: any }>
 ): DuplicateCheckResult {
   if (urlType === URLType.YouTube) {
-    const videoIdMatch = url.match(
-      /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/
-    );
-    if (videoIdMatch) {
-      const videoId = videoIdMatch[1];
+    const videoId = extractYouTubeID(url);
+    if (videoId) {
       // Check if any YouTube document has this video ID in its filePath
-      const existing = documents.find(
-        (doc) => doc.fileType === "youtube" && doc.filePath.includes(videoId)
-      );
+      const existing = findImportedYouTubeDocument(videoId, documents);
       if (existing) {
         return {
           isDuplicate: true,
@@ -133,9 +152,12 @@ export function checkForDuplicate(
  * Metadata fetch state
  */
 export interface MetadataFetchState {
-  data: YouTubeVideo | Feed | WebPageMetadata | TwitterVideoInfo | TwitterThread | null;
+  data: YouTubeVideo | YouTubePlaylist | Feed | WebPageMetadata | TwitterVideoInfo | TwitterThread | null;
+  playlistData?: YouTubePlaylist | null;
+  playlistError?: string | null;
   isLoading: boolean;
   error: string | null;
+  retry?: () => void;
 }
 
 /**
@@ -169,6 +191,8 @@ export function useURLMetadata(
 
   const [state, setState] = useState<MetadataFetchState>({
     data: null,
+    playlistData: null,
+    playlistError: null,
     isLoading: false,
     error: null,
   });
@@ -178,7 +202,13 @@ export function useURLMetadata(
 
   const fetchMetadata = useCallback(async () => {
     if (!enabled || !url || urlType === URLType.Unknown) {
-      setState({ data: null, isLoading: false, error: null });
+      setState({
+        data: null,
+        playlistData: null,
+        playlistError: null,
+        isLoading: false,
+        error: null,
+      });
       return;
     }
 
@@ -190,18 +220,52 @@ export function useURLMetadata(
     abortControllerRef.current = new AbortController();
     const signal = abortControllerRef.current.signal;
 
-    setState(prev => ({ ...prev, isLoading: true, error: null }));
+    setState(prev => ({ ...prev, isLoading: true, error: null, playlistError: null }));
 
     try {
-      let data: YouTubeVideo | Feed | WebPageMetadata | TwitterVideoInfo | TwitterThread | null = null;
+      let data: YouTubeVideo | YouTubePlaylist | Feed | WebPageMetadata | TwitterVideoInfo | TwitterThread | null = null;
+      let playlistData: YouTubePlaylist | null = null;
+      let playlistError: string | null = null;
 
-        switch (urlType) {
+      switch (urlType) {
         case URLType.YouTube: {
-          const videoIdMatch = url.match(
-            /(?:youtube\.com\/watch\?v=|youtu\.be\/|youtube\.com\/embed\/|youtube\.com\/v\/|youtube\.com\/shorts\/)([a-zA-Z0-9_-]{11})/
-          );
-          if (videoIdMatch) {
-            data = await fetchYouTubeVideoInfo(videoIdMatch[1]);
+          const videoId = extractYouTubeID(url);
+          const playlistId = extractPlaylistID(url);
+
+          if (playlistId && !videoId) {
+            const playlist = await fetchYouTubePlaylist(url);
+            if (!playlist || playlist.videos.length === 0) {
+              throw new Error("Failed to fetch playlist metadata");
+            }
+            data = playlist;
+            playlistData = playlist;
+          } else if (videoId && playlistId) {
+            const [videoSettled, playlistSettled] = await Promise.allSettled([
+              fetchYouTubeVideoInfo(videoId),
+              fetchYouTubePlaylist(url),
+            ]);
+            const video = videoSettled.status === "fulfilled" ? videoSettled.value : null;
+            const playlist =
+              playlistSettled.status === "fulfilled" ? playlistSettled.value : null;
+
+            if (playlist && playlist.videos.length > 0) {
+              playlistData = playlist;
+            } else {
+              playlistError =
+                playlistSettled.status === "rejected" && playlistSettled.reason instanceof Error
+                  ? playlistSettled.reason.message
+                  : "Failed to fetch playlist metadata";
+            }
+
+            if (video) {
+              data = video;
+            } else if (playlistData) {
+              data = playlistData;
+            } else {
+              throw new Error("Failed to fetch video metadata");
+            }
+          } else if (videoId) {
+            data = await fetchYouTubeVideoInfo(videoId);
             if (!data) {
               throw new Error("Failed to fetch video metadata");
             }
@@ -255,26 +319,50 @@ export function useURLMetadata(
           break;
 
         default:
-          setState({ data: null, isLoading: false, error: null });
+          setState({
+            data: null,
+            playlistData: null,
+            playlistError: null,
+            isLoading: false,
+            error: null,
+          });
           return;
       }
 
       if (!signal.aborted) {
-        setState({ data, isLoading: false, error: null });
+        setState({
+          data,
+          playlistData,
+          playlistError,
+          isLoading: false,
+          error: null,
+        });
       }
     } catch (error) {
       if (!signal.aborted) {
         const errorMessage = error instanceof Error
           ? error.message
           : "Failed to fetch metadata";
-        setState({ data: null, isLoading: false, error: errorMessage });
+        setState({
+          data: null,
+          playlistData: null,
+          playlistError: null,
+          isLoading: false,
+          error: errorMessage,
+        });
       }
     }
   }, [url, urlType, enabled]);
 
   useEffect(() => {
     if (!enabled || !url) {
-      setState({ data: null, isLoading: false, error: null });
+      setState({
+        data: null,
+        playlistData: null,
+        playlistError: null,
+        isLoading: false,
+        error: null,
+      });
       return;
     }
 
@@ -296,7 +384,10 @@ export function useURLMetadata(
     };
   }, [fetchMetadata, debounceMs, url, enabled]);
 
-  return state;
+  return {
+    ...state,
+    retry: fetchMetadata,
+  };
 }
 
 /**

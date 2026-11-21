@@ -34,11 +34,13 @@ export interface URLDetectionResult {
  * YouTube URL patterns
  */
 const YOUTUBE_PATTERNS = [
-  /(?:youtube\.com\/watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
+  /(?:youtube\.com\/watch\?(?:[^#]*&)?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/,
   /youtube\.com\/embed\/([a-zA-Z0-9_-]{11})/,
   /youtube\.com\/v\/([a-zA-Z0-9_-]{11})/,
   /youtube\.com\/shorts\/([a-zA-Z0-9_-]{11})/,
 ];
+
+const YOUTUBE_HOST_PATTERN = /(?:^|\/\/)(?:[\w-]+\.)?(?:youtube\.com|youtu\.be)\//i;
 
 /**
  * Twitter / X status URL patterns — captures username and numeric tweet id with support
@@ -115,8 +117,10 @@ function isRSSFeedURL(url: string): boolean {
  * Detect if URL is a YouTube URL
  */
 function isYouTubeURL(url: string): boolean {
-  return YOUTUBE_PATTERNS.some(pattern => pattern.test(url)) ||
-         extractPlaylistID(url) !== null;
+  return (
+    YOUTUBE_PATTERNS.some((pattern) => pattern.test(url)) ||
+    (YOUTUBE_HOST_PATTERN.test(url) && extractPlaylistID(url) !== null)
+  );
 }
 
 /**
