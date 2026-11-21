@@ -8,8 +8,8 @@ import { PdfDiagnostics } from "./pdfDiagnostics";
 import { normalizePdfError, type NormalizedPdfError } from "./pdfErrors";
 
 export const NATIVE_PDF_INITIAL_RANGE_BYTES = 256 * 1024;
-const DEFAULT_MAX_CONCURRENCY = 3;
-const MAX_CACHE_ENTRIES = 24;
+const DEFAULT_MAX_CONCURRENCY = 4;
+const MAX_CACHE_ENTRIES = 48;
 
 type PendingRequest = { begin: number; end: number };
 type MergedRequest = { begin: number; end: number; requests: PendingRequest[] };

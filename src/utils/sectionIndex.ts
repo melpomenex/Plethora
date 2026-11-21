@@ -570,6 +570,8 @@ export function mergeOutlineWithHeuristics(
 
     const match = scored[0]?.candidate;
     if (!match) continue;
+    const matchBodyLen = stripMarkup((match.content ?? "").replace(match.title, "")).length;
+    if (matchBodyLen === 0) continue;
     usedHeuristics.add(match.id);
     heuristicToMerged.set(match.id, outline);
     lastMatchedStart = match.startChar ?? lastMatchedStart;
@@ -747,6 +749,88 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+function normalizePdfHeadingLine(value: string): string {
+  return value
+    .replace(/\uFB01/g, "fi")
+    .replace(/\uFB02/g, "fl")
+    .replace(/^[#\s]+/, "")
+    .replace(/[\s:._-]+/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+function findPdfPageRanges(fullContent: string): Array<{ page: number; start: number; end: number }> {
+  // 1. Form-feed separated pages (`extract_pdf_content` plain text)
+  if (fullContent.includes("\f")) {
+    const parts = fullContent.split("\f");
+    const ranges: Array<{ page: number; start: number; end: number }> = [];
+    let offset = 0;
+    for (let i = 0; i < parts.length; i++) {
+      const start = offset;
+      const end = start + parts[i].length;
+      ranges.push({ page: i + 1, start, end });
+      offset = end + 1;
+    }
+    return ranges;
+  }
+  // 2. HTML page-header markers emitted by `extract_pdf_content`
+  const headerRegex = /<div[^>]*class=["']page-header["'][^>]*>\s*Page\s+(\d+)\s+of\s+\d+\s*<\/div>/gi;
+  const matches = [...fullContent.matchAll(headerRegex)];
+  if (matches.length > 0) {
+    return matches.map((m, idx) => ({
+      page: Number(m[1]),
+      start: m.index ?? 0,
+      end: idx + 1 < matches.length ? (matches[idx + 1].index ?? fullContent.length) : fullContent.length,
+    }));
+  }
+  return [];
+}
+
+function recoverPdfPageSpanRange(
+  section: SectionNode,
+  available: SectionNode[],
+  fullContent: string,
+): SectionNode | undefined {
+  if (section.source !== "pdf-outline" || !section.page || section.page < 1) return undefined;
+  const pageRanges = findPdfPageRanges(fullContent);
+  if (pageRanges.length === 0) return undefined;
+
+  const startEntry = pageRanges.find((r) => r.page === section.page);
+  if (!startEntry) return undefined;
+
+  // End at the next outline section at the same or higher level on a later page.
+  let nextSectionPage: number | undefined;
+  const idx = available.findIndex((c) => c.id === section.id);
+  if (idx !== -1) {
+    for (let i = idx + 1; i < available.length; i++) {
+      const candidate = available[i];
+      if (candidate.level <= section.level && candidate.page && candidate.page > section.page) {
+        nextSectionPage = candidate.page;
+        break;
+      }
+    }
+  }
+
+  const endEntry = nextSectionPage
+    ? pageRanges.find((r) => r.page === nextSectionPage)
+    : undefined;
+  const start = startEntry.start;
+  const end = endEntry ? endEntry.start : pageRanges[pageRanges.length - 1].end;
+  if (end <= start) return undefined;
+
+  const content = fullContent.slice(start, end);
+  if (stripMarkup(content).trim().length === 0) return undefined;
+  return {
+    ...section,
+    startChar: start,
+    endChar: end,
+    directEndChar: end,
+    content,
+    preview: cleanPreview(content),
+    hasAuthoritativeRange: true,
+  };
+}
+
 function recoverOutlineRangeFromText(
   section: SectionNode,
   available: SectionNode[],
@@ -758,8 +842,28 @@ function recoverOutlineRangeFromText(
     `(?:^\\s*(?:#{1,6}\\s*)?${cleanTitle}\\s*$|<h[1-6][^>]*>\\s*(?:<[^>]*>)*\\s*${cleanTitle}\\s*(?:<[^>]*>)*\\s*<\\/h[1-6]\\s*>|^\\s*(?:<p[^>]*>|<div[^>]*>|<li[^>]*>)*(?:<[^>]*>)*\\s*${cleanTitle}\\s*(?:<[^>]*>)*(?:<\\/p>|<\\/div>|<\\/li>)?\\s*$)`,
     "gim"
   );
-  const occurrences = [...fullContent.matchAll(titlePattern)];
-  if (occurrences.length === 0) return undefined;
+  let occurrences: RegExpMatchArray[] = [...fullContent.matchAll(titlePattern)];
+
+  // Fallback for PDFs with ligatures, collapsed whitespace, or minor punctuation differences
+  if (occurrences.length === 0 && section.source === "pdf-outline") {
+    const normalizedTarget = normalizePdfHeadingLine(section.title);
+    if (normalizedTarget.length >= 2) {
+      const lines = fullContent.split(/\r?\n/);
+      let offset = 0;
+      for (const line of lines) {
+        if (normalizePdfHeadingLine(line) === normalizedTarget) {
+          const fakeMatch = [line] as unknown as RegExpMatchArray;
+          fakeMatch.index = offset;
+          occurrences.push(fakeMatch);
+        }
+        offset += line.length + 1;
+      }
+    }
+  }
+
+  if (occurrences.length === 0) {
+    return recoverPdfPageSpanRange(section, available, fullContent);
+  }
 
   const sameTitleOutlineNodes = available.filter((candidate) =>
     candidate.source === section.source && candidate.title.trim().toLowerCase() === section.title.trim().toLowerCase()
@@ -775,18 +879,23 @@ function recoverOutlineRangeFromText(
     const range = computeOccurrenceRange(match, section, available, fullContent);
     const body = range.content.replace(match[0], "");
     const bodyLength = stripMarkup(body).length;
-    return { match, ...range, bodyLength };
+    const isTocLike = /\.{3,}\s*\d+\s*$/.test(match[0]);
+    return { match, ...range, bodyLength, isTocLike };
   });
 
   const primarySlot = Math.min(occurrenceIndex, occurrences.length - 1);
   const primary = scored[primarySlot];
   const titleLength = stripMarkup(section.title).length;
-  const primaryHasBody = primary.bodyLength > Math.max(titleLength, 1);
+  const primaryHasBody = !primary.isTocLike && primary.bodyLength > Math.max(titleLength, 15);
   const chosen = primaryHasBody || scored.length === 1
     ? primary
-    : scored.slice().sort((a, b) => b.bodyLength - a.bodyLength || a.start - b.start)[0];
+    : scored
+        .slice()
+        .sort((a, b) => Number(a.isTocLike) - Number(b.isTocLike) || b.bodyLength - a.bodyLength || a.start - b.start)[0];
 
-  if (!chosen.content || stripMarkup(chosen.content.replace(chosen.match[0], "")).length === 0) return undefined;
+  if (!chosen.content || stripMarkup(chosen.content.replace(chosen.match[0], "")).length === 0) {
+    return recoverPdfPageSpanRange(section, available, fullContent);
+  }
   return {
     ...section,
     startChar: chosen.start,

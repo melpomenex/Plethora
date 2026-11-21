@@ -234,6 +234,7 @@ pub async fn pdf_reflow_apply_ocr_page(
         )
         .await?;
     persist_index_evidence(&repo, &document_id, &source_identity, &page).await;
+    crate::commands::ai_learning::try_enqueue_document(&app, &document_id);
     Ok(page)
 }
 

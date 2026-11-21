@@ -1557,9 +1557,10 @@ export function PDFViewer({
               const loadingTask = pdfjsLib.getDocument({
                 range: native.transport,
                 length: native.info.size,
+                rangeChunkSize: native.info.maxChunkSize,
                 verbosity: 0,
                 disableStream: true,
-                disableAutoFetch: false,
+                disableAutoFetch: true,
                 disableFontFace: shouldDisableFontFace,
                 isEvalSupported: false,
               } as any);
@@ -1673,16 +1674,19 @@ export function PDFViewer({
           () => { /* Label metadata is optional. */ },
         );
 
-        // Get outline (table of contents)
-        const outlineData = await pdfDoc.getOutline();
-        if (outlineData) {
-          setOutline(outlineData);
-          if (documentId) {
-            try {
-              useDocumentOutlineStore.getState().setOutline(documentId, { pdfOutline: outlineData });
-            } catch {}
-          }
-        }
+        // Get outline (table of contents) without blocking initial page render
+        void pdfDoc.getOutline().then(
+          (outlineData) => {
+            if (!mounted || !outlineData) return;
+            setOutline(outlineData);
+            if (documentId) {
+              try {
+                useDocumentOutlineStore.getState().setOutline(documentId, { pdfOutline: outlineData });
+              } catch {}
+            }
+          },
+          () => { /* Outline metadata is optional. */ },
+        );
 
       } catch (err) {
         if (!mounted) return;
@@ -3994,36 +3998,50 @@ export function PDFViewer({
     let active = true;
     const resolveFlatOutline = async () => {
       const flat: { title: string; dest: any; pageNumber: number }[] = [];
-      
-      const traverse = async (items: any[]) => {
+
+      const traverse = async (items: any[]): Promise<any[]> => {
+        const resolvedItems: any[] = [];
         for (const item of items) {
-          if (!active) return;
+          if (!active) return resolvedItems;
+          let pageNumber = typeof item.pageNumber === "number" ? item.pageNumber : undefined;
           if (item.dest) {
             try {
               const resolved = await resolveOutlineDest(item.dest);
               if (resolved) {
+                pageNumber = resolved.pageIndex + 1;
                 flat.push({
                   title: item.title,
                   dest: item.dest,
-                  pageNumber: resolved.pageIndex + 1,
+                  pageNumber,
                 });
               }
             } catch (err) {
               console.warn("Failed to resolve outline item dest:", err);
             }
           }
-          if (item.items && item.items.length > 0) {
-            await traverse(item.items);
-          }
+          const children = item.items && item.items.length > 0
+            ? await traverse(item.items)
+            : item.items;
+          resolvedItems.push({
+            ...item,
+            ...(pageNumber !== undefined ? { pageNumber } : {}),
+            items: children,
+          });
         }
+        return resolvedItems;
       };
 
-      await traverse(outline);
-      
+      const resolvedTree = await traverse(outline);
+
       if (active) {
         // Sort by page number to make linear traversal correct
         flat.sort((a, b) => a.pageNumber - b.pageNumber);
         setFlatOutline(flat);
+        if (documentId && resolvedTree.length > 0) {
+          try {
+            useDocumentOutlineStore.getState().setOutline(documentId, { pdfOutline: resolvedTree });
+          } catch {}
+        }
       }
     };
 

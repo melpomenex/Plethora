@@ -175,7 +175,7 @@ export function buildArticleReaderStyles(
     figcaption { margin-block-start: .65em; text-align: center; }
     caption { caption-side: top; padding-block-end: .6em; text-align: start; font-weight: 600; }
     table { border-collapse: collapse; inline-size: max-content; min-inline-size: 100%; }
-    .inc-table-wrap table { white-space: nowrap; }
+    .inc-table-wrap table { white-space: nowrap; max-inline-size: none; }
     th, td { padding: .55em .7em; border: 1px solid var(--reader-border); text-align: start; vertical-align: top; }
     th { background: var(--reader-muted-surface); font-weight: 700; }
     cite, .inc-citation, .inc-footnote-ref { font-size: .9em; }
@@ -199,8 +199,9 @@ export function buildArticleReaderStyles(
       overflow-y: hidden;
       overscroll-behavior-inline: contain;
       -webkit-overflow-scrolling: touch;
+      scrollbar-gutter: stable;
     }
-    .inc-article, .inc-body, figure, img, math, pre, table { max-inline-size: 100%; }
+    .inc-article, .inc-body, figure, img, math, pre { max-inline-size: 100%; }
     mark[data-search-highlight], mark[data-viewer-search] {
       color: var(--reader-foreground);
       background: ${tokens.accent}55;

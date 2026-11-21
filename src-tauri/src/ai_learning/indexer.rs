@@ -168,6 +168,41 @@ impl Worker {
             warn!("failed to reset interrupted index states: {}", e);
         }
 
+        // Reconcile any queued, stale, or newly imported documents that have
+        // usable content and are not AI-excluded so a restart or crash after
+        // commit never permanently loses indexing work.
+        match sqlx::query_scalar::<_, String>(
+            r#"
+            SELECT d.id
+            FROM documents d
+            LEFT JOIN ai_index_state s ON s.document_id = d.id
+            WHERE d.is_ai_excluded = 0
+              AND (
+                s.state IN ('queued', 'stale')
+                OR (s.document_id IS NULL AND COALESCE(NULLIF(trim(d.content), ''), '') != '')
+              )
+            ORDER BY d.date_modified DESC
+            LIMIT 500
+            "#,
+        )
+        .fetch_all(self.repo.pool())
+        .await
+        {
+            Ok(pending_ids) => {
+                for doc_id in pending_ids {
+                    if !self.backlog.contains(&doc_id) {
+                        self.backlog.push_back(doc_id);
+                    }
+                }
+                self.set_status(|s| {
+                    s.pending_documents = self.backlog_len();
+                });
+            }
+            Err(e) => {
+                warn!("failed to reconcile pending AI index documents: {}", e);
+            }
+        }
+
         #[derive(PartialEq)]
         enum StopReason {
             None,

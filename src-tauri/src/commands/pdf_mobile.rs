@@ -7,11 +7,50 @@ use sha2::{Digest, Sha256};
 use std::fs::{File, Metadata};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, OnceLock};
 use std::time::UNIX_EPOCH;
 use tauri::State;
 
 pub const MAX_PDF_RANGE_BYTES: u64 = 512 * 1024;
 const FINGERPRINT_SAMPLE_BYTES: usize = 64 * 1024;
+const PDF_SOURCE_CACHE_CAPACITY: usize = 16;
+
+type PdfSourceCacheEntry = ((String, String), PathBuf);
+
+fn pdf_source_cache() -> &'static Mutex<Vec<PdfSourceCacheEntry>> {
+    static CACHE: OnceLock<Mutex<Vec<PdfSourceCacheEntry>>> = OnceLock::new();
+    CACHE.get_or_init(|| Mutex::new(Vec::with_capacity(PDF_SOURCE_CACHE_CAPACITY)))
+}
+
+fn cache_get_pdf_path(document_id: &str, identity: &str) -> Option<PathBuf> {
+    let Ok(mut cache) = pdf_source_cache().lock() else {
+        return None;
+    };
+    let pos = cache
+        .iter()
+        .position(|((id, ident), _)| id == document_id && ident == identity)?;
+    let entry = cache.remove(pos);
+    let path = entry.1.clone();
+    cache.push(entry);
+    Some(path)
+}
+
+fn cache_put_pdf_path(document_id: &str, identity: &str, path: PathBuf) {
+    let Ok(mut cache) = pdf_source_cache().lock() else {
+        return;
+    };
+    cache.retain(|((id, _), _)| id != document_id);
+    if cache.len() >= PDF_SOURCE_CACHE_CAPACITY {
+        cache.remove(0);
+    }
+    cache.push(((document_id.to_string(), identity.to_string()), path));
+}
+
+fn cache_evict_pdf_path(document_id: &str, identity: &str) {
+    if let Ok(mut cache) = pdf_source_cache().lock() {
+        cache.retain(|((id, ident), _)| !(id == document_id && ident == identity));
+    }
+}
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -282,6 +321,7 @@ pub async fn get_pdf_document_source_info_impl(
     repo: &Repository,
 ) -> std::result::Result<PdfDocumentSourceInfo, PdfNativeError> {
     let inspected = inspect_document_pdf(document_id, repo, true).await?;
+    cache_put_pdf_path(document_id, &inspected.identity, inspected.path.clone());
     Ok(PdfDocumentSourceInfo {
         document_id: document_id.to_string(),
         size: inspected.size,
@@ -309,6 +349,56 @@ pub async fn read_pdf_document_range_impl(
     expected_identity: &str,
     repo: &Repository,
 ) -> std::result::Result<Vec<u8>, PdfNativeError> {
+    // Fast path: if this (document_id, expected_identity) was already authorized
+    // and resolved, re-verify the file's metadata/identity in `spawn_blocking`
+    // and read the range without hitting SQLite on every 512 KB chunk.
+    if let Some(cached_path) = cache_get_pdf_path(document_id, expected_identity) {
+        let expected = expected_identity.to_string();
+        let fast_result = tokio::task::spawn_blocking(move || {
+            let metadata = match std::fs::metadata(&cached_path) {
+                Ok(m) if m.is_file() => m,
+                _ => return Ok(None),
+            };
+            if identity_for(&cached_path, &metadata) != expected {
+                return Err(PdfNativeError::new(
+                    "pdf_source_changed",
+                    "The PDF changed after it was opened. Reload it to continue.",
+                    true,
+                ));
+            }
+            let inspected = InspectedPdf {
+                path: cached_path,
+                size: metadata.len(),
+                identity: expected,
+                fingerprint: String::new(),
+            };
+            read_range_from_path(&inspected, offset, length).map(Some)
+        })
+        .await
+        .map_err(|error| {
+            PdfNativeError::new(
+                "pdf_source_unavailable",
+                format!("The PDF range read task failed: {error}"),
+                true,
+            )
+        })?;
+
+        match fast_result {
+            Ok(Some(bytes)) => return Ok(bytes),
+            Ok(None) => {
+                // File missing or not a regular file; evict and fall through to
+                // the full DB-backed inspection for accurate error reporting.
+                cache_evict_pdf_path(document_id, expected_identity);
+            }
+            Err(err) => {
+                if err.code == "pdf_source_changed" {
+                    cache_evict_pdf_path(document_id, expected_identity);
+                }
+                return Err(err);
+            }
+        }
+    }
+
     let inspected = inspect_document_pdf(document_id, repo, false).await?;
     if inspected.identity != expected_identity {
         return Err(PdfNativeError::new(
@@ -317,6 +407,7 @@ pub async fn read_pdf_document_range_impl(
             true,
         ));
     }
+    cache_put_pdf_path(document_id, expected_identity, inspected.path.clone());
     // The seek+read is blocking file I/O; run it on the blocking pool so a
     // page-turn burst of range reads can't stall async runtime workers
     // (design D5). `inspected` moves into the closure (it is only needed for

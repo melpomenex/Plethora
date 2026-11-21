@@ -54,9 +54,20 @@ export function buildCompatibilityReaderStyles(
     th, td { border: 1px solid var(--reader-border) !important; padding: .5rem .65rem !important; text-align: start !important; }
     th { background: var(--reader-muted-surface) !important; font-weight: 700 !important; }
     figcaption, caption, .pdf-header .meta, .page-header { color: var(--reader-muted-foreground) !important; font-size: .875em !important; }
-    pre, .ltx_equation, .ltx_equationgroup, .ltx_tabular, .ltx_table, .page-content table {
+    pre, .ltx_equation, .ltx_equationgroup, .ltx_tabular, .ltx_table, .inc-table-wrap, .page-content table {
       overflow-x: auto !important;
       -webkit-overflow-scrolling: touch;
+    }
+    .inc-table-wrap, .ltx_table, .ltx_tabular {
+      display: block !important;
+      inline-size: 100% !important;
+      max-inline-size: 100% !important;
+    }
+    .inc-table-wrap table, .ltx_table table, .ltx_tabular table, table.ltx_tabular {
+      inline-size: max-content !important;
+      min-inline-size: 100% !important;
+      max-width: none !important;
+      max-inline-size: none !important;
     }
     .ltx_document { max-inline-size: 68ch !important; margin-inline: auto !important; }
     .ltx_page_navbar, .arxiv-html-header, .ds-announcement, .ds-site-footer, .ltx_TOC, dialog { display: none !important; }

@@ -2040,6 +2040,9 @@ async fn handle_import_request(
     };
 
     let created = state.repo.create_document(&document).await?;
+    if created.content.as_deref().is_some_and(|c| !c.trim().is_empty()) {
+        crate::commands::ai_learning::try_enqueue_document(&state.app_handle, &created.id);
+    }
     info!(
         "Created document for URL: {} with id: {}",
         payload.url, created.id

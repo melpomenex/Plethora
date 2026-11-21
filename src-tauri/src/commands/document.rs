@@ -251,6 +251,11 @@ async fn import_from_path(
     if kindle_clippings::is_kindle_clippings_path(path) {
         let documents =
             import_kindle_clippings_from_disk(&disk_path, collection_id.clone(), repo).await?;
+        for doc in &documents {
+            if doc.content.as_deref().is_some_and(|c| !c.trim().is_empty()) {
+                crate::commands::ai_learning::try_enqueue_document(app, &doc.id);
+            }
+        }
         if let Some(first) = documents.into_iter().next() {
             return Ok(first);
         }
@@ -344,6 +349,9 @@ async fn import_from_path(
     doc.cover_image_source = cover_source;
 
     let created = repo.create_document(&doc).await?;
+    if created.content.as_deref().is_some_and(|c| !c.trim().is_empty()) {
+        crate::commands::ai_learning::try_enqueue_document(app, &created.id);
+    }
 
     Ok(created)
 }
@@ -413,7 +421,13 @@ pub async fn import_document_multi(
     let disk_path = canonical.to_string_lossy().to_string();
 
     if kindle_clippings::is_kindle_clippings_path(&canonical) {
-        return import_kindle_clippings_from_disk(&disk_path, collection_id, &repo).await;
+        let docs = import_kindle_clippings_from_disk(&disk_path, collection_id, &repo).await?;
+        for doc in &docs {
+            if doc.content.as_deref().is_some_and(|c| !c.trim().is_empty()) {
+                crate::commands::ai_learning::try_enqueue_document(&app, &doc.id);
+            }
+        }
+        return Ok(docs);
     }
 
     // Non-Kindle file: reuse the single-doc path and wrap as a one-element vec
@@ -988,6 +1002,7 @@ pub async fn create_document(
     file_path: String,
     file_type: String,
     collection_id: Option<String>,
+    app: tauri::AppHandle,
     repo: State<'_, Repository>,
 ) -> Result<Document> {
     let file_type = match file_type.as_str() {
@@ -1004,6 +1019,9 @@ pub async fn create_document(
 
     let doc = Document::with_collection(title, file_path, file_type, collection_id);
     let created = repo.create_document(&doc).await?;
+    if created.content.as_deref().is_some_and(|c| !c.trim().is_empty()) {
+        crate::commands::ai_learning::try_enqueue_document(&app, &created.id);
+    }
     Ok(created)
 }
 
@@ -1042,10 +1060,18 @@ pub async fn clear_document_category(id: String, repo: State<'_, Repository>) ->
 pub async fn update_document_content(
     id: String,
     content: String,
+    app: tauri::AppHandle,
     repo: State<'_, Repository>,
 ) -> Result<Document> {
     repo.update_document_content(&id, &content, None, None, None)
         .await?;
+    let _ = sqlx::query("UPDATE ai_index_state SET state = 'stale' WHERE document_id = ?1")
+        .bind(&id)
+        .execute(repo.pool())
+        .await;
+    if !content.trim().is_empty() {
+        crate::commands::ai_learning::try_enqueue_document(&app, &id);
+    }
     repo.get_document(&id)
         .await?
         .ok_or_else(|| crate::error::PlethoraError::NotFound(format!("Document {}", id)))
