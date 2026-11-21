@@ -23,6 +23,14 @@ import {
   type PdfViewportRect,
 } from "../../lib/pdf/pdfImageRegions";
 import { cn } from "../../utils";
+import type { PdfEmbeddedLinks } from "./pdfEmbeddedLinks";
+import annotationNoteIcon from "pdfjs-dist/web/images/annotation-note.svg?inline";
+
+const annotationIcons = import.meta.glob<string>("/node_modules/pdfjs-dist/web/images/annotation-*.svg", {
+  eager: true,
+  import: "default",
+  query: "?inline",
+});
 
 // Cap per-page canvas backing store to 4MP (e.g. 2048×2048). PDF.js defaults to
 // 16MP, which causes multi-hundred-MB GPU texture allocations and sluggish
@@ -58,8 +66,11 @@ export interface PdfPageViewWrapperProps {
   pageIndex: number;
   /** Resolved display scale (already incorporates fit-width/fit-page). */
   scale: number;
+  /** Optional view-only rotation, added to the page's intrinsic rotation. */
+  rotation?: number;
   /** Shared event bus — every page view in a document must share one. */
   eventBus: EventBus;
+  embeddedLinks: PdfEmbeddedLinks;
   /** Saved highlights to render over the page. */
   highlights: StoredHighlight[];
   /** PDF-space rects of a persisted selection on this page (null = none). */
@@ -69,7 +80,7 @@ export interface PdfPageViewWrapperProps {
   /** Called once the text layer has rendered, with the `.textLayer` root div. */
   onTextLayerReady: (pageIndex: number, textLayerDiv: HTMLDivElement | null) => void;
   /** Called with the page viewport whenever it changes (zoom, initial render). */
-  onViewportChange: (pageIndex: number, viewport: PageViewport) => void;
+  onViewportChange: (pageIndex: number, viewport: PageViewport, rotation?: number) => void;
   /** Called with the outer slot element whenever it mounts (null on unmount). */
   onSlotRef: (pageIndex: number, slot: HTMLDivElement | null) => void;
   /** Called with the rendered canvas element whenever it changes. */
@@ -105,7 +116,9 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
   scrollContainerRef,
   pageIndex,
   scale,
+  rotation = 0,
   eventBus,
+  embeddedLinks,
   highlights,
   selectionPdfRects,
   ocrActive,
@@ -129,6 +142,8 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
   // app's `scale` (1.0 = 100% at PDF-point pixel size) renders the same as the
   // previous hand-rolled renderer. See the PDF_TO_CSS_UNITS comment above.
   const pdfScale = scale / PDF_TO_CSS_UNITS;
+  const viewSettings = useRef({ pdfScale, rotation });
+  viewSettings.current = { pdfScale, rotation };
 
   const pageNumber = pageIndex + 1;
 
@@ -160,17 +175,24 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       // Compute the default viewport at the initial scale. Pass pdfScale (already
       // compensated for PDF_TO_CSS_UNITS) so PDFPageView's internal re-multiply
       // nets back to the app's raw scale.
-      const defaultViewport = pdfPage.getViewport({ scale: pdfScale });
+      const settings = viewSettings.current;
+      const defaultViewport = pdfPage.getViewport({
+        scale: settings.pdfScale,
+        rotation: (pdfPage.rotate + settings.rotation) % 360,
+      });
 
       const pageView = new PDFPageView({
         container: slot,
         eventBus,
         id: pageNumber,
-        scale: pdfScale,
+        scale: settings.pdfScale,
         defaultViewport,
-        // Text layer on (default). Annotation layer off — we don't render link
-        // annotations and it adds overhead + DOM we'd have to style around.
         textLayerMode: 1, // TextLayerMode.ENABLE = 1
+        layerProperties: {
+          linkService: embeddedLinks,
+          annotationStorage: pdf.annotationStorage,
+          enableScripting: false,
+        },
         maxCanvasPixels: MAX_CANVAS_PIXELS,
       });
       if (cancelled) {
@@ -181,8 +203,9 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       pageViewRef.current = pageView;
 
       // `setPdfPage` recomputes the viewport (scale * PDF_TO_CSS_UNITS) and resets.
+      pageView.rotation = settings.rotation;
       pageView.setPdfPage(pdfPage);
-      onViewportChange(pageIndex, pageView.viewport);
+      onViewportChange(pageIndex, pageView.viewport, pageView.rotation);
 
       // Build the geometric per-character layout in parallel with canvas/text
       // draw so SumatraPDF-style character-by-character selection is ready as
@@ -249,17 +272,30 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       const pageView = pageViewRef.current;
       if (!pageView) return;
       onCanvasRef(pageIndex, pageView.canvas ?? null);
-      onViewportChange(pageIndex, pageView.viewport);
+      onViewportChange(pageIndex, pageView.viewport, pageView.rotation);
+    };
+    const onAnnotationLayerRendered = (event: { pageNumber: number }) => {
+      if (event.pageNumber !== pageNumber || cancelled) return;
+      const images = slot.querySelectorAll<HTMLImageElement>(
+        ".annotationLayer .textAnnotation img, .annotationLayer .fileAttachmentAnnotation img",
+      );
+      for (const image of images) {
+        const name = image.getAttribute("src") ?? "";
+        if (!name.startsWith("annotation-")) continue;
+        image.src = annotationIcons[`/node_modules/pdfjs-dist/web/images/${name}`] ?? annotationNoteIcon;
+      }
     };
     // pdf.js EventBus uses `_on`/`_off` for internal listeners (the public
     // `on` is aliased). `_on` is stable across v5.
     (eventBus as any)._on("textlayerrendered", onTextLayerRendered);
     (eventBus as any)._on("pagerendered", onPageRendered);
+    eventBus.on("annotationlayerrendered", onAnnotationLayerRendered);
 
     return () => {
       cancelled = true;
       (eventBus as any)._off("textlayerrendered", onTextLayerRendered);
       (eventBus as any)._off("pagerendered", onPageRendered);
+      eventBus.off("annotationlayerrendered", onAnnotationLayerRendered);
       const pageView = pageViewRef.current;
       if (pageView) {
         try {
@@ -283,7 +319,7 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       clearHoveredImage();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pdf, pageNumber]); // recreate when the document or page number changes
+  }, [pdf, pageNumber, embeddedLinks]); // recreate when the document or page number changes
 
   // Re-render on scale change (zoom / fit-width / fit-page recalculation).
   // PDFPageView.update({ scale }) sets this.scale, recomputes the viewport, and
@@ -293,11 +329,11 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
     const pageView = pageViewRef.current;
     if (!pageView) return;
     // pageView.scale holds the compensated value; compare against pdfScale.
-    if (Math.abs(pdfScale - pageView.scale) < 1e-6) return;
+    if (Math.abs(pdfScale - pageView.scale) < 1e-6 && rotation === pageView.rotation) return;
     let cancelled = false;
     (async () => {
       try {
-        pageView.update({ scale: pdfScale });
+        pageView.update({ scale: pdfScale, rotation });
         if (pageView.renderingState === RenderingStates.INITIAL) {
           await pageView.draw();
         }
@@ -308,7 +344,7 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
         return;
       }
       if (cancelled) return;
-      onViewportChange(pageIndex, pageView.viewport);
+      onViewportChange(pageIndex, pageView.viewport, pageView.rotation);
       onCanvasRef(pageIndex, pageView.canvas ?? null);
       const div = pageView.textLayer?.div ?? null;
       onTextLayerReady(pageIndex, div);
@@ -317,7 +353,7 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pdfScale]);
+  }, [pdfScale, rotation]);
 
   const handlePageMouseMove = useCallback(
     (e: React.MouseEvent<HTMLDivElement>) => {
@@ -403,7 +439,7 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       className={cn("relative shadow-lg border border-border bg-white pdfViewer", className)}
       style={{
         contain: "layout style paint",
-        ...style,
+        ...(pageViewRef.current ? undefined : style),
       }}
     >
       {/* HighlightLayer overlays the PDFPageView's .page div. pointer-events

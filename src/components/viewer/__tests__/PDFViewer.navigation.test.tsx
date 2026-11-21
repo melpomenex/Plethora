@@ -5,6 +5,8 @@ import { PDFViewer } from "../PDFViewer";
 
 const fixture = vi.hoisted(() => ({
   getDestination: vi.fn(), getPosition: vi.fn(), pageReady: true, pageCount: 8, reflow: false, mobile: true,
+  getPageLabels: vi.fn<() => Promise<string[] | null>>(),
+  getPageText: vi.fn<(page: number) => Promise<string>>(),
   emitCanonical: null as null | ((page: any) => void),
   viewports: new Map<number, (viewport?: any) => void>(),
 }));
@@ -14,8 +16,12 @@ vi.mock("pdfjs-dist", () => ({
   PDFDataRangeTransport: class {},
   getDocument: vi.fn(() => ({ promise: Promise.resolve({
     numPages: fixture.pageCount, fingerprints: ["test"], destroy: vi.fn(async () => {}),
-    getPage: vi.fn(async () => ({ getViewport: () => vp, getTextContent: async () => ({ items: [] }) })),
+    getPage: vi.fn(async (page: number) => ({
+      getViewport: () => vp,
+      getTextContent: async () => ({ items: [{ str: await fixture.getPageText(page) }] }),
+    })),
     getDestination: fixture.getDestination,
+    getPageLabels: fixture.getPageLabels,
     getPageIndex: async (ref: any) => ref.num - 1,
     getOutline: async () => [
       { title: "Heading A", dest: "a", items: [] },
@@ -42,7 +48,11 @@ vi.mock("../PdfPageView", () => ({
     return <div ref={ref} data-pdf-page data-page-number={props.pageIndex + 1} />;
   },
 }));
-vi.mock("../pdfFeatureFlags", () => ({ isPdfFeatureEnabled: () => fixture.reflow, shouldUseNativePdfRangeSource: () => false }));
+vi.mock("../pdfFeatureFlags", () => ({
+  isPdfFeatureEnabled: () => fixture.reflow,
+  pdfReflowEngine: () => fixture.reflow ? "canonical" : "disabled",
+  shouldUseNativePdfRangeSource: () => false,
+}));
 vi.mock("../../../lib/tauri", async (original) => ({ ...await original<any>(), getFormFactor: () => "phone", isTauri: () => false }));
 vi.mock("../pdfCanonicalScheduler", () => ({
   PdfCanonicalScheduler: class {
@@ -104,9 +114,96 @@ describe("PDFViewer navigation integration", () => {
   beforeEach(() => {
     fixture.reflow = false; fixture.mobile = true; fixture.emitCanonical = null; localStorage.clear();
     fixture.pageCount = 8; fixture.pageReady = true; fixture.viewports.clear(); fixture.getPosition.mockReset();
+    fixture.getPageLabels.mockReset().mockResolvedValue(null);
+    fixture.getPageText.mockReset().mockResolvedValue("");
     fixture.getDestination.mockReset().mockImplementation(async (name: string) =>
       [name === "far" ? 6 : 0, { name: "XYZ" }, 0, name === "b" ? 200 : 700, null]);
   });
+  it("displays the printed label while accepting physical page numbers", async () => {
+    fixture.getPageLabels.mockResolvedValue(["i", "ii", "1", "4", "5", "6", "7", "8"]);
+    await reader();
+    const input = screen.getByRole("spinbutton", { name: "Go to page" });
+    await waitFor(() => expect(input).toHaveAccessibleDescription("Printed page i"));
+    expect(screen.getByTitle("Printed page i")).toHaveTextContent("(i)");
+    expect(input).toHaveValue(1);
+
+    fireEvent.change(input, { target: { value: "3" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(input).toHaveAccessibleDescription("Printed page 1"));
+    expect(input).toHaveValue(3);
+
+    fireEvent.change(input, { target: { value: "4" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(input).not.toHaveAttribute("aria-describedby"));
+    expect(input).toHaveValue(4);
+  });
+
+  it("ignores stale labels from a previous PDF and keeps navigation when labels fail", async () => {
+    let finishFirstLabels!: (labels: string[]) => void;
+    fixture.getPageLabels
+      .mockImplementationOnce(() => new Promise((resolve) => { finishFirstLabels = resolve; }))
+      .mockResolvedValueOnce(["Cover"])
+      .mockRejectedValueOnce(new Error("Page labels unavailable"));
+    const bytes = new Uint8Array([1]);
+    const view = (documentId: string) => (
+      <PDFViewer documentId={documentId} fileData={bytes} pageNumber={1} scale={1} zoomMode="custom" parentOwnsRestoration />
+    );
+    const r = render(view("first"));
+    await waitFor(() => expect(fixture.getPageLabels).toHaveBeenCalledTimes(1));
+    r.rerender(view("second"));
+    await waitFor(() => expect(screen.getByTitle("Printed page Cover")).toBeInTheDocument());
+    await act(async () => { finishFirstLabels(["Stale"]); });
+    expect(screen.queryByTitle("Printed page Stale")).not.toBeInTheDocument();
+    expect(screen.getByTitle("Printed page Cover")).toBeInTheDocument();
+
+    r.rerender(view("third"));
+    await waitFor(() => expect(fixture.getPageLabels).toHaveBeenCalledTimes(3));
+    const input = screen.getByRole("spinbutton", { name: "Go to page" });
+    expect(input).not.toHaveAttribute("aria-describedby");
+    expect(input).toHaveValue(1);
+  });
+
+  it("keeps native text on the active page when only a neighboring canonical page is ready", async () => {
+    fixture.reflow = true;
+    fixture.getPageText.mockImplementation(async (page) => page === 1 ? "Page one native text." : "");
+    const onTextWindowChange = vi.fn();
+    await reader({ onTextWindowChange });
+    await waitFor(() => expect(fixture.emitCanonical).toBeTruthy());
+    act(() => fixture.emitCanonical!(canonicalPage(2)));
+    await waitFor(() => expect(onTextWindowChange).toHaveBeenLastCalledWith(
+      expect.stringContaining('<page number="1"/>Page one native text.'),
+      expect.arrayContaining([
+        expect.objectContaining({ pageNumber: 1, text: "Page one native text." }),
+        expect.objectContaining({ pageNumber: 2, text: expect.stringContaining("Block 0") }),
+      ]),
+      expect.objectContaining({ documentId: "nav-fixture", activePage: 1, activePageText: "Page one native text." }),
+    ));
+  });
+
+  it("never emits a previous PDF's canonical text as evidence for a newly loaded PDF", async () => {
+    fixture.reflow = true;
+    const bytes = new Uint8Array([1]);
+    const onTextWindowChange = vi.fn();
+    const view = (documentId: string) => (
+      <PDFViewer documentId={documentId} fileData={bytes} pageNumber={1} scale={1}
+        zoomMode="custom" parentOwnsRestoration onTextWindowChange={onTextWindowChange} />
+    );
+    const result = render(view("first"));
+    await waitFor(() => expect(fixture.emitCanonical).toBeTruthy());
+    act(() => fixture.emitCanonical!(canonicalPage()));
+    await waitFor(() => expect(onTextWindowChange).toHaveBeenLastCalledWith(
+      expect.stringContaining("Block 0"), expect.any(Array), expect.objectContaining({ documentId: "first" }),
+    ));
+
+    result.rerender(view("second"));
+    await waitFor(() => expect(onTextWindowChange).toHaveBeenLastCalledWith(
+      "", [], expect.objectContaining({ documentId: "second" }),
+    ));
+    for (const [text, , window] of onTextWindowChange.mock.calls) {
+      if (window.documentId === "second") expect(text).not.toContain("Block 0");
+    }
+  });
+
   it.each([false, true])("right-clicks an owned saved mark without selection (reflow=%s)", async (reflow) => {
     fixture.mobile = false;
     fixture.reflow = reflow;

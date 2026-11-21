@@ -39,6 +39,7 @@ export function createPdfLoadSourceFactories({
         disableStream: true,
         disableAutoFetch: true,
         disableFontFace,
+        isEvalSupported: false,
       }),
     });
   }
@@ -49,6 +50,7 @@ export function createPdfLoadSourceFactories({
         data: clonePdfData(fileData),
         verbosity: 0,
         disableFontFace,
+        isEvalSupported: false,
       }),
     });
   }

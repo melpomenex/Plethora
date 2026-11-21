@@ -12,6 +12,8 @@ import {
   shouldDismissViewerSelectionForMouseEvent,
 } from "./documentSelectionBoundary";
 import { AnnotationRemovalMenu } from "./AnnotationRemovalMenu";
+import { PdfAnnotationsPanel, type PdfAnnotationDraft, type PdfAnnotationsRequest } from "./PdfAnnotationsPanel";
+import { pdfAnnotationFromExtract, type PdfAnnotation } from "../../lib/pdf/annotationModel";
 import { emitUserInteraction, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
@@ -63,9 +65,10 @@ import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation
 import { hasActiveMediaPlayback } from "../../utils/mediaPlayback";
 import { attachIframePointerActivityForwarder } from "../../utils/iframePointerActivity";
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
-import { PDFViewer } from "./PDFViewer";
+import { PDFViewer, type PdfViewerNavigationRequest } from "./PDFViewer";
 import { MarkdownViewer } from "./MarkdownViewer";
 import type { PdfSpeechPage } from "./PDFViewer";
+import type { PdfTextWindow } from "../../utils/assistantContext";
 import {
   buildDOMSectionInput,
   buildPdfSpeechPageInput,
@@ -115,8 +118,7 @@ import { QACreatorPopup } from "../extracts/QACreatorPopup";
 import { SocraticMarginThread } from "./SocraticMarginThread";
 import { isEditableEventTarget } from "../queue/EndOfItemTriageBar";
 import { EditExtractDialog } from "../extracts/EditExtractDialog";
-import type { PdfRect, PdfSelectionContext, SelectionContext, TextSelectionContext, EpubSelectionContext } from "../../types/selection";
-import { legacyFromCanonicalRect } from "../../lib/pdf/coordinates";
+import type { PdfRegionMarkupKind, PdfSelectionContext, SelectionContext, TextSelectionContext, EpubSelectionContext } from "../../types/selection";
 import { createExtract, type Extract } from "../../api/extracts";
 import { shouldAutoExtract } from "./extractModeGate";
 import { QueueNavigationControls } from "../queue/QueueNavigationControls";
@@ -550,7 +552,7 @@ interface DocumentViewerProps {
   highlightQuery?: string;
   initialJump?: DocumentInitialJump;
   autoPlay?: boolean;
-  onPdfContextTextChange?: (text: string) => void;
+  onPdfContextTextChange?: (text: string, window?: PdfTextWindow) => void;
   onPdfOcrContextTextChange?: (text: string | null) => void;
   contextPageWindow?: number;
   onExtractCreated?: (extract: Extract, sourceContext?: ExtractSourceContext) => void;
@@ -1109,7 +1111,9 @@ export function DocumentViewer({
   }, [docType, pdfViewMode, pdfTextLayerRoots, pdfScrollContainer]);
   const [isOcrConverting, setIsOcrConverting] = useState(false);
   const [restoreRequestId, setRestoreRequestId] = useState(0);
-  const [pdfNavigationRequest, setPdfNavigationRequest] = useState<{ id: number; pageNumber: number } | null>(null);
+  const [pdfNavigationRequest, setPdfNavigationRequest] = useState<PdfViewerNavigationRequest | null>(null);
+  const [pdfAnnotationsRequest, setPdfAnnotationsRequest] = useState<PdfAnnotationsRequest | null>(null);
+  const [pdfRegionTool, setPdfRegionTool] = useState<{ documentId: string; kind: PdfRegionMarkupKind } | null>(null);
   const [restoreState, setRestoreState] = useState<ViewState | null>(null);
   // Start with auto-scroll suppressed until restoration completes (or we confirm there's no saved position)
   const [suppressPdfAutoScroll, setSuppressPdfAutoScroll] = useState(true);
@@ -1975,13 +1979,61 @@ export function DocumentViewer({
     return segments;
   }, [extracts, currentDocument?.id, currentDocument?.totalPages]);
 
+  const pdfAnnotations = useMemo(() => docType === "pdf"
+    ? extracts.map((extract) => pdfAnnotationFromExtract(extract, documentId)).filter((entry): entry is PdfAnnotation => entry !== null)
+    : [], [docType, documentId, extracts]);
+
+  const openPdfAnnotations = useCallback((draft?: PdfAnnotationDraft) => {
+    setPdfRegionTool(null);
+    setPdfAnnotationsRequest({ documentId, draft });
+  }, [documentId]);
+
+  const reconcilePdfAnnotation = useCallback((extract: Extract) => {
+    useExtractStore.setState((state) => {
+      const exists = state.extracts.some((item) => item.id === extract.id);
+      if (exists) {
+        return { extracts: state.extracts.map((item) => item.id === extract.id ? extract : item), revision: state.revision + 1 };
+      }
+      if (state.loadedDocumentId !== null && state.loadedDocumentId !== extract.document_id) return state;
+      return { extracts: [...state.extracts, extract], revision: state.revision + 1 };
+    });
+  }, []);
+
+  const goToPdfAnnotation = useCallback((entry: PdfAnnotation) => {
+    const first = entry.pages[0];
+    setPdfAnnotationsRequest(null);
+    setPdfViewMode("pdf");
+    setViewMode("document");
+    setPageNumber(first.pageNumber);
+    setPdfNavigationRequest((prev) => ({
+      id: (prev?.id ?? 0) + 1,
+      pageNumber: first.pageNumber,
+      original: true,
+      rect: first.pdfRects[0],
+      fingerprint: entry.context.fingerprint ?? undefined,
+    }));
+  }, []);
+
   const persistedDocumentHighlights = useMemo(() => {
     const relevantExtracts = extracts.filter((extract: any) => {
       const extractDocumentId = extract.document_id ?? extract.documentId;
       return extractDocumentId === currentDocument?.id;
     });
 
-    const pdfHighlights: StoredHighlight[] = [];
+    const pdfHighlights: StoredHighlight[] = pdfAnnotations.flatMap((entry) => entry.markup.removed
+      ? []
+      : entry.pages.map((page) => ({
+          id: `${entry.id}:${page.pageNumber}`,
+          annotation: { extractId: entry.id, documentId, text: entry.content, color: entry.color },
+          pageNumber: page.pageNumber,
+          pdfRects: page.pdfRects,
+          color: normalizePdfHighlightColor(entry.color),
+          text: entry.content,
+          note: entry.note,
+          createdAt: Date.parse(entry.createdAt) || 0,
+          wordIds: entry.context.canonical?.wordIds,
+          markup: entry.markup,
+        })));
     const epubHighlights: PersistedEpubHighlight[] = [];
     const markdownHighlights: AnchoredTextHighlight[] = [];
     const htmlHighlights: AnchoredTextHighlight[] = [];
@@ -1992,46 +2044,6 @@ export function DocumentViewer({
       const title = extract.content ?? extract.page_title ?? extract.pageTitle ?? "";
 
       const annotation = { extractId: String(extract.id), documentId, text: title, color: highlightColor };
-      if (isPdfSelectionContext(context)) {
-        // Canonical regions (selection_context v2) paint exact per-line word
-        // unions; legacy geometry remains the fallback for older extracts.
-        if (context.canonical && context.canonical.pageRegions.length > 0) {
-          const regionsByPage = new Map<number, PdfRect[]>();
-          for (const region of context.canonical.pageRegions) {
-            const list = regionsByPage.get(region.pageNumber) ?? [];
-            list.push(legacyFromCanonicalRect(region.bbox));
-            regionsByPage.set(region.pageNumber, list);
-          }
-          for (const [pageNumber, pdfRects] of regionsByPage) {
-            pdfHighlights.push({
-              id: `${extract.id}:${pageNumber}`,
-              annotation,
-              pageNumber,
-              pdfRects,
-              color: normalizePdfHighlightColor(highlightColor),
-              text: title,
-              note: extract.notes ?? undefined,
-              createdAt: Date.parse(extract.date_created ?? extract.dateCreated ?? "") || Date.now(),
-              wordIds: context.canonical.wordIds,
-            });
-          }
-          continue;
-        }
-        for (const page of context.pages) {
-          pdfHighlights.push({
-            id: `${extract.id}:${page.pageNumber}`,
-            annotation,
-            pageNumber: page.pageNumber,
-            pdfRects: page.pdfRects,
-            color: normalizePdfHighlightColor(highlightColor),
-            text: title,
-            note: extract.notes ?? undefined,
-            createdAt: Date.parse(extract.date_created ?? extract.dateCreated ?? "") || Date.now(),
-          });
-        }
-        continue;
-      }
-
       if (isEpubSelectionContext(context)) {
         const ranges = context.cfiRanges?.length ? context.cfiRanges : [context.cfiRange];
         ranges.forEach((cfiRange, rangeIndex) => epubHighlights.push({
@@ -2067,7 +2079,7 @@ export function DocumentViewer({
       markdownHighlights,
       htmlHighlights,
     };
-  }, [currentDocument?.id, documentId, extracts]);
+  }, [currentDocument?.id, documentId, extracts, pdfAnnotations]);
 
   const htmlContextMenuDetachRef = useRef<(() => void) | null>(null);
   useEffect(() => () => { htmlContextMenuDetachRef.current?.(); }, [documentId]);
@@ -3424,8 +3436,17 @@ export function DocumentViewer({
       }
     }
 
+    if (isPdfSelectionContext(effectiveContext) && isValidPdfSelection(selectedText, effectiveContext)) {
+      items.push({
+        id: "pdf-annotate-selection",
+        label: t("viewer.pdfMarkupAdd"),
+        icon: <Highlighter className="w-4 h-4" />,
+        onClick: () => openPdfAnnotations({ content: selectedText, context: effectiveContext }),
+      });
+    }
+
     return items;
-  }, [documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available, aiLearnThisEnabled, buildSelectionPassage, selectionV2, selectedText]);
+  }, [openPdfAnnotations, documentId, selectionContext, docType, currentDocument, createInstantExtract, dismissSelectionAfterExtract, toast, t, aiAvailability.available, aiLearnThisEnabled, buildSelectionPassage, selectionV2, selectedText]);
 
   const loadDocumentDataInner = useCallback(async (doc: typeof currentDocument) => {
     if (!doc) return;
@@ -5237,7 +5258,7 @@ export function DocumentViewer({
   }, []);
 
   const handlePdfContextTextChange = useCallback(
-    (text: string, speechPages?: PdfSpeechPage[]) => {
+    (text: string, speechPages?: PdfSpeechPage[], window?: PdfTextWindow) => {
       const preferOcr = settings.documents.ocr.autoOCR || settings.documents.ocr.autoExtractOnLoad;
       const contextForReader = preferOcr && ocrContextText ? ocrContextText : text;
       setReaderContextText(contextForReader);
@@ -5246,12 +5267,13 @@ export function DocumentViewer({
         pdfSpeechPagesRef.current = new Map(speechPages.map((page) => [page.pageNumber, page]));
         setSpeechSections(speechPages.map((page) => buildPdfSpeechPageInput(page)));
       } else if (!preferOcr || !ocrContextText) {
+        pdfSpeechPagesRef.current.clear();
         // Legacy marker path: one marker section; the speech index derives
         // page anchors from the `<page number/>` markers itself.
         setSpeechSections([{ key: "pdf-window", text }]);
       }
       if (!onPdfContextTextChange) return;
-      onPdfContextTextChange(contextForReader);
+      onPdfContextTextChange(contextForReader, window);
     },
     [onPdfContextTextChange, ocrContextText, settings.documents.ocr.autoOCR, settings.documents.ocr.autoExtractOnLoad]
   );
@@ -7621,6 +7643,20 @@ export function DocumentViewer({
                     />
                   </div>
 
+                  {docType === "pdf" && (
+                    <button type="button" className="md-state md-focus-ring flex min-h-12 w-full items-center gap-2 rounded-md px-2 text-sm"
+                      onClick={() => {
+                        setIsMobileMenuOpen(false);
+                        openPdfAnnotations(isPdfSelectionContext(selectionContext)
+                          && isValidPdfSelection(selectedText, selectionContext)
+                          ? { content: selectedText, context: selectionContext }
+                          : undefined);
+                      }}>
+                      <Highlighter className="h-4 w-4" aria-hidden="true" />
+                      {t("viewer.pdfAnnotations")}
+                    </button>
+                  )}
+
                   <div className="space-y-1.5">
                     <span className="text-xs text-muted-foreground font-medium">View Mode</span>
                     <div className="flex items-center w-full bg-muted rounded-md p-1">
@@ -8068,6 +8104,17 @@ export function DocumentViewer({
           >
             <Lightbulb className="w-4 h-4" />
           </button>
+
+          {docType === "pdf" && (
+            <button type="button" className="md-state md-focus-ring flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-muted-foreground"
+              aria-label={t("viewer.pdfAnnotations")} title={t("viewer.pdfAnnotations")}
+              onClick={() => openPdfAnnotations(isPdfSelectionContext(selectionContext)
+                && isValidPdfSelection(selectedText, selectionContext)
+                ? { content: selectedText, context: selectionContext }
+                : undefined)}>
+              <Highlighter className="h-4 w-4" aria-hidden="true" />
+            </button>
+          )}
 
           {/* Extracts View Mode Toggle (desktop) */}
           <button
@@ -8580,6 +8627,14 @@ export function DocumentViewer({
             }}
             persistedHighlights={persistedDocumentHighlights.pdfHighlights}
             onHighlightSelection={handlePdfHighlightSelection}
+            onSelectionNote={(text, context) => openPdfAnnotations({ content: text, context, kind: "note" })}
+            regionMarkupTool={pdfRegionTool?.documentId === documentId ? pdfRegionTool.kind : undefined}
+            onCancelRegionMarkup={() => setPdfRegionTool(null)}
+            onDrawRegionMarkup={(context) => openPdfAnnotations({
+              content: "",
+              context,
+              kind: context.pdfMarkup?.kind,
+            })}
             onHighlightSelectionWithDialog={(color, text, context) => {
               if (!canUsePdfSelectionAction({ selectedText: text, selectionContext: context })) {
                 toast.info(t("viewer.selectPdfTextFirst"), t("viewer.dragAcrossPdfText"));
@@ -9800,10 +9855,41 @@ export function DocumentViewer({
       {/* Text selection context menu (EPUB/HTML/Markdown viewers and PDF
           selections — native, reflow, and OCR-HTML surfaces all feed
           contextMenuState) */}
+      {pdfAnnotationsRequest?.documentId === documentId && isReaderActive && (
+        <PdfAnnotationsPanel
+          request={pdfAnnotationsRequest}
+          annotations={pdfAnnotations}
+          onClose={() => setPdfAnnotationsRequest(null)}
+          onPersist={reconcilePdfAnnotation}
+          onNavigate={goToPdfAnnotation}
+          onCloze={(entry) => {
+            setPdfAnnotationsRequest(null);
+            setFlashcardStudioSeed({
+              key: `annotation-cloze-${entry.id}-${Date.now()}`,
+              documentId,
+              extractId: entry.id,
+              excerpt: entry.content,
+              draftCardType: "cloze",
+              resetDraftCards: true,
+              autoEditDraft: true,
+            });
+          }}
+          onBeginRegion={(kind) => {
+            setPdfAnnotationsRequest(null);
+            setPdfRegionTool({ documentId, kind });
+            setPdfViewMode("pdf");
+            setViewMode("document");
+            setPdfNavigationRequest((prev) => ({ id: (prev?.id ?? 0) + 1, pageNumber, original: true }));
+          }}
+        />
+      )}
       <AnnotationRemovalMenu
         key={documentId}
         documentId={documentId}
         menu={isReaderActive && contextMenuState?.annotations?.length ? contextMenuState : null}
+        onInspect={docType === "pdf" && pdfViewMode !== "ocr-html" ? (target) => setPdfAnnotationsRequest({
+          documentId, annotationId: target.extractId,
+        }) : undefined}
         onClose={() => setContextMenuState(null)}
       />
       {isReaderActive && !contextMenuState?.annotations?.length && contextMenuState?.visible && (

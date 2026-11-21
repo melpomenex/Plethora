@@ -18,9 +18,11 @@ import { useIsActiveTab } from "../common/Tabs";
 import {
   getAssistantContextErrorMessage,
   resolveGenericAssistantContext,
-  resolvePdfAssistantContext,
+  resolvePdfContextForPrompt,
+  type ResolveAssistantPromptOptions,
   resolveTwitterThreadAssistantContext,
   type ResolvedAssistantContext,
+  type PdfTextWindow,
 } from "../../utils/assistantContext";
 import type { DocumentInitialJump, ExtractSourceContext } from "../../types/extractNavigation";
 import type { SectionNode } from "../../utils/sectionIndex";
@@ -63,7 +65,7 @@ interface DocumentViewerWithAssistantProps {
   embedded?: boolean;
   onSelectionChange?: (selection: string) => void;
   onScrollPositionChange?: (state: { pageNumber?: number; scrollPercent?: number }) => void;
-  onPdfContextTextChange?: (text: string) => void;
+  onPdfContextTextChange?: (text: string, window?: PdfTextWindow) => void;
   onPdfOcrContextTextChange?: (text: string | null) => void;
   contextPageWindow?: number;
   onExtractCreated?: (extract: import("../../api/extracts").Extract, sourceContext?: ExtractSourceContext) => void;
@@ -187,6 +189,7 @@ export function DocumentViewer({
   const currentDoc = documents.find((doc) => doc.id === documentId) ?? currentDocument ?? null;
   const selectionRef = useRef(selection);
   const pdfContextTextRef = useRef(pdfContextText);
+  const pdfTextWindowRef = useRef<PdfTextWindow | undefined>(undefined);
   const pdfOcrContextTextRef = useRef(pdfOcrContextText);
   const videoContextRef = useRef(videoContext);
   const scrollStateRef = useRef(scrollState);
@@ -416,7 +419,7 @@ export function DocumentViewer({
     };
   }, [currentDoc?.content, currentDoc?.fileType, documentContent, selection, contextWindowTokens, aiModel, pdfContextText, videoContext?.videoId, videoContext?.transcript, videoContext?.transcriptStatus, debouncedScrollPercent]);
 
-  const resolveContextForPrompt = useCallback(async (_prompt: string): Promise<ResolvedAssistantContext> => {
+  const resolveContextForPrompt = useCallback(async (prompt: string, options?: ResolveAssistantPromptOptions): Promise<ResolvedAssistantContext> => {
     const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 2000;
     const activeDoc = currentDocRef.current;
     const activeSelection = selectionRef.current;
@@ -453,9 +456,10 @@ export function DocumentViewer({
 
     if (activeDoc?.fileType === "pdf") {
       const preferOcr = settings.documents.ocr.autoOCR || settings.documents.ocr.autoExtractOnLoad;
-      const resolution = await resolvePdfAssistantContext({
+      return resolvePdfContextForPrompt(prompt, {
         document: activeDoc,
         liveWindowText: pdfContextTextRef.current,
+        liveWindow: pdfTextWindowRef.current,
         storedDocumentText: activeDoc.content ?? documentContentRef.current,
         ocrText: pdfOcrContextTextRef.current,
         selection: activeSelection,
@@ -468,26 +472,7 @@ export function DocumentViewer({
               return result.content;
             }
           : undefined,
-      });
-
-      if (resolution.status !== "ready" || !resolution.content) {
-        return resolution;
-      }
-
-      try {
-        const trimmed = await trimToTokenWindow(resolution.content, maxTokens, aiModel, activeSelection);
-        return {
-          ...resolution,
-          content: trimmed,
-          coverage: trimmed === resolution.content ? "full" : "window",
-        };
-      } catch {
-        return {
-          ...resolution,
-          content: resolution.content.slice(0, maxTokens * 4),
-          coverage: "window",
-        };
-      }
+      }, maxTokens, aiModel, options);
     }
 
     return {
@@ -514,6 +499,7 @@ export function DocumentViewer({
       coverage: assistantCoverageRef.current,
       sections: mediaSections.length > 0 ? mediaSections : undefined,
       resolveForPrompt: resolveContextForPrompt,
+      getPdfPageSource: () => pdfTextWindowRef.current?.source,
     };
 
     if (videoContext?.videoId) {
@@ -622,9 +608,10 @@ export function DocumentViewer({
         focusedExtractId={focusedExtractId}
         focusedVideoExtractId={focusedVideoExtractId}
         extractSourceContext={extractSourceContext}
-        onPdfContextTextChange={(text) => {
+        onPdfContextTextChange={(text, window) => {
+          if (window) pdfTextWindowRef.current = window;
           setPdfContextText(text);
-          onPdfContextTextChangeProp?.(text);
+          onPdfContextTextChangeProp?.(text, window);
         }}
         onPdfOcrContextTextChange={(text) => {
           setPdfOcrContextText(text);

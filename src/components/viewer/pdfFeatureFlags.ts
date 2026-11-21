@@ -8,9 +8,8 @@ export const PDF_FEATURE_KEYS = {
   // disabled the flag before the rename keeps it disabled after.
   legacyNativeMobileRangeSource: "plethora.feature.nativeMobilePdfRangeSource",
   semanticReflow: "plethora.feature.pdfSemanticReflow",
-  // Canonical Rust model (v2): hybrid analysis cache + Original-view
-  // canonical selection snapping. Ships off; the reflow *view* stays gated
-  // separately by `semanticReflow`.
+  // Canonical Rust model (v2). Native runtime only. The independent
+  // semanticReflow switch controls whether the Reflow view is offered.
   canonicalPdfModel: "plethora.feature.pdfCanonicalModel",
 } as const;
 
@@ -21,10 +20,8 @@ const DEFAULTS: Record<PdfFeature, boolean> = {
   // retains the legacy source as an runtime override for one release cycle.
   nativePdfRangeSource: true,
   legacyNativeMobileRangeSource: true,
-  // TEST BUILD (2026-08-15, on-device reflow testing): both reflow flags
-  // default ON so the Original|Reflow toggle appears without console-side
-  // localStorage setup. Production keeps these off until the D14 gates
-  // pass; a localStorage override ("false") still disables them.
+  // Keep the shipped defaults and explicit opt-outs. The legacy browser
+  // engine remains available during device and performance qualification.
   semanticReflow: true,
   canonicalPdfModel: true,
 };
@@ -35,6 +32,11 @@ export function isPdfFeatureEnabled(feature: PdfFeature): boolean {
   if (override === "true") return true;
   if (override === "false") return false;
   return DEFAULTS[feature];
+}
+
+export function pdfReflowEngine(isTauriRuntime: boolean): "canonical" | "prototype" | "disabled" {
+  if (!isPdfFeatureEnabled("semanticReflow")) return "disabled";
+  return isTauriRuntime && isPdfFeatureEnabled("canonicalPdfModel") ? "canonical" : "prototype";
 }
 
 /** The range-source flag, honoring the pre-rename mobile-only key. */

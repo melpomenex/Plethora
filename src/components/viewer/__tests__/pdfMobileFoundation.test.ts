@@ -3,6 +3,7 @@ import {
   isPdfFeatureEnabled,
   isNativePdfRangeEnabled,
   PDF_FEATURE_KEYS,
+  pdfReflowEngine,
   shouldUseNativePdfRangeSource,
 } from "../pdfFeatureFlags";
 import { normalizePdfError, pdfErrorUserMessage, shouldRetryPdfWorker } from "../pdfErrors";
@@ -12,8 +13,6 @@ describe("PDF range-source feature flag (task 6.1)", () => {
   beforeEach(() => localStorage.clear());
 
   it("enables the range source by default and keeps semantic reflow independent", () => {
-    // TEST BUILD (2026-08-15): reflow defaults ON for on-device testing;
-    // production restores the `false` default when the D14 gates pass.
     expect(isPdfFeatureEnabled("semanticReflow")).toBe(true);
     localStorage.setItem(PDF_FEATURE_KEYS.semanticReflow, "false");
     expect(isPdfFeatureEnabled("semanticReflow")).toBe(false);
@@ -22,6 +21,16 @@ describe("PDF range-source feature flag (task 6.1)", () => {
     expect(isNativePdfRangeEnabled()).toBe(true);
     localStorage.setItem(PDF_FEATURE_KEYS.nativePdfRangeSource, "false");
     expect(isNativePdfRangeEnabled()).toBe(false);
+  });
+
+  it("selects Rust only in the native runtime and honors either reflow override", () => {
+    expect(pdfReflowEngine(true)).toBe("canonical");
+    expect(pdfReflowEngine(false)).toBe("prototype");
+    localStorage.setItem(PDF_FEATURE_KEYS.canonicalPdfModel, "false");
+    expect(pdfReflowEngine(true)).toBe("prototype");
+    localStorage.setItem(PDF_FEATURE_KEYS.semanticReflow, "false");
+    expect(pdfReflowEngine(true)).toBe("disabled");
+    expect(pdfReflowEngine(false)).toBe("disabled");
   });
 
   it("honors a pre-rename mobile-only disable as a migration fallback", () => {

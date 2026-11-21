@@ -132,6 +132,11 @@
   z-index: 1;
 }
 
+.pdfViewer .annotationLayer {
+  /* Above text for links and widgets. The PDF.js layer itself is click-through. */
+  z-index: 2;
+}
+
 /* === SELECTION HIGHLIGHTING - VISIBLE BLUE === */
 .textLayer span::selection {
   background: rgba(59, 130, 246, 0.6) !important;

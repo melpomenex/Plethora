@@ -111,6 +111,7 @@ vi.mock("pdfjs-dist", () => ({
 vi.mock("pdfjs-dist/web/pdf_viewer.mjs", () => ({
   EventBus: vi.fn(),
   PDFPageView: vi.fn(),
+  SimpleLinkService: class SimpleLinkService {},
   AbortException: class AbortException extends Error {},
 }));
 

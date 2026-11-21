@@ -4,7 +4,7 @@ import { shouldDismissViewerSelectionForMouseEvent } from "./documentSelectionBo
 import { ReaderNavigationOwner, observeReaderInput, announceReaderNavigation } from "../../lib/readerNavigation";
 import { canElementScrollHorizontally, createHorizontalWheelPageTurner } from "../../lib/horizontalWheelNavigation";
 import { pdfDestinationPoint, pdfDestinationScale, pdfReflowDestinationBlock } from "./pdfTocDestination";
-import { useEffect, useRef, useState, useCallback, useMemo, useReducer, type CSSProperties } from "react";
+import { useEffect, useId, useRef, useState, useCallback, useMemo, useReducer, type CSSProperties } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 // URL of the compiled bootstrap worker chunk (src/workers/pdfjs.worker.ts).
 // Vite's worker cache emits ONE chunk for this file shared by both this
@@ -17,7 +17,17 @@ import * as pdfjsLib from "pdfjs-dist";
 import pdfWorkerSrc from "../../workers/pdfjs.worker?worker&url";
 import { EventBus } from "pdfjs-dist/web/pdf_viewer.mjs";
 import { PdfPageViewWrapper } from "./PdfPageView";
+import { PdfPageThumbnails } from "./PdfPageThumbnails";
+import { PdfViewControls } from "./PdfViewControls";
+import { PdfNavigationHistory, type PdfHistoryDirection, type PdfHistoryLocation } from "./pdfNavigationHistory";
+import { buildPdfSpreadOffsets, isPdfSpread, loadPdfViewPreferences, pdfRowBounds, savePdfViewPreferences, type PdfViewPreferences } from "./pdfReadingLayout";
+import { PdfEmbeddedLinks } from "./pdfEmbeddedLinks";
+import { PdfSaveRotatedCopyButton } from "./PdfSaveRotatedCopyButton";
+import { PdfFileActions } from "./PdfFileActions";
+import { markPdfText, pdfTextMatchRanges } from "./pdfTextMarks";
 import {
+  ArrowLeft,
+  ArrowRight,
   CaretLeft,
   CaretRight,
   CornersIn,
@@ -35,6 +45,7 @@ import type { PdfDest, ViewState } from "../../types/readerPosition";
 import type { PdfRect, PdfSelectionContext, ViewportRect } from "../../types/selection";
 import type { DocumentPosition } from "../../types/position";
 import type { DocumentMetadata, Document } from "../../types/document";
+import type { PdfTextWindow } from "../../utils/assistantContext";
 
 /**
  * Speech-index metadata for one page of the canonical text window: the page's
@@ -48,9 +59,9 @@ export interface PdfSpeechPage {
 }
 import { saveDocumentPosition, getDocumentPosition, pagePosition, scrollPosition as createScrollPosition } from "../../api/position";
 import { getDocumentAuto, updateDocumentProgressAuto } from "../../api/documents";
-import { getFormFactor, isTauri } from "../../lib/tauri";
+import { getFormFactor, isNativeMobile, isTauri } from "../../lib/tauri";
 import { useMobileShell } from "../../hooks/useMobileShell";
-import { shouldUseNativePdfRangeSource, isPdfFeatureEnabled } from "./pdfFeatureFlags";
+import { shouldUseNativePdfRangeSource, isPdfFeatureEnabled, pdfReflowEngine } from "./pdfFeatureFlags";
 import { markBusy } from "../../lib/memoryScenario/activity";
 import { enrichPdfSelectionWithCanonical } from "../../lib/pdf/canonicalSelection";
 import {
@@ -65,8 +76,8 @@ import {
 import { ensureRegionAssetUrl, releaseDocumentResources } from "../../lib/pdf/reflowAssets";
 import { createPdfDocumentHolder } from "../../lib/pdf/pdfDocumentHolder";
 import {
-  deriveCurrentPageFromOffsets,
   buildPdfPageOffsets,
+  deriveCurrentPageFromOffsets,
   shouldSuppressProgrammaticScroll,
   type NavigationMode,
 } from "./pdfNavigationStability";
@@ -157,12 +168,28 @@ import "./PDFViewer.css";
 interface PdfPageIndicatorProps {
   inputRef: React.RefObject<HTMLInputElement | null>;
   pageNumber: number;
+  pageLabel?: string;
   numPages: number;
   effectiveStartPage: number;
   effectiveEndPage: number;
   totalEffectivePages: number;
   isChunked: boolean;
   onJump: (page: number) => void;
+}
+
+function PdfPrintedPageLabel({ label, descriptionId }: { label?: string; descriptionId?: string }) {
+  const { t } = useI18n();
+  if (!descriptionId || !label) return null;
+
+  const description = t("viewer.printedPageLabel", { label });
+  return (
+    <>
+      <bdi aria-hidden="true" title={description} className="ms-1.5 max-w-20 truncate">
+        ({label})
+      </bdi>
+      <span id={descriptionId} className="sr-only">{description}</span>
+    </>
+  );
 }
 
 /**
@@ -178,6 +205,7 @@ interface PdfPageIndicatorProps {
 function PdfPageIndicator({
   inputRef,
   pageNumber,
+  pageLabel,
   numPages,
   effectiveStartPage,
   effectiveEndPage,
@@ -188,6 +216,9 @@ function PdfPageIndicator({
   const { t } = useI18n();
   const [draft, setDraft] = useState(String(pageNumber));
   const focusedRef = useRef(false);
+  const labelId = useId();
+  const descriptionId = pageLabel && pageLabel !== String(pageNumber) ? labelId : undefined;
+  const printedLabelDisplay = <PdfPrintedPageLabel label={pageLabel} descriptionId={descriptionId} />;
 
   // Keep the draft in sync with the live page number (scroll, prev/next, TOC,
   // deep-link) — but only while the field is NOT being edited.
@@ -256,6 +287,32 @@ function PdfPageIndicator({
   const inputClass =
     "w-[2rem] md:w-[2.25rem] bg-transparent border-none outline-none text-center font-medium text-foreground [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none focus:bg-background focus:border focus:border-border focus:rounded focus:ring-2 focus:ring-primary transition-colors";
   const inputStyle = { MozAppearance: "textfield" } as React.CSSProperties;
+  const pageInput = (
+    <input
+      ref={inputRef}
+      type="number"
+      inputMode="numeric"
+      value={draft}
+      min={isChunked ? Math.min(1, effectiveStartPage) : 1}
+      max={isChunked ? effectiveEndPage : numPages || undefined}
+      aria-label={t("viewer.goToPage")}
+      aria-describedby={descriptionId}
+      size={4}
+      onChange={(e) => setDraft(e.target.value)}
+      onFocus={(e) => {
+        focusedRef.current = true;
+        e.target.select();
+      }}
+      onBlur={() => {
+        focusedRef.current = false;
+        commit();
+      }}
+      onKeyDown={handleKeyDown}
+      onWheel={handleWheel}
+      className={inputClass}
+      style={inputStyle}
+    />
+  );
 
   if (isChunked) {
     // Chunked view: "Page <in> of N  (Book Page <in>)". The editable value is
@@ -272,31 +329,10 @@ function PdfPageIndicator({
         <span className="md:hidden">{relativePage}/{totalEffectivePages}</span>
         <span className="text-[10px] text-muted-foreground opacity-80 inline-flex items-center gap-0.5">
           (Book P.
-          <input
-            ref={inputRef}
-            type="number"
-            inputMode="numeric"
-            value={draft}
-            min={Math.min(1, effectiveStartPage)}
-            max={effectiveEndPage}
-            aria-label={t("viewer.goToPage")}
-            size={4}
-            onChange={(e) => setDraft(e.target.value)}
-            onFocus={(e) => {
-              focusedRef.current = true;
-              e.target.select();
-            }}
-            onBlur={() => {
-              focusedRef.current = false;
-              commit();
-            }}
-            onKeyDown={handleKeyDown}
-            onWheel={handleWheel}
-            className={inputClass}
-            style={inputStyle}
-          />
+          {pageInput}
           )
         </span>
+        {printedLabelDisplay}
       </span>
     );
   }
@@ -308,30 +344,9 @@ function PdfPageIndicator({
       role="group"
       aria-label="Page indicator"
     >
-      <input
-        ref={inputRef}
-        type="number"
-        inputMode="numeric"
-        value={draft}
-        min={1}
-        max={numPages || undefined}
-        aria-label={t("viewer.goToPage")}
-        size={4}
-        onChange={(e) => setDraft(e.target.value)}
-        onFocus={(e) => {
-          focusedRef.current = true;
-          e.target.select();
-        }}
-        onBlur={() => {
-          focusedRef.current = false;
-          commit();
-        }}
-        onKeyDown={handleKeyDown}
-        onWheel={handleWheel}
-        className={inputClass}
-        style={inputStyle}
-      />
+      {pageInput}
       <span className="select-none ml-0.5">/ {numPages}</span>
+      {printedLabelDisplay}
     </span>
   );
 }
@@ -417,6 +432,8 @@ if (typeof window !== "undefined") {
   });
 }
 
+export type PdfViewerNavigationRequest = { id: number; pageNumber: number };
+
 interface PDFViewerProps {
   documentId: string;
   /** Full document, for offering a download when the local file is missing
@@ -460,14 +477,18 @@ interface PDFViewerProps {
   onUserScrollDuringRestore?: () => void;
   /** DocumentViewer owns initial saved-position restoration when mounted there. */
   parentOwnsRestoration?: boolean;
-  navigationRequest?: { id: number; pageNumber: number } | null;
+  navigationRequest?: PdfViewerNavigationRequest | null;
   onNavigationStart?: () => void;
   onInitialRestoreComplete?: () => void;
   contextPageWindow?: number;
-  onTextWindowChange?: (text: string, speechPages?: PdfSpeechPage[]) => void;
+  onTextWindowChange?: (text: string, speechPages?: PdfSpeechPage[], window?: PdfTextWindow) => void;
   /** TOC navigation settled — the host resolves the visible TTS anchor. */
   onNavigationSettled?: () => void;
   onSelectionChange?: (text: string, context?: PdfSelectionContext | null) => void;
+  onSelectionNote?: (text: string, context: PdfSelectionContext) => void;
+  regionMarkupTool?: string;
+  onCancelRegionMarkup?: () => void;
+  onDrawRegionMarkup?: (context: PdfSelectionContext) => void;
   onTextSelectionCapabilityChange?: (capability: PdfTextSelectionCapability) => void;
   onSearchResultsChange?: (state: {
     query: string;
@@ -572,6 +593,8 @@ export function PDFViewer({
   const { t } = useI18n();
 
   const [pdf, setPdf] = useState<pdfjsLib.PDFDocumentProxy | null>(null);
+  const loadedPdfRef = useRef<typeof pdf>(null);
+  const [pageLabels, setPageLabels] = useState<string[] | null>(null);
   const [numPages, setNumPages] = useState<number>(0);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<NormalizedPdfError | null>(null);
@@ -599,15 +622,16 @@ export function PDFViewer({
   }, [mobilePdfMode, onSelectionContextInvalidated]);
   const reflowCacheRef = useRef(createBrowserPdfReflowCache());
   const reflowSchedulerRef = useRef<PdfReflowScheduler | null>(null);
-  // Canonical (v2) pipeline: activates on every form factor when both flags
-  // are on; the v1 phone-only prototype backs off in that case (D14).
-  const canonicalPipelineActive = isPdfFeatureEnabled("canonicalPdfModel") && isPdfFeatureEnabled("semanticReflow");
+  const isTauriRuntime = isTauri();
+  const reflowEngine = pdfReflowEngine(isTauriRuntime);
+  const canonicalPipelineActive = reflowEngine === "canonical";
   const [canonicalPages, setCanonicalPages] = useState<Map<number, PdfCanonicalPage>>(new Map());
   const canonicalCacheRef = useRef<PdfCanonicalPageCache | null>(null);
   const canonicalSchedulerRef = useRef<PdfCanonicalScheduler | null>(null);
   const canonicalReadyRef = useRef<Set<number>>(new Set());
   const modeOverriddenRef = useRef(false);
   const isPhone = typeof window !== "undefined" && getFormFactor() === "phone";
+  const shouldRunPrototype = reflowEngine === "prototype" && (isPhone || mobilePdfMode === "reflow");
   const isMobileShell = useMobileShell();
   const isMobileShellRef = useRef(isMobileShell);
   isMobileShellRef.current = isMobileShell;
@@ -647,13 +671,22 @@ export function PDFViewer({
   const [outline, setOutline] = useState<any[]>([]);
   const [flatOutline, setFlatOutline] = useState<{ title: string; dest: any; pageNumber: number }[]>([]);
   const [showTOC, setShowTOC] = useState(false);
+  const [pdfSidebarView, setPdfSidebarView] = useState<"outline" | "thumbnails" | "view">("outline");
+  const pdfSidebarId = useId();
   const [zoomMode, setZoomMode] = useState<ZoomMode>(externalZoomMode || "custom");
+  const savedFixedView = useMemo(() => loadPdfViewPreferences(documentId), [documentId]);
+  const [fixedViewState, setFixedViewState] = useState<{ documentId: string; value: PdfViewPreferences }>();
+  const fixedView = fixedViewState?.documentId === documentId ? fixedViewState.value : savedFixedView;
+  const spreadView = isPdfSpread(fixedView.layout);
 
   // Allow the document-viewer palette action "Toggle Table of Contents" to
   // toggle this sub-viewer's TOC panel (the parent DocumentViewer dispatches
   // the event; only the active sub-viewer is mounted to hear it).
   useEffect(() => {
-    const onToggle = () => setShowTOC((prev) => !prev);
+    const onToggle = () => {
+      setPdfSidebarView("outline");
+      setShowTOC((prev) => !prev);
+    };
     window.addEventListener("viewer-toggle-toc", onToggle);
     return () => window.removeEventListener("viewer-toggle-toc", onToggle);
   }, []);
@@ -710,7 +743,6 @@ export function PDFViewer({
   const userScrolledDuringRestoreRef = useRef(false);
   const userScrollSignaledRef = useRef(false);
   const textCacheRef = useRef<Map<number, string>>(new Map());
-  const textWindowRef = useRef<{ start: number; end: number }>({ start: 1, end: 1 });
   const lastSelectionWasPdfRef = useRef(false);
   const persistedHighlightsRef = useRef(persistedHighlights);
   persistedHighlightsRef.current = persistedHighlights;
@@ -802,9 +834,11 @@ export function PDFViewer({
     if (slot) requestAnimationFrame(() => { applyResizeAnchorRef.current?.(); applyPendingNavigationRef.current?.(); initialRestoreAttemptRef.current?.(); });
   }, []);
 
-  const handleViewportChange = useCallback((idx: number, viewport: import("pdfjs-dist").PageViewport) => {
+  const pageViewRotationsRef = useRef<number[]>([]);
+  const handleViewportChange = useCallback((idx: number, viewport: import("pdfjs-dist").PageViewport, rotation = 0) => {
     pageViewportRefs.current[idx] = viewport;
     pageScaleRefs.current[idx] = viewport.scale;
+    pageViewRotationsRef.current[idx] = rotation;
     const height = viewport.height / viewport.scale;
     if (pageHeightCacheRef.current.get(idx) !== height) {
       pageHeightCacheRef.current.set(idx, height);
@@ -844,14 +878,6 @@ export function PDFViewer({
     }
   }, []);
 
-  const fallbackPageStyle = useMemo<React.CSSProperties | undefined>(() => {
-    if (!fallbackPageSize) return undefined;
-    return {
-      minWidth: `${Math.round(fallbackPageSize.width)}px`,
-      minHeight: `${Math.round(fallbackPageSize.height)}px`,
-    };
-  }, [fallbackPageSize]);
-
   const handleTextLayerReady = useCallback((idx: number, textLayerDiv: HTMLDivElement | null) => {
     textLayerRootsRef.current[idx] = textLayerDiv;
     notifyTextLayersChange();
@@ -872,8 +898,39 @@ export function PDFViewer({
   // Lazy loading: track which pages should be rendered
   const [renderedPageRange, setRenderedPageRange] = useState<{ start: number; end: number }>({ start: 1, end: 1 });
   const renderedPageRangeRef = useRef({ start: 1, end: 1 });
-  const pendingNavRef = useRef<{ token: number; pageNumber: number; destArray: any[] | null; requestedZoom?: number | null } | null>(null);
+  const pendingNavRef = useRef<{ token: number; pageNumber: number; destArray: any[] | null; requestedZoom?: number | null; historyLocation?: PdfHistoryLocation } | null>(null);
   const navigationOwnerRef = useRef(new ReaderNavigationOwner());
+  const historyKey = pdf && pdfSourceIdentity
+    ? `plethora.pdf.history.v1:${documentId}:${pdfSourceIdentity.fingerprint}:${effectiveStartPage}-${effectiveEndPage}`
+    : undefined;
+  const pdfNavigationHistory = useMemo(() => new PdfNavigationHistory(historyKey), [documentId, historyKey]);
+  const pdfNavigationHistoryRef = useRef(pdfNavigationHistory);
+  pdfNavigationHistoryRef.current = pdfNavigationHistory;
+  const [, refreshNavigationHistory] = useReducer((revision: number) => revision + 1, 0);
+  const readHistoryLocationRef = useRef<(pageNumber?: number) => PdfHistoryLocation | undefined>(() => undefined);
+  readHistoryLocationRef.current = (page = pageNumberRef.current) => {
+    const container = scrollContainerRef.current;
+    if (!container) return undefined;
+    const location = { pageNumber: page, zoomMode, scale };
+    if (mobilePdfMode === "reflow") {
+      const section = container.querySelector<HTMLElement>(`[data-pdf-reflow-page="${page}"]`);
+      const offset = section && section.offsetHeight > 0
+        ? (container.getBoundingClientRect().top - section.getBoundingClientRect().top) / section.offsetHeight
+        : 0;
+      return { ...location, mode: "reflow", pageOffset: Math.min(1, Math.max(0, offset)) };
+    }
+    const view = pageViewportRefs.current[page - 1];
+    const slot = pageContainerRefs.current[page - 1];
+    const point = view && slot
+      ? view.convertToPdfPoint(container.scrollLeft - slot.offsetLeft, container.scrollTop - slot.offsetTop)
+      : undefined;
+    return { ...location, mode: "fixed", point: point ? [point[0], point[1]] : undefined };
+  };
+  const settleNavigationHistory = useCallback((token: number, pageNumber?: number) => {
+    const destination = readHistoryLocationRef.current(pageNumber);
+    if (destination && pdfNavigationHistoryRef.current.settle(token, destination)) refreshNavigationHistory();
+  }, []);
+  const searchHistoryTokenRef = useRef<number | null>(null);
   const [navigationRevision, setNavigationRevision] = useState(0);
   const applyPendingNavigationRef = useRef<(() => void) | null>(null);
   const standaloneRestoreStartedRef = useRef(false);
@@ -895,7 +952,6 @@ export function PDFViewer({
   const applyResizeAnchorRef = useRef<(() => void) | null>(null);
   const pdfNavStabilityEnabledRef = useRef(true);
   const pdfNavStabilityDebugRef = useRef(false);
-  const isTauriRuntime = isTauri();
   // Host element of the floating selection popup. Clicks on it must not be
   // treated as "outside any PDF page" clears.
   const selectionPopupHostRef = useRef<HTMLDivElement | null>(null);
@@ -1088,9 +1144,8 @@ export function PDFViewer({
 
   const extractPdfPageText = useCallback(
     async (pdfDoc: pdfjsLib.PDFDocumentProxy, pageNum: number) => {
-      if (textCacheRef.current.has(pageNum)) {
-        return textCacheRef.current.get(pageNum) ?? "";
-      }
+      const cache = textCacheRef.current;
+      if (cache.has(pageNum)) return cache.get(pageNum) ?? "";
       try {
         const page = await pdfDoc.getPage(pageNum);
         const content = await page.getTextContent();
@@ -1099,11 +1154,11 @@ export function PDFViewer({
           .join(" ")
           .replace(/\s+/g, " ")
           .trim();
-        textCacheRef.current.set(pageNum, text);
+        cache.set(pageNum, text);
         return text;
       } catch (err) {
         console.warn("Failed to extract PDF text for page", pageNum, err);
-        textCacheRef.current.set(pageNum, "");
+        cache.set(pageNum, "");
         return "";
       }
     },
@@ -1121,16 +1176,14 @@ export function PDFViewer({
     const root = textLayerRootsRef.current[pageIndex];
     if (!root) return;
 
-    const spans = Array.from(root.querySelectorAll("span"));
-    for (const span of spans) {
-      const el = span as HTMLElement;
-      if (!el.dataset.origHtml) {
-        el.dataset.origHtml = el.innerHTML;
-      } else if (el.innerHTML !== el.dataset.origHtml) {
-        el.innerHTML = el.dataset.origHtml;
-      }
-      delete el.dataset.searchMarkCount;
+    for (const mark of root.querySelectorAll("mark.pdf-search-highlight, mark.pdf-tts-highlight")) {
+      const parent = mark.parentElement;
+      mark.replaceWith(mark.textContent ?? "");
+      parent?.normalize();
     }
+    const spans = Array.from(root.querySelectorAll<HTMLSpanElement>("span"))
+      .filter((span) => span.childElementCount === 0);
+    for (const span of spans) delete span.dataset.searchMarkCount;
 
     if (ttsHighlightEnabled && ttsQuery && pageIndex === pageNumberRef.current - 1) {
       let fullText = "";
@@ -1170,12 +1223,7 @@ export function PDFViewer({
         }
 
         spansToHighlight.forEach((range, spanIdx) => {
-          const span = spans[spanIdx];
-          const text = span.textContent || "";
-          const before = text.slice(0, range.start);
-          const middle = text.slice(range.start, range.end);
-          const after = text.slice(range.end);
-          span.innerHTML = `${before}<mark class="pdf-tts-highlight">${middle}</mark>${after}`;
+          markPdfText(spans[spanIdx], [range], "pdf-tts-highlight");
         });
 
         // Highlight rendering never owns following. useSpokenWordFollow is
@@ -1190,24 +1238,13 @@ export function PDFViewer({
       const pageMatches = pageSearchMatchesRef.current.get(pageIndex + 1) ?? [];
       let pageSearchMarkCount = 0;
       for (const span of spans) {
-        const el = span as HTMLElement;
-        const text = el.textContent ?? "";
-        if (!text) continue;
-        if (!searchRe.test(text)) {
-          searchRe.lastIndex = 0;
-          continue;
-        }
-        searchRe.lastIndex = 0;
-        let localMatchCount = 0;
-        el.innerHTML = text.replace(searchRe, (match) => {
-          localMatchCount += 1;
-          const pageOrder = pageSearchMarkCount;
+        const text = span.textContent ?? "";
+        const count = markPdfText(span, pdfTextMatchRanges(text, searchRe), "pdf-search-highlight", (mark) => {
+          mark.dataset.searchMatch = "true";
+          mark.dataset.searchMatchPageOrder = String(pageSearchMarkCount);
           pageSearchMarkCount += 1;
-          return `<mark class="pdf-search-highlight" data-search-match="true" data-search-match-page-order="${pageOrder}">${match}</mark>`;
         });
-        if (localMatchCount > 0) {
-          el.dataset.searchMarkCount = String(localMatchCount);
-        }
+        if (count > 0) span.dataset.searchMarkCount = String(count);
       }
 
       const activeMatch = searchResultsRef.current[activeSearchMatchIndexRef.current];
@@ -1223,6 +1260,11 @@ export function PDFViewer({
             if (!navigationOwnerRef.current.owns(searchTicket) || pendingSearchScrollRef.current === null) return;
             activeMark.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
             pendingSearchScrollRef.current = null;
+            const token = searchHistoryTokenRef.current;
+            if (token !== null) {
+              searchHistoryTokenRef.current = null;
+              settleNavigationHistory(token, pageIndex + 1);
+            }
           });
         }
       } else if (pageMatches.length === 0 && pendingSearchScrollRef.current === activeSearchMatchIndexRef.current) {
@@ -1247,11 +1289,7 @@ export function PDFViewer({
     const re = new RegExp(`(${escaped.join("|")})`, "gi");
 
     for (const span of spans) {
-      const el = span as HTMLElement;
-      const text = el.textContent ?? "";
-      if (!re.test(text)) continue;
-      re.lastIndex = 0;
-      el.innerHTML = text.replace(re, `<mark class="pdf-search-highlight">$1</mark>`);
+      markPdfText(span, pdfTextMatchRanges(span.textContent ?? "", re), "pdf-search-highlight");
     }
 
     const marks = Array.from(root.querySelectorAll("mark.pdf-search-highlight")) as HTMLElement[];
@@ -1273,7 +1311,7 @@ export function PDFViewer({
     requestAnimationFrame(() => {
       if (navigationOwnerRef.current.owns(cfg.ticket)) targetMark.scrollIntoView({ block: "center", inline: "nearest", behavior: "auto" });
     });
-  }, [getSearchHighlightPattern]);
+  }, [getSearchHighlightPattern, settleNavigationHistory]);
   // Wire the forward ref so PdfPageViewWrapper's onTextLayerReady can re-apply
   // search/TTS/jump marks onto a freshly rendered text layer.
   applyTextLayerHighlightsRef.current = applyTextLayerHighlights;
@@ -1286,7 +1324,7 @@ export function PDFViewer({
     });
   }, [applyTextLayerHighlights]);
 
-  const beginExplicitNavigation = useCallback(() => {
+  const beginExplicitNavigation = useCallback((recordHistory = false) => {
     navigationOwnerRef.current.beginToc();
     announceReaderNavigation(scrollContainerRef.current);
     pendingSearchScrollRef.current = null;
@@ -1298,6 +1336,12 @@ export function PDFViewer({
     navOriginRef.current = "other";
     userScrollLockoutUntilRef.current = 0;
     const token = ++navTokenCounterRef.current;
+    pdfNavigationHistoryRef.current.cancel();
+    searchHistoryTokenRef.current = null;
+    if (recordHistory) {
+      const origin = readHistoryLocationRef.current();
+      if (origin) pdfNavigationHistoryRef.current.begin(token, origin);
+    }
     setNavigationRevision(token);
     return token;
   }, []);
@@ -1310,7 +1354,8 @@ export function PDFViewer({
         return;
       }
 
-      const token = options?.scroll !== false ? beginExplicitNavigation() : null;
+      const token = options?.scroll !== false ? beginExplicitNavigation(true) : null;
+      if (token !== null) searchHistoryTokenRef.current = token;
       const clampedIndex = Math.max(0, Math.min(requestedIndex, searchResultsRef.current.length - 1));
       activeSearchMatchIndexRef.current = clampedIndex;
       if (options?.scroll !== false) {
@@ -1423,6 +1468,8 @@ export function PDFViewer({
 
   const markUserScrollOwnership = useCallback((reason: string) => {
     navigationOwnerRef.current.userScroll();
+    pdfNavigationHistoryRef.current.cancel();
+    searchHistoryTokenRef.current = null;
     latestTocRequestTokenRef.current = null;
     activeNavTokenRef.current = null;
     pendingNavRef.current = null;
@@ -1454,8 +1501,12 @@ export function PDFViewer({
       setIsLoading(true);
       setError(null);
       setPdf(null);
+      setPageLabels(null);
       setPdfSourceIdentity(null);
       setReflowDocument(null);
+      setCanonicalPages(new Map());
+      canonicalReadyRef.current.clear();
+      canonicalCacheRef.current = null;
       setMobilePdfMode("fixed");
       reflowSchedulerRef.current?.cancel();
       setReaderState(reducePdfReaderState(initialPdfReaderState, { type: "OPEN" }));
@@ -1496,6 +1547,10 @@ export function PDFViewer({
           if (useNativeRange) {
             const loadNative = async () => {
               const native = await createNativePdfRangeSource(documentId);
+              if (!mounted) {
+                native.transport.abort();
+                throw new DOMException("PDF load cancelled", "AbortError");
+              }
               nativeTransports.push(native.transport);
               diagnosticsRef.current = native.diagnostics;
               setPdfSourceIdentity({ identity: native.info.identity, fingerprint: native.info.fingerprint });
@@ -1506,6 +1561,7 @@ export function PDFViewer({
                 disableStream: true,
                 disableAutoFetch: false,
                 disableFontFace: shouldDisableFontFace,
+                isEvalSupported: false,
               } as any);
               pdfDocumentHolder.setLoadingTask(loadingTask);
               return await awaitLoadingTask(loadingTask, native.failure);
@@ -1581,6 +1637,7 @@ export function PDFViewer({
         );
         setTextSelectionCapability(initialCapability);
         onTextSelectionCapabilityChange?.(initialCapability);
+        loadedPdfRef.current = pdfDoc;
         setPdf(pdfDoc);
         pdfDocumentHolder.setDocument(pdfDoc);
         if (!useNativeRange) {
@@ -1589,7 +1646,7 @@ export function PDFViewer({
         }
         setReaderState((state) => reducePdfReaderState(state, { type: "READY" }));
         onPdfInfo?.({ fingerprint: (pdfDoc as any).fingerprint ?? null });
-        textCacheRef.current.clear();
+        textCacheRef.current = new Map();
         pageOffsetsRef.current = [];
         setNumPages(pdfDoc.numPages);
         try {
@@ -1610,6 +1667,11 @@ export function PDFViewer({
         setRenderedPageRange({ start, end });
         renderedPageRangeRef.current = { start, end };
         onLoad?.(pdfDoc.numPages, []);
+
+        void pdfDoc.getPageLabels?.().then(
+          (labels) => { if (mounted) setPageLabels(labels); },
+          () => { /* Label metadata is optional. */ },
+        );
 
         // Get outline (table of contents)
         const outlineData = await pdfDoc.getOutline();
@@ -1641,12 +1703,13 @@ export function PDFViewer({
       mounted = false;
       // Task 5.1: destroy the pdf.js document and its loading task (this also
       // aborts an in-flight load). Runs on unmount AND on document change.
+      loadedPdfRef.current = null;
       pdfDocumentHolder.reset();
       releaseDocumentResources(documentId);
       for (const transport of nativeTransports) transport.abort();
       passwordSubmitRef.current = null;
       // Task 5.2: release per-page rendering state held by the viewer.
-      textCacheRef.current.clear();
+      textCacheRef.current = new Map();
       renderedPagesRef.current.clear();
       pageOffsetsRef.current = [];
       reflowSchedulerRef.current?.cancel();
@@ -1671,7 +1734,7 @@ export function PDFViewer({
   const ANALYSIS_WINDOW_PAGES = 8;
 
   useEffect(() => {
-    if (!pdf || !pdfSourceIdentity || !isPhone || !isPdfFeatureEnabled("semanticReflow") || canonicalPipelineActive) {
+    if (!pdf || !pdfSourceIdentity || !shouldRunPrototype) {
       reflowSchedulerRef.current?.cancel();
       return;
     }
@@ -1716,7 +1779,7 @@ export function PDFViewer({
       disposed = true;
       reflowSchedulerRef.current?.cancel();
     };
-  }, [canonicalPipelineActive, documentId, isPhone, metadata?.language, mobilePreferences.preferredMobileMode, pdf, pdfSourceIdentity]);
+  }, [documentId, metadata?.language, mobilePreferences.preferredMobileMode, pdf, pdfSourceIdentity, shouldRunPrototype]);
 
   // Canonical (v2) pipeline: only run background raster+Rust analysis when
   // Reflow mode is active, on mobile (where auto-reflow may activate), or when
@@ -2028,7 +2091,7 @@ export function PDFViewer({
         engineVersion: PDF_CANONICAL_ENGINE_VERSION,
       },
     });
-    if (result) {
+    if (result && loadedPdfRef.current === pdf) {
       setCanonicalPages((prev) => new Map(prev).set(page.pageNumber, result));
       // V2: OCR replaces the page's word-span DOM under any live selection.
       onSelectionContextInvalidated?.("ocr-page-replaced");
@@ -2047,7 +2110,9 @@ export function PDFViewer({
         engineVersion: PDF_CANONICAL_ENGINE_VERSION,
       },
     });
-    if (result) setCanonicalPages((prev) => new Map(prev).set(page.pageNumber, result));
+    if (result && loadedPdfRef.current === pdf) {
+      setCanonicalPages((prev) => new Map(prev).set(page.pageNumber, result));
+    }
   }, [documentId, pdf, pdfSourceIdentity]);
 
   // Identity-stable pass-throughs so the memoized reflow page sections skip
@@ -2424,71 +2489,65 @@ export function PDFViewer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pdf, numPages, renderedPageRange, scale, zoomMode]);
 
+  const onTextWindowChangeRef = useRef(onTextWindowChange);
+  onTextWindowChangeRef.current = onTextWindowChange;
+  const publishesTextWindow = Boolean(onTextWindowChange);
   useEffect(() => {
-    if (!pdf || !onTextWindowChange) return;
+    if (!pdf || loadedPdfRef.current !== pdf || !publishesTextWindow) return;
 
     const start = Math.max(1, pageNumber - contextPageWindow);
     const end = Math.min(pdf.numPages, pageNumber + contextPageWindow);
-    textWindowRef.current = { start, end };
-
-    const updateWindow = () => {
-      const { start: windowStart, end: windowEnd } = textWindowRef.current;
-      // Canonical model first (task 8.1/8.3): reading-order block text with
-      // marginal roles suppressed — TTS and AI context stop interleaving
-      // columns. Legacy flattened text covers unanalyzed pages.
-      if (canonicalPipelineActive) {
-        const canonicalChunks: string[] = [];
-        const speechPages: PdfSpeechPage[] = [];
-        let covered = 0;
-        for (let page = windowStart; page <= windowEnd; page += 1) {
-          const model = canonicalPages.get(page);
-          if (!model || model.state !== "ready") continue;
-          covered += 1;
-          const ordered = [...model.blocks]
-            .filter((block) => block.role === "body")
-            .sort((a, b) => a.readingOrder - b.readingOrder);
-          const pageText = ordered
-            .map((block) => block.text || block.altText || "")
-            .filter(Boolean)
-            .join("\n\n");
-          canonicalChunks.push(`<page number="${page}"/>${pageText}`);
-          speechPages.push({
-            pageNumber: page,
-            text: pageText,
-            words: buildPageWordTable(ordered, pageText),
-          });
-        }
-        if (covered > 0) {
-          onTextWindowChange(canonicalChunks.join("\n\n"), speechPages);
-          return;
-        }
-      }
-      const chunks: string[] = [];
-      for (let page = windowStart; page <= windowEnd; page += 1) {
-        const cached = textCacheRef.current.get(page);
-        if (cached !== undefined) {
-          chunks.push(`<page number="${page}"/>${cached}`);
-        }
-      }
-      if (chunks.length > 0) {
-        onTextWindowChange(chunks.join("\n\n"));
-      }
+    let cancelled = false;
+    const canonicalBody = (page: number) => {
+      const model = canonicalPipelineActive ? canonicalPages.get(page) : undefined;
+      const ordered = model?.state === "ready"
+        ? model.blocks.filter((block) => block.role === "body").sort((a, b) => a.readingOrder - b.readingOrder)
+        : [];
+      const text = ordered.map((block) => block.text || block.altText || "").filter(Boolean).join("\n\n");
+      return { ordered, text };
     };
-
-    const extractPageText = async (pageNum: number) => {
-      const text = await extractPdfPageText(pdf, pageNum);
-      if (text) {
-        updateWindow();
+    const source = {
+      documentId,
+      version: [pdfSourceIdentity?.identity, ...(pdf.fingerprints ?? [])].filter(Boolean).join(":"),
+      pageCount: pdf.numPages,
+      isCurrent: () => loadedPdfRef.current === pdf,
+      loadPageText: async (page: number) => {
+        if (loadedPdfRef.current !== pdf || !Number.isSafeInteger(page) || page < 1 || page > pdf.numPages) {
+          return "";
+        }
+        return canonicalBody(page).text || extractPdfPageText(pdf, page);
+      },
+    };
+    const updateWindow = () => {
+      if (cancelled) return;
+      const speechPages: PdfSpeechPage[] = [];
+      for (let page = start; page <= end; page += 1) {
+        const { ordered, text: canonicalText } = canonicalBody(page);
+        const text = canonicalText || textCacheRef.current.get(page);
+        if (!text?.trim()) continue;
+        speechPages.push({
+          pageNumber: page,
+          text,
+          words: canonicalText ? buildPageWordTable(ordered, text) : [],
+        });
       }
+      const text = speechPages.map((page) => `<page number="${page.pageNumber}"/>${page.text}`).join("\n\n");
+      onTextWindowChangeRef.current?.(text, speechPages, {
+        documentId,
+        activePage: pageNumber,
+        activePageText: speechPages.find((page) => page.pageNumber === pageNumber)?.text,
+        source,
+      });
     };
 
     updateWindow();
     for (let page = start; page <= end; page += 1) {
-      void extractPageText(page);
+      if (!textCacheRef.current.has(page)) {
+        void extractPdfPageText(pdf, page).then((text) => { if (text) updateWindow(); });
+      }
     }
-    // Note: onTextWindowChange is intentionally excluded from deps - callbacks
-    // shouldn't trigger effect re-runs, only data changes should
-  }, [canonicalPages, canonicalPipelineActive, contextPageWindow, extractPdfPageText, onTextWindowChange, pageNumber, pdf]);
+    return () => { cancelled = true; };
+  }, [canonicalPages, canonicalPipelineActive, contextPageWindow, documentId, extractPdfPageText, pageNumber, pdf, pdfSourceIdentity, publishesTextWindow]);
 
   useEffect(() => {
     searchQueryRef.current = searchQuery?.trim() ?? "";
@@ -3120,7 +3179,7 @@ export function PDFViewer({
 
       // Ignore interactive controls inside overlays (e.g. OCR buttons, links).
       const targetEl = target instanceof Element ? target : target.parentElement;
-      if (targetEl?.closest("button, a, input, select, textarea, [role=button], .pdf-ocr-overlay")) {
+      if (targetEl?.closest("button, a, input, select, textarea, [role=button], .annotationLayer, .pdf-ocr-overlay")) {
         return;
       }
 
@@ -3326,24 +3385,23 @@ export function PDFViewer({
   // is passed as the `scale` prop to each PdfPageViewWrapper.
   const computeActualScale = useCallback(
     (baseViewportWidth: number, baseViewportHeight: number): number => {
+      const wrapWidth = (scrollContainerRef.current?.clientWidth ?? baseViewportWidth) - 32;
+      const pageWidth = spreadView ? (wrapWidth - PAGE_GAP_PX) / 2 : wrapWidth;
       if (zoomMode === "fit-width") {
-        const scrollContainer = scrollContainerRef.current;
-        const containerWidth = (scrollContainer?.clientWidth ?? baseViewportWidth) - 32;
-        if (containerWidth > 0) return containerWidth / baseViewportWidth;
+        if (pageWidth > 0) return pageWidth / baseViewportWidth;
         return scale;
       }
       if (zoomMode === "fit-page") {
         const scrollContainer = scrollContainerRef.current;
-        const containerWidth = (scrollContainer?.clientWidth ?? baseViewportWidth) - 32;
         const containerHeight = (scrollContainer?.clientHeight ?? baseViewportHeight) - 32;
-        if (containerWidth > 0 && containerHeight > 0) {
-          return Math.min(containerWidth / baseViewportWidth, containerHeight / baseViewportHeight);
+        if (pageWidth > 0 && containerHeight > 0) {
+          return Math.min(pageWidth / baseViewportWidth, containerHeight / baseViewportHeight);
         }
         return scale;
       }
       return scale;
     },
-    [zoomMode, scale],
+    [zoomMode, scale, spreadView],
   );
 
   // Resolve the display scale for every page from the current zoom mode + the
@@ -3353,14 +3411,23 @@ export function PDFViewer({
   // enough; PdfPageViewWrapper re-draws each page at its own true viewport.
   // `resizeNonce` is bumped by the ResizeObserver so fit-width/fit-page
   // recomputes when the container resizes (e.g. assistant panel drag).
+  const fixedFallbackSize = useMemo(() => {
+    return fallbackPageSize && fixedView.rotation % 180 !== 0
+      ? { width: fallbackPageSize.height, height: fallbackPageSize.width }
+      : fallbackPageSize;
+  }, [fallbackPageSize, fixedView.rotation]);
   const resolvedScale = useMemo(() => {
     // Read resizeNonce to recompute on container resize.
     void resizeNonceRef.current;
-    const base = fallbackPageSize;
+    const base = fixedFallbackSize;
     if (!base) return scale;
     return computeActualScale(base.width, base.height);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fallbackPageSize, scale, zoomMode, computeActualScale, resizeNonceRef.current]);
+  }, [fixedFallbackSize, scale, zoomMode, computeActualScale, resizeNonceRef.current]);
+  const fallbackPageStyle = useMemo(() => fixedFallbackSize ? {
+    minWidth: Math.round(fixedFallbackSize.width * resolvedScale),
+    minHeight: Math.round(fixedFallbackSize.height * resolvedScale),
+  } : undefined, [fixedFallbackSize, resolvedScale]);
   // pageScales is a sparse array mirroring pageViewportRefs indexing; every
   // entry resolves to resolvedScale (uniform). Kept as an array so the JSX can
   // read `pageScales[index]` uniformly in case per-page scaling is added later.
@@ -3371,11 +3438,17 @@ export function PDFViewer({
 
 
   const getCurrentPageFromScrollTop = useCallback((scrollTop: number) => {
-    return deriveCurrentPageFromOffsets(pageOffsetsRef.current, numPages, pageNumber, scrollTop, 24);
-  }, [numPages, pageNumber]);
+    if (fixedView.layout === "single") return pageNumber;
+    const hit = deriveCurrentPageFromOffsets(pageOffsetsRef.current, numPages, pageNumber, scrollTop, 24);
+    const [first, last] = pdfRowBounds(hit, fixedView.layout, effectiveStartPage, effectiveEndPage);
+    return pageNumber >= first && pageNumber <= last ? pageNumber : first;
+  }, [numPages, pageNumber, fixedView.layout, effectiveStartPage, effectiveEndPage]);
 
   const completeProgrammaticNavigation = useCallback((token: number) => {
     if (activeNavTokenRef.current !== token) return;
+    if (searchHistoryTokenRef.current !== token) {
+      settleNavigationHistory(token, pendingNavRef.current?.pageNumber);
+    }
     activeNavTokenRef.current = null;
     pendingNavRef.current = null;
     isProgrammaticScrollRef.current = false;
@@ -3386,7 +3459,7 @@ export function PDFViewer({
       navOriginRef.current = "other";
       onNavigationSettledRef.current?.();
     }
-  }, [setNavigationMode]);
+  }, [setNavigationMode, settleNavigationHistory]);
 
   const applyPendingNavigation = useCallback(() => {
     const pending = pendingNavRef.current;
@@ -3397,11 +3470,17 @@ export function PDFViewer({
     const viewport = pageViewportRefs.current[pending.pageNumber - 1];
     // Virtual slots alone are not destinations. Wait for real page geometry.
     if (!pageContainer || !viewport || pageContainer.offsetHeight <= 0) return;
-    const requestedZoom = pending.requestedZoom;
+    if (pageViewRotationsRef.current[pending.pageNumber - 1] !== fixedView.rotation) return;
+    if (pending.historyLocation && pending.historyLocation.zoomMode !== zoomMode) return;
+    const requestedZoom = pending.requestedZoom ?? (pending.historyLocation ? resolvedScale : null);
     if (typeof requestedZoom === "number" && requestedZoom > 0 && Math.abs(viewport.scale - requestedZoom) > 0.001) return;
-    const point = pdfDestinationPoint(pending.destArray, viewport);
+    const restoredPoint = pending.historyLocation?.mode === "fixed" ? pending.historyLocation.point : undefined;
+    const restoredPosition = restoredPoint && viewport.convertToViewportPoint(...restoredPoint);
+    const point = restoredPosition
+      ? { x: restoredPosition[0], y: restoredPosition[1] }
+      : pdfDestinationPoint(pending.destArray, viewport);
     const maxTop = Math.max(0, container.scrollHeight - container.clientHeight);
-    const top = point.y === null ? container.scrollTop : Math.min(maxTop, Math.max(0, pageContainer.offsetTop + point.y - 16));
+    const top = point.y === null ? container.scrollTop : Math.min(maxTop, Math.max(0, pageContainer.offsetTop + point.y - (restoredPosition ? 0 : 16)));
     const left = point.x === null ? container.scrollLeft : Math.min(Math.max(0, container.scrollWidth - container.clientWidth), Math.max(0, pageContainer.offsetLeft + point.x));
     isProgrammaticScrollRef.current = true;
     container.scrollTo({ top, left, behavior: "auto" });
@@ -3413,7 +3492,7 @@ export function PDFViewer({
         completeProgrammaticNavigation(pending.token);
       }
     });
-  }, [mobilePdfMode, completeProgrammaticNavigation]);
+  }, [mobilePdfMode, completeProgrammaticNavigation, fixedView.rotation, resolvedScale, zoomMode]);
   applyPendingNavigationRef.current = applyPendingNavigation;
   useEffect(() => { applyPendingNavigation(); }, [applyPendingNavigation, pageNumber, numPages, navigationRevision, pageGeometryRevision]);
 
@@ -3633,9 +3712,12 @@ export function PDFViewer({
     if (!Number.isFinite(targetPage)) return;
     const clamped = Math.max(effectiveStartPage, Math.min(effectiveEndPage, targetPage));
     if (clamped === pageNumber) return;
-    const token = beginExplicitNavigation();
+    const token = beginExplicitNavigation(true);
     if (mobilePdfMode === "reflow") {
-      if (scrollReflowToPage(clamped)) return;
+      if (scrollReflowToPage(clamped, "auto")) {
+        settleNavigationHistory(token, clamped);
+        return;
+      }
       setMobilePdfMode("fixed");
     }
     activeNavTokenRef.current = token;
@@ -3645,6 +3727,54 @@ export function PDFViewer({
       isProgrammaticScrollRef.current = true;
     }
     onPageChange?.(clamped);
+  };
+
+  const handleHistoryNavigation = (direction: PdfHistoryDirection) => {
+    const destination = pdfNavigationHistory.peek(direction);
+    const origin = readHistoryLocationRef.current();
+    if (!destination || !origin || !onPageChange) return;
+    if (destination.pageNumber < effectiveStartPage || destination.pageNumber > effectiveEndPage) return;
+    const token = beginExplicitNavigation();
+    pdfNavigationHistory.begin(token, origin, direction);
+    activeNavTokenRef.current = token;
+    const targetMode = reflowEngine === "disabled" ? "fixed" : destination.mode;
+    modeOverriddenRef.current = true;
+    setMobilePdfMode(targetMode);
+    setZoomMode(destination.zoomMode);
+    onZoomModeChange?.(destination.zoomMode);
+    onScaleChange?.(destination.scale);
+    pendingNavRef.current = {
+      token,
+      pageNumber: destination.pageNumber,
+      destArray: null,
+      requestedZoom: targetMode === "fixed" && destination.zoomMode === "custom" && onScaleChange ? destination.scale : null,
+      historyLocation: destination,
+    };
+    isProgrammaticScrollRef.current = true;
+    onPageChange(destination.pageNumber);
+  };
+
+  const closePdfSidebar = () => {
+    setShowTOC(false);
+    outerContainerRef.current?.focus({ preventScroll: true });
+  };
+
+  const activateThumbnail = (targetPage: number) => {
+    closePdfSidebar();
+    handleGoToPage(targetPage);
+  };
+
+  const changeFixedView = (value: PdfViewPreferences) => {
+    const origin = readHistoryLocationRef.current();
+    const token = beginExplicitNavigation();
+    hideSelectionPopup();
+    if (fixedView.rotation !== value.rotation) pageHeightCacheRef.current.clear();
+    setFixedViewState({ documentId, value });
+    savePdfViewPreferences(documentId, value);
+    if (!origin || origin.mode !== "fixed") return;
+    activeNavTokenRef.current = token;
+    isProgrammaticScrollRef.current = true;
+    pendingNavRef.current = { token, pageNumber: origin.pageNumber, destArray: null, historyLocation: origin };
   };
 
   const resolveOutlineDest = useCallback(async (dest: any) => {
@@ -3696,6 +3826,10 @@ export function PDFViewer({
     pendingNavRef.current = null;
     userScrollLockoutUntilRef.current = 0;
     const requestToken = ++navTokenCounterRef.current;
+    const origin = readHistoryLocationRef.current();
+    pdfNavigationHistoryRef.current.cancel();
+    searchHistoryTokenRef.current = null;
+    if (origin) pdfNavigationHistoryRef.current.begin(requestToken, origin);
     activeNavTokenRef.current = requestToken;
     navOriginRef.current = "toc";
     latestTocRequestTokenRef.current = requestToken;
@@ -3705,6 +3839,7 @@ export function PDFViewer({
       latestTocRequestTokenRef.current = null;
       pendingNavRef.current = null;
       isProgrammaticScrollRef.current = false;
+      pdfNavigationHistoryRef.current.cancel();
       owner.settle(ticket);
     };
     const resolved = await resolveOutlineDest(dest);
@@ -3751,10 +3886,19 @@ export function PDFViewer({
       isProgrammaticScrollRef.current = true;
     }
     setShowTOC(false);
+    if (document.activeElement?.closest("[data-pdf-navigation-sidebar]")) {
+      outerContainerRef.current?.focus({ preventScroll: true });
+    }
     setNavigationRevision(requestToken);
     onPageChange?.(nextPageNumber);
     if (mobilePdfMode === "fixed") applyPendingNavigation();
   }, [logNav, mobilePdfMode, onPageChange, applyPendingNavigation, resolveOutlineDest, setNavigationMode, effectiveStartPage, effectiveEndPage, onScaleChange, onZoomModeChange, pdf]);
+
+  const embeddedNavigationRef = useRef(handleTocClick);
+  embeddedNavigationRef.current = handleTocClick;
+  const embeddedLinks = useMemo(() => new PdfEmbeddedLinks(
+    (destination) => embeddedNavigationRef.current(destination),
+  ), []);
 
   useEffect(() => {
     const pending = pendingNavRef.current;
@@ -3775,8 +3919,11 @@ export function PDFViewer({
       const target = blockId ? Array.from(container?.querySelectorAll<HTMLElement>("[data-pdf-reflow-block]") ?? []).find((element) => element.dataset.pdfReflowBlock === blockId)
         : container?.querySelector<HTMLElement>(`[data-pdf-reflow-page="${pending.pageNumber}"]`);
       if (!target || !container) return;
+      const offset = pending.historyLocation?.mode === "reflow"
+        ? target.offsetHeight * pending.historyLocation.pageOffset
+        : -16;
       const top = Math.max(0, Math.min(container.scrollHeight - container.clientHeight,
-        container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top - 16));
+        container.scrollTop + target.getBoundingClientRect().top - container.getBoundingClientRect().top + offset));
       isProgrammaticScrollRef.current = true;
       container.scrollTo({ top, behavior: "auto" });
       if (Math.abs(container.scrollTop - top) <= 2) completeProgrammaticNavigation(pending.token);
@@ -3920,9 +4067,9 @@ export function PDFViewer({
   }, [flatOutline, pageNumber, handleTocClick]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if ((e.target as HTMLElement).tagName === "INPUT" ||
-        (e.target as HTMLElement).tagName === "TEXTAREA" ||
-        (e.target as HTMLElement).isContentEditable) {
+    if (e.defaultPrevented) return;
+    const target = e.target as HTMLElement;
+    if (target.closest("input, textarea, select, .annotationLayer") || target.isContentEditable) {
       return;
     }
 
@@ -4035,6 +4182,7 @@ export function PDFViewer({
         layer && (layer === targetNode || layer.contains(targetNode))
       );
       const targetEl = targetNode instanceof Element ? targetNode : targetNode.parentElement;
+      if (!isMiddleButton && targetEl?.closest(".annotationLayer")) return;
       const pageEl = targetEl?.closest<HTMLElement>("[data-pdf-page]");
       const pageNum = pageEl ? Number(pageEl.dataset.pageNumber) : NaN;
       const hasGeomText =
@@ -4330,35 +4478,68 @@ export function PDFViewer({
       )}
 
       <div className="flex flex-1 min-h-0 relative">
-        {/* Table of Contents Sidebar - Overlay on mobile, inline on desktop */}
+        {/* Navigation overlay on mobile, inline on desktop. */}
         {showTOC && (
           <>
-            {/* Mobile overlay backdrop */}
             <div
               className="md:hidden fixed inset-0 bg-black/50 z-40"
-              onClick={() => setShowTOC(false)}
+              onClick={closePdfSidebar}
             />
-            {/* TOC Panel */}
-            <div className="fixed md:relative inset-y-0 left-0 md:left-auto w-[280px] md:w-64 border-r border-border bg-card overflow-y-auto flex-shrink-0 z-50">
-              <div className="p-3 md:p-4 border-b border-border flex items-center justify-between">
-                <h3 className="font-semibold text-foreground text-sm md:text-base">Table of Contents</h3>
+            <aside
+              id={pdfSidebarId}
+              aria-label={t(pdfSidebarView === "outline" ? "viewer.tableOfContents" : "viewer.pdfThumbnails")}
+              data-pdf-navigation-sidebar
+              className="fixed inset-y-0 start-0 z-50 flex w-[min(18rem,90vw)] shrink-0 flex-col border-e border-border bg-card md:relative md:w-64"
+              onKeyDown={(event) => {
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  closePdfSidebar();
+                }
+              }}
+            >
+              <div className="flex items-center gap-1 border-b border-border px-2 py-1">
+                {(["outline", "thumbnails"] as const).map((view) => (
+                  <button
+                    key={view}
+                    type="button"
+                    aria-pressed={view === pdfSidebarView}
+                    disabled={view === "thumbnails" && !pdf}
+                    onClick={() => setPdfSidebarView(view)}
+                    className={cn(
+                      "md-state min-h-11 rounded-md px-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary",
+                      view === pdfSidebarView ? "bg-muted text-foreground" : "text-muted-foreground hover:bg-muted",
+                    )}
+                  >
+                    {t(view === "outline" ? "viewer.tableOfContents" : "viewer.pdfThumbnails")}
+                  </button>
+                ))}
                 <button
-                  onClick={() => setShowTOC(false)}
-                  className="p-2 hover:bg-muted rounded transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center"
+                  type="button"
+                  aria-label={t("common.close")}
+                  onClick={closePdfSidebar}
+                  className="md-state ms-auto flex min-h-11 min-w-11 items-center justify-center rounded-md hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary"
                 >
-                  ✕
+                  <X className="h-4 w-4" aria-hidden="true" />
                 </button>
               </div>
-              <nav className="p-2">
-                {outline.length > 0 ? (
-                  renderOutline(outline)
-                ) : (
-                  <p className="text-sm text-muted-foreground px-3 py-2">
-                    No table of contents available
-                  </p>
-                )}
-              </nav>
-            </div>
+              {pdfSidebarView === "thumbnails" && pdf ? (
+                <PdfPageThumbnails
+                  key={historyKey}
+                  pdf={pdf}
+                  firstPage={effectiveStartPage}
+                  lastPage={effectiveEndPage}
+                  currentPage={pageNumber}
+                  pageLabels={pageLabels}
+                  onNavigate={activateThumbnail}
+                />
+              ) : (
+                <nav className="min-h-0 flex-1 overflow-y-auto p-2">
+                  {outline.length > 0 ? renderOutline(outline) : (
+                    <p className="px-3 py-2 text-sm text-muted-foreground">No table of contents available</p>
+                  )}
+                </nav>
+              )}
+            </aside>
           </>
         )}
 
@@ -4373,7 +4554,7 @@ export function PDFViewer({
             isPhone && !mobileChromeVisible && "pointer-events-none absolute inset-x-0 top-0 z-30 -translate-y-full opacity-0",
           )}>
             <div className="flex flex-shrink-0 items-center gap-0.5 md:gap-1">
-              {(isPhone || canonicalPipelineActive) && (canonicalPipelineActive || reflowDocument || canonicalPages.size > 0) && (
+              {pdf && reflowEngine !== "disabled" && (
                 <button
                   type="button"
                   className="flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted"
@@ -4403,7 +4584,13 @@ export function PDFViewer({
                 </button>
               )}
               <button
-                onClick={() => setShowTOC(!showTOC)}
+                type="button"
+                aria-expanded={showTOC}
+                aria-controls={showTOC ? pdfSidebarId : undefined}
+                onClick={() => {
+                  setPdfSidebarView("outline");
+                  setShowTOC(!showTOC);
+                }}
                 className={cn(
                   "p-2 rounded-md transition-colors min-w-[36px] min-h-[36px] flex items-center justify-center",
                   showTOC ? "bg-muted text-foreground" : "hover:bg-muted text-muted-foreground"
@@ -4412,6 +4599,20 @@ export function PDFViewer({
               >
                 <List className="w-4 h-4 md:w-4 md:h-4" />
               </button>
+              {pdf && useNativeRange && pdfSourceIdentity && isTauriRuntime && !isNativeMobile() && (
+                <PdfSaveRotatedCopyButton
+                  documentId={documentId}
+                  pageNumber={pageNumber}
+                  sourceIdentity={pdfSourceIdentity.identity}
+                />
+              )}
+              {pdf && <PdfFileActions
+                key={documentId}
+                pdf={pdf}
+                documentId={documentId}
+                pageNumber={pageNumber}
+                sourceIdentity={useNativeRange && isTauriRuntime && !isNativeMobile() ? pdfSourceIdentity?.identity : undefined}
+              />}
 
               <button
                 onClick={() => {
@@ -4429,6 +4630,24 @@ export function PDFViewer({
 
               <div className="hidden md:block h-6 w-px bg-border mx-2" />
 
+              {(["back", "forward"] as const).map((direction) => {
+                const Icon = direction === "back" ? ArrowLeft : ArrowRight;
+                const label = t(direction === "back" ? "viewer.pdfPreviousLocation" : "viewer.pdfNextLocation");
+                return (
+                  <button
+                    key={direction}
+                    type="button"
+                    aria-label={label}
+                    title={label}
+                    disabled={!pdfNavigationHistory.peek(direction)}
+                    onClick={() => handleHistoryNavigation(direction)}
+                    className="md-state flex min-h-10 min-w-10 items-center justify-center rounded-md hover:bg-muted focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary disabled:opacity-50"
+                  >
+                    <Icon aria-hidden="true" className="h-4 w-4 rtl:-scale-x-100" />
+                  </button>
+                );
+              })}
+
               <button
                 onClick={handlePrevPage}
                 disabled={pageNumber <= effectiveStartPage}
@@ -4441,6 +4660,7 @@ export function PDFViewer({
               <PdfPageIndicator
                 inputRef={pageInputRef}
                 pageNumber={pageNumber}
+                pageLabel={pageLabels?.[pageNumber - 1]}
                 numPages={numPages}
                 effectiveStartPage={effectiveStartPage}
                 effectiveEndPage={effectiveEndPage}
@@ -4610,6 +4830,7 @@ export function PDFViewer({
                   const index = pageNum - 1;
                   return (
                     <PdfPageViewWrapper
+                      embeddedLinks={embeddedLinks}
                       key={pageNum}
                       pdf={pdf}
                       documentId={documentId}
