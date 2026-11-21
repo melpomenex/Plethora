@@ -1,4 +1,4 @@
-import { lazy, Suspense, useRef, useState } from "react";
+import { Component, lazy, Suspense, useCallback, useRef, useState, type ReactNode } from "react";
 import { ChartBar } from "@phosphor-icons/react";
 import type { StatsItemType } from "../../api/item-stats";
 import { useI18n } from "../../lib/i18n";
@@ -9,6 +9,76 @@ import { cn } from "../../utils";
 const ItemStatsModal = lazy(() =>
   import("./ItemStatsModal").then((module) => ({ default: module.ItemStatsModal })),
 );
+
+interface ItemStatsErrorBoundaryProps {
+  children: ReactNode;
+  onClose: () => void;
+  title: string;
+}
+
+interface ItemStatsErrorBoundaryState {
+  error: Error | null;
+}
+
+/**
+ * Contains rendering failures inside the auxiliary Statistics modal so a chart
+ * or stats error never propagates to `TabErrorBoundary` and unmounts an active
+ * PDF/EPUB reader.
+ */
+class ItemStatsErrorBoundary extends Component<
+  ItemStatsErrorBoundaryProps,
+  ItemStatsErrorBoundaryState
+> {
+  state: ItemStatsErrorBoundaryState = { error: null };
+
+  static getDerivedStateFromError(error: Error): ItemStatsErrorBoundaryState {
+    return { error };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error("[ItemStatsButton] Statistics modal error:", error);
+  }
+
+  render() {
+    if (this.state.error) {
+      return (
+        <div
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) this.props.onClose();
+          }}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-label={this.props.title}
+            className="w-full max-w-md rounded-xl border border-border bg-popover p-4 text-popover-foreground shadow-xl space-y-3"
+          >
+            <h2 className="text-sm font-semibold">{this.props.title}</h2>
+            <p className="text-xs text-destructive break-words">{this.state.error.message}</p>
+            <div className="flex justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => this.setState({ error: null })}
+                className="rounded-md border border-border px-3 py-1.5 text-xs hover:bg-muted"
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                onClick={this.props.onClose}
+                className="rounded-md bg-primary px-3 py-1.5 text-xs text-primary-foreground hover:opacity-90"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /**
  * Opens the Item Statistics view for one item.
@@ -43,6 +113,11 @@ export function ItemStatsButton({
 
   const label = t("itemStats.openStats");
 
+  const handleClose = useCallback(() => {
+    setIsOpen(false);
+    buttonRef.current?.focus();
+  }, []);
+
   return (
     <>
       <button
@@ -62,17 +137,16 @@ export function ItemStatsButton({
       </button>
 
       {isOpen && (
-        <Suspense fallback={null}>
-          <ItemStatsModal
-            itemType={itemType}
-            itemId={itemId}
-            title={title}
-            onClose={() => {
-              setIsOpen(false);
-              buttonRef.current?.focus();
-            }}
-          />
-        </Suspense>
+        <ItemStatsErrorBoundary onClose={handleClose} title={title}>
+          <Suspense fallback={null}>
+            <ItemStatsModal
+              itemType={itemType}
+              itemId={itemId}
+              title={title}
+              onClose={handleClose}
+            />
+          </Suspense>
+        </ItemStatsErrorBoundary>
       )}
     </>
   );

@@ -38,13 +38,13 @@ export function IntervalGrowthChart({
   }
 
   return (
-    <figure className="space-y-1">
+    <figure className="min-w-0 space-y-1">
       <figcaption className="text-xs text-muted-foreground">
         {t("itemStats.schedule.intervalGrowth")}
       </figcaption>
 
-      <div aria-hidden="true">
-        <ResponsiveContainer width="100%" height={140}>
+      <div aria-hidden="true" className="min-w-0 w-full">
+        <ResponsiveContainer width="100%" height={140} minWidth={0} debounce={50}>
           <LineChart data={data} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="repetition" tick={{ fontSize: 10 }} />
@@ -101,13 +101,13 @@ export function RetentionCurveChart({
   const sampled = chartData.filter((point, index) => index % 10 === 0 || index === chartData.length - 1);
 
   return (
-    <figure className="space-y-1">
+    <figure className="min-w-0 space-y-1">
       <figcaption className="text-xs text-muted-foreground">
         {t("itemStats.schedule.retentionCurve")}
       </figcaption>
 
-      <div aria-hidden="true">
-        <ResponsiveContainer width="100%" height={140}>
+      <div aria-hidden="true" className="min-w-0 w-full">
+        <ResponsiveContainer width="100%" height={140} minWidth={0} debounce={50}>
           <LineChart data={chartData} margin={{ top: 4, right: 8, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="day" tick={{ fontSize: 10 }} />

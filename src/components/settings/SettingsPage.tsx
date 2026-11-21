@@ -96,16 +96,30 @@ export { SettingsTab } from "./settingsSections";
  * each panel is fetched when its section is first shown. Named exports are
  * adapted to React.lazy's default-export shape, mirroring TabRegistry.
  */
-function lazySection<T extends React.ComponentType<never>>(
+function lazySection<T extends React.ComponentType<any>>(
   name: string,
   loader: () => Promise<{ default: T }>
-) {
-  return lazy(() =>
-    importWithRetry(name, loader).catch((err) => {
-      console.error(`[SettingsPage] Failed to lazy-load section "${name}":`, err);
-      throw err;
-    })
-  );
+): React.ComponentType<any> {
+  let cachedLazy: React.ComponentType<any> | null = null;
+  let lastFailed = false;
+
+  const createLazy = () =>
+    lazy(() =>
+      importWithRetry(name, loader).catch((err) => {
+        lastFailed = true;
+        console.error(`[SettingsPage] Failed to lazy-load section "${name}":`, err);
+        throw err;
+      })
+    );
+
+  return function RetryableLazySection(props: Record<string, unknown>) {
+    if (!cachedLazy || lastFailed) {
+      lastFailed = false;
+      cachedLazy = createLazy();
+    }
+    const Component = cachedLazy;
+    return <Component {...props} />;
+  };
 }
 
 const KeyboardShortcutSettings = lazySection("KeyboardShortcutSettings", () =>

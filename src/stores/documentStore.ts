@@ -685,6 +685,8 @@ interface DocumentState {
   setError: (error: string | null) => void;
 }
 
+let loadDocumentsGeneration = 0;
+
 export const useDocumentStore = create<DocumentState>((set, get) => ({
   // Initial State
   documents: [],
@@ -706,18 +708,18 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
 
   // Actions
   loadDocuments: async () => {
+    const generation = ++loadDocumentsGeneration;
     set({ isLoading: true, error: null });
     try {
       const collectionId = useCollectionStore.getState().activeCollectionId;
       const docs = await reconcileCachedPrivacy(await documentsApi.getDocuments(collectionId), get().documents);
-      // If the active collection changed while this fetch was in flight, a
-      // newer loadDocuments() call (from that switch) is already authoritative
-      // for the current scope. Applying this stale response would re-merge
-      // documents from a collection the user has since switched away from —
-      // e.g. switching to collection B then quickly back to A could otherwise
-      // have B's now-stale fetch land after A's and blend B's docs back in.
-      if (useCollectionStore.getState().activeCollectionId !== collectionId) {
-        set({ isLoading: false });
+      // If a newer loadDocuments() call started or the active collection changed
+      // while this fetch was in flight, let the newer request own `isLoading`
+      // and `documents` rather than clobbering them with a stale response.
+      if (
+        generation !== loadDocumentsGeneration ||
+        useCollectionStore.getState().activeCollectionId !== collectionId
+      ) {
         return;
       }
       set((state) => {
@@ -735,6 +737,7 @@ export const useDocumentStore = create<DocumentState>((set, get) => ({
       });
       void reconcileBrowserOrganizationNow();
     } catch (error) {
+      if (generation !== loadDocumentsGeneration) return;
       set({
         error: error instanceof Error ? error.message : "Failed to load documents",
         isLoading: false,

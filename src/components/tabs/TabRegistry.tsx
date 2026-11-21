@@ -10,18 +10,34 @@ import {
 // Components use named exports, so we need to convert them to default exports
 
 /** Wrap a lazy import with timeout + retry (WebView chunk stalls) and error
- * logging to identify which module fails to load */
-function debugLazy<T extends ComponentType<unknown>>(
+ * logging to identify which module fails to load. Unlike bare `React.lazy`,
+ * this wrapper resets its lazy promise after a failure so `TabErrorBoundary`
+ * Retry genuinely re-attempts the import instead of re-throwing a cached rejection. */
+function debugLazy<T extends ComponentType<any>>(
   name: string,
   loader: () => Promise<{ default: T }>
-) {
-  return lazy(() =>
-    importWithRetry(name, loader).catch((err) => {
-      console.error(`[TabRegistry] Failed to lazy-load "${name}":`, err);
-      // Re-throw so React.lazy triggers the error boundary
-      throw err;
-    })
-  );
+): ComponentType<any> {
+  let cachedLazy: ComponentType<any> | null = null;
+  let lastFailed = false;
+
+  const createLazy = () =>
+    lazy(() =>
+      importWithRetry(name, loader).catch((err) => {
+        lastFailed = true;
+        console.error(`[TabRegistry] Failed to lazy-load "${name}":`, err);
+        // Re-throw so React.lazy triggers the error boundary
+        throw err;
+      })
+    );
+
+  return function RetryableLazyTab(props: Record<string, unknown>) {
+    if (!cachedLazy || lastFailed) {
+      lastFailed = false;
+      cachedLazy = createLazy();
+    }
+    const Component = cachedLazy;
+    return <Component {...props} />;
+  };
 }
 
 export const DashboardTab = debugLazy("DashboardTab", () => import("./DashboardTab").then(m => ({ default: m.DashboardTab })));
