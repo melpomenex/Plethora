@@ -25,6 +25,9 @@ import {
   ImportNeedsReviewTab,
 } from "./TabRegistry";
 import { getDashboardStats, type DashboardStats } from "../../api/analytics";
+import { getDueItems, submitReview, type LearningItem, type ReviewRating } from "../../api/review";
+import { useStudyDeckStore } from "../../stores/studyDeckStore";
+import { filterByDecks } from "../../utils/studyDecks";
 import { getCaptureListingSource, type CaptureDocument } from "../../api/capture-activity";
 import { useCaptureActivity } from "../../hooks/useCaptureActivity";
 import { openDocumentAtLocation } from "../../utils/openDocumentAtLocation";
@@ -36,7 +39,10 @@ import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../commo
 import { CaptureActivityCard } from "../analytics/CaptureActivityCard";
 import { StudyPlansDashboardCard } from "../study-plans/StudyPlansDashboardCard";
 import { TodaysHorizonBanner } from "../dashboard/TodaysHorizonBanner";
-import { QuickReviewWidget } from "../review/QuickReviewWidget";
+import {
+  QuickReviewWidget,
+  formatLearningItemForQuickReview,
+} from "../review/QuickReviewWidget";
 import { ActionButton, FocusPanel, SummarySection } from "../common/UI";
 import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
 import { selectDailyFocus } from "./dashboardFocus";
@@ -85,8 +91,12 @@ export function DashboardTab() {
   const dashboardMenu = useSurfaceMenu("dashboard-surface-menu");
   const documents = useDocumentStore((state) => state.documents);
   const activeCollectionId = useCollectionStore((s) => s.activeCollectionId);
+  const activeDeckIds = useStudyDeckStore((s) => s.activeDeckIds);
+  const studyDecks = useStudyDeckStore((s) => s.decks);
   const mode = usePresentationMode();
   const [stats, setStats] = useState<DashboardStats | null>(null);
+  const [dueLearningItems, setDueLearningItems] = useState<LearningItem[]>([]);
+  const cardShownAtRef = useRef<number>(Date.now());
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const isActiveTab = useIsActiveTab();
@@ -117,10 +127,29 @@ export function DashboardTab() {
     if (startupLoadedForCollection.current === startupKey) return;
     startupLoadedForCollection.current = startupKey;
     void ensureStartup("dashboard").finally(() => {
-      if (isActiveTab) void loadStats();
+      if (isActiveTab) {
+        void loadStats();
+        void loadDueQuickReviewItems();
+      }
     });
   }, [activeCollectionId, ensureStartup, isActiveTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
+
+  const loadDueQuickReviewItems = async () => {
+    try {
+      const items = await getDueItems(activeCollectionId ?? undefined);
+      if (Array.isArray(items)) {
+        const unsuspended = items.filter((item) => !item.is_suspended);
+        setDueLearningItems(unsuspended);
+        cardShownAtRef.current = Date.now();
+      } else {
+        setDueLearningItems([]);
+      }
+    } catch (err) {
+      console.warn("Failed to load due items for dashboard quick review:", err);
+      setDueLearningItems([]);
+    }
+  };
 
   const loadStats = async () => {
     try {
@@ -321,22 +350,85 @@ export function DashboardTab() {
     });
   };
 
-  const quickReviewCards = useMemo(
-    () =>
-      documents.slice(0, 10).map((doc) => ({
-        id: doc.id,
-        front: doc.title || "Untitled",
-        back: doc.content?.slice(0, 220) || t("dashboardTab.noExtractedContent"),
-        documentTitle: doc.title || t("dashboardTab.untitled"),
-      })),
-    [documents]
-  );
+  const openSourceDocumentById = (documentId: string) => {
+    const full = documents.find((d) => d.id === documentId);
+    const title = full?.title || t("dashboardTab.untitled");
+    const fileType = full?.fileType;
+    const icon = fileType === "pdf"
+      ? "📕"
+      : fileType === "epub"
+        ? "📖"
+        : fileType === "youtube"
+          ? "📺"
+          : fileType === "image"
+            ? "🖼️"
+            : "📄";
+
+    addTab({
+      title,
+      icon,
+      type: "document-viewer",
+      content: DocumentViewer,
+      closable: true,
+      data: { documentId },
+    });
+  };
+
+  const quickReviewCards = useMemo(() => {
+    const activeDecks = (activeDeckIds || [])
+      .map((id) => (studyDecks || []).find((d) => d.id === id))
+      .filter((d): d is NonNullable<typeof d> => d != null);
+    const filteredItems =
+      activeDecks.length > 0
+        ? filterByDecks(dueLearningItems, activeDecks)
+        : dueLearningItems;
+
+    const sortedItems = [...filteredItems].sort((a, b) => {
+      const aTs = a.due_date ? new Date(a.due_date).getTime() : 0;
+      const bTs = b.due_date ? new Date(b.due_date).getTime() : 0;
+      return (Number.isNaN(aTs) ? 0 : aTs) - (Number.isNaN(bTs) ? 0 : bTs);
+    });
+
+    return sortedItems.map((item) => formatLearningItemForQuickReview(item, documents));
+  }, [dueLearningItems, activeDeckIds, studyDecks, documents]);
 
   const handleQuickRate = async (
-    _cardId: string,
-    _rating: "again" | "hard" | "good" | "easy"
+    cardId: string,
+    rating: "again" | "hard" | "good" | "easy"
   ) => {
-    // Placeholder until dashboard quick-review is wired to review queue ratings.
+    const ratingMap: Record<"again" | "hard" | "good" | "easy", ReviewRating> = {
+      again: 1,
+      hard: 2,
+      good: 3,
+      easy: 4,
+    };
+    const numericRating = ratingMap[rating];
+    const elapsedSeconds = Math.max(
+      1,
+      Math.round((Date.now() - cardShownAtRef.current) / 1000)
+    );
+    cardShownAtRef.current = Date.now();
+
+    try {
+      await submitReview(cardId, numericRating, elapsedSeconds);
+      setStats((prev) =>
+        prev
+          ? {
+              ...prev,
+              cards_due_today: Math.max(0, (prev.cards_due_today ?? 1) - 1),
+              reviews_today: (prev.reviews_today ?? 0) + 1,
+              cards_reviewed_today: (prev.cards_reviewed_today ?? 0) + 1,
+            }
+          : prev
+      );
+      void loadStats();
+    } catch (err) {
+      console.error("Failed to submit quick review rating:", err);
+      toast.error(
+        err instanceof Error ? err.message : "Failed to save review rating"
+      );
+      throw err;
+    }
   };
 
   const focusKind = selectDailyFocus({
@@ -390,6 +482,7 @@ export function DashboardTab() {
 
   const refreshDashboard = () => {
     void loadStats();
+    void loadDueQuickReviewItems();
     reloadCaptureActivity();
   };
 
@@ -928,6 +1021,7 @@ export function DashboardTab() {
           <QuickReviewWidget
             cards={quickReviewCards}
             onRate={handleQuickRate}
+            onOpenDocument={openSourceDocumentById}
             onExpand={() => {
               const reviewAction = quickActions.find((action) => action.id === "review");
               if (reviewAction) openTab(reviewAction);

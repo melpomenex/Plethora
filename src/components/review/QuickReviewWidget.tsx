@@ -7,6 +7,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   ArrowCounterClockwise,
   ArrowsOutSimple,
+  ArrowSquareOut,
   Brain,
   CaretLeft,
   CaretRight,
@@ -26,20 +27,131 @@ import { useI18n } from "../../lib/i18n";
 import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 import { useToast } from "../common/Toast";
+import type { LearningItem } from "../../api/review";
+import { evaluateClozeCard, isClozeCardType } from "../../utils/cloze";
 
-interface QuickReviewCard {
+export interface QuickReviewCard {
   id: string;
   front: string;
   back: string;
+  documentId?: string;
   documentTitle?: string;
   difficulty?: "easy" | "medium" | "hard";
   interval?: number;
+}
+
+function stripHtmlTags(raw: string | undefined | null): string {
+  if (!raw) return "";
+  return raw
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, '"')
+    .trim();
+}
+
+/**
+ * Format a due LearningItem into a QuickReviewCard with masked/revealed cloze deletions.
+ */
+export function formatLearningItemForQuickReview(
+  item: LearningItem,
+  documents: Array<{ id: string; title: string }> = []
+): QuickReviewCard {
+  const isCloze =
+    isClozeCardType(item) ||
+    Boolean(item.cloze_text) ||
+    /\{\{(?:c\d+::|[^}]+)\}\}|\[\[c\d+::/i.test(item.question || "");
+
+  let front = "";
+  let back = "";
+
+  if (isCloze) {
+    const evaluated = evaluateClozeCard(item);
+    if (evaluated.status === "valid") {
+      front = stripHtmlTags(
+        evaluated.segments
+          .map((seg) =>
+            seg.type === "deletion"
+              ? seg.hint
+                ? `[... (${seg.hint})]`
+                : "[...]"
+              : seg.text
+          )
+          .join("")
+      );
+      const revealedSentence = stripHtmlTags(
+        evaluated.segments
+          .map((seg) => (seg.type === "deletion" ? seg.answer : seg.text))
+          .join("")
+      );
+      const extraAnswer = stripHtmlTags(item.answer);
+      const deletionAnswers = evaluated.deletions.map((d) => stripHtmlTags(d.answer));
+      back =
+        extraAnswer &&
+        extraAnswer.toLowerCase() !== "cloze deletion" &&
+        !deletionAnswers.includes(extraAnswer) &&
+        extraAnswer !== revealedSentence
+          ? `${revealedSentence}\n\n${extraAnswer}`
+          : revealedSentence;
+    } else {
+      const rawSource = item.cloze_text || item.question || "";
+      front =
+        stripHtmlTags(
+          rawSource.replace(
+            /\{\{(?:c\d+::)?([^}:]+)(?:::([^}]+))?\}\}|\[\[c\d+::([^:\]]+)(?:::([^\]]+))?\]\]/gi,
+            (_m, _a1, h1, _a2, h2) => (h1 || h2 ? `[... (${h1 || h2})]` : "[...]")
+          )
+        ) || "Cloze Card";
+      back =
+        stripHtmlTags(
+          rawSource.replace(
+            /\{\{(?:c\d+::)?([^}:]+)(?:::[^}]+)?\}\}|\[\[c\d+::([^:\]]+)(?:::[^\]]+)?\]\]/gi,
+            (_m, a1, a2) => a1 || a2 || ""
+          )
+        ) ||
+        stripHtmlTags(item.answer) ||
+        front;
+    }
+  } else {
+    front = stripHtmlTags(item.question) || "Untitled card";
+    back = stripHtmlTags(item.answer) || "";
+  }
+
+  const matchedDoc = item.document_id
+    ? documents.find((d) => d.id === item.document_id)
+    : undefined;
+
+  let fallbackDocTitle: string | undefined;
+  if (!matchedDoc?.title && item.source_reference) {
+    try {
+      const parsed = JSON.parse(item.source_reference);
+      fallbackDocTitle = parsed?.documentTitle || parsed?.document_title;
+    } catch {
+      // ignore invalid JSON
+    }
+  }
+
+  return {
+    id: item.id,
+    front,
+    back,
+    documentId: item.document_id,
+    documentTitle: matchedDoc?.title || fallbackDocTitle,
+    difficulty:
+      item.difficulty >= 7 ? "hard" : item.difficulty >= 4 ? "medium" : "easy",
+    interval: item.interval,
+  };
 }
 
 interface QuickReviewWidgetProps {
   cards: QuickReviewCard[];
   onRate: (cardId: string, rating: "again" | "hard" | "good" | "easy") => Promise<void>;
   onExpand?: () => void;
+  onOpenDocument?: (documentId: string) => void;
   maxCards?: number;
   autoPlay?: boolean;
   className?: string;
@@ -58,6 +170,7 @@ export function QuickReviewWidget({
   cards,
   onRate,
   onExpand,
+  onOpenDocument,
   maxCards = 10,
   autoPlay = false,
   className = "",
@@ -99,15 +212,12 @@ export function QuickReviewWidget({
     try {
       await onRate(currentCard.id, rating);
       setCompletedCount((prev) => prev + 1);
-
-      if (currentIndex < reviewCards.length - 1) {
-        setCurrentIndex((prev) => prev + 1);
-        setIsFlipped(false);
-      }
+      setCurrentIndex((prev) => prev + 1);
+      setIsFlipped(false);
     } finally {
       setIsProcessing(false);
     }
-  }, [currentCard, isProcessing, onRate, currentIndex, reviewCards.length]);
+  }, [currentCard, isProcessing, onRate]);
 
   const handlePrevious = useCallback(() => {
     if (currentIndex > 0) {
@@ -148,6 +258,14 @@ export function QuickReviewWidget({
           label: t("quickReview.previousCard"),
           icon: <CaretLeft className="w-4 h-4 text-muted-foreground" />,
           onClick: handlePrevious,
+        });
+      }
+      if (currentCard.documentId && onOpenDocument) {
+        items.push({
+          id: "open-source-document",
+          label: "Open source document",
+          icon: <ArrowSquareOut className="w-4 h-4 text-muted-foreground" />,
+          onClick: () => onOpenDocument(currentCard.documentId!),
         });
       }
       items.push(
@@ -251,6 +369,16 @@ export function QuickReviewWidget({
           <p className="text-sm text-muted-foreground">
             {t("quickReview.noCardsDue")}
           </p>
+          {onExpand && (
+            <button
+              type="button"
+              onClick={onExpand}
+              className="mt-4 inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-muted hover:bg-muted/80 text-foreground rounded-lg transition-colors"
+            >
+              <ArrowsOutSimple className="w-3.5 h-3.5" />
+              <span>{t("quickReview.openFullReview")}</span>
+            </button>
+          )}
         </div>
         {quickReviewMenuEl}
       </div>
@@ -283,6 +411,16 @@ export function QuickReviewWidget({
               <span>{t("quickReview.plusReviews", { count: completedCount })}</span>
             </div>
           </div>
+          {onExpand && (
+            <button
+              type="button"
+              onClick={onExpand}
+              className="mt-4 inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 rounded-lg transition-colors"
+            >
+              <ArrowsOutSimple className="w-3.5 h-3.5" />
+              <span>{t("quickReview.openFullReview")}</span>
+            </button>
+          )}
         </div>
         {quickReviewMenuEl}
       </div>
@@ -343,6 +481,7 @@ export function QuickReviewWidget({
       <div className="p-4">
         <div
           onClick={() => !isFlipped && handleFlip()}
+          data-testid="quick-review-card-surface"
           className={`min-h-[120px] p-4 rounded-xl border transition-all cursor-pointer ${
             isFlipped
               ? "bg-primary/5 border-primary/20"
@@ -350,14 +489,39 @@ export function QuickReviewWidget({
           }`}
         >
           {/* Document source */}
-          {currentCard.documentTitle && (
-            <p className="text-xs text-muted-foreground mb-2 truncate">
-              {currentCard.documentTitle}
-            </p>
+          {(currentCard.documentTitle || (currentCard.documentId && onOpenDocument)) && (
+            <div className="flex items-center justify-between gap-2 mb-2">
+              {currentCard.documentTitle ? (
+                <p className="text-xs text-muted-foreground truncate">
+                  {currentCard.documentTitle}
+                </p>
+              ) : (
+                <span />
+              )}
+              {currentCard.documentId && onOpenDocument && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenDocument(currentCard.documentId!);
+                  }}
+                  title="Open source document"
+                  aria-label={
+                    currentCard.documentTitle
+                      ? `Open source document: ${currentCard.documentTitle}`
+                      : "Open source document"
+                  }
+                  className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline flex-shrink-0"
+                >
+                  <span>View source</span>
+                  <ArrowSquareOut className="w-3 h-3" />
+                </button>
+              )}
+            </div>
           )}
 
           {/* Content */}
-          <p className="text-sm text-foreground leading-relaxed">
+          <p className="text-sm text-foreground leading-relaxed whitespace-pre-wrap">
             {isFlipped ? currentCard.back : currentCard.front}
           </p>
 
