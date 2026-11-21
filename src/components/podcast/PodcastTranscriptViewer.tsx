@@ -1,15 +1,46 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import { CheckCircle, Eye, EyeSlash, Play, Clock, Tag } from "@phosphor-icons/react";
+import React, { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import {
+  CheckCircle,
+  Clock,
+  Copy,
+  Download,
+  Eye,
+  EyeSlash,
+  Play,
+  Quotes,
+  Tag,
+} from "@phosphor-icons/react";
 import { cn } from "../../utils/cn";
 import type { PodcastAdInterval } from "../../types/podcastAd";
 import type { TranscriptSegment } from "../media/TranscriptSync";
+import { createExtract } from "../../api/extracts";
+import { useToastStore, ToastType } from "../common/Toast";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import {
+  ContextMenu,
+  ContextMenuItemType,
+  type ContextMenuItem,
+} from "../common/ContextMenu";
+import {
+  TRANSCRIPT_EXPORT_FORMATS,
+  exportTranscriptToFile,
+  formatSegmentWithTimestamp,
+  type TranscriptExportFormat,
+} from "../../utils/transcriptExport";
 
 export interface PodcastTranscriptViewerProps {
   episodeId: string;
+  documentId?: string;
   segments: TranscriptSegment[];
   adIntervals?: PodcastAdInterval[];
   currentTime: number;
   onSeek?: (timeSec: number) => void;
+  onCreateExtract?: (payload: {
+    text: string;
+    startTime: number;
+    endTime: number;
+    segment: TranscriptSegment;
+  }) => Promise<void> | void;
   initialMode?: "clean" | "verbatim";
   autoScroll?: boolean;
   className?: string;
@@ -27,11 +58,13 @@ function formatTime(seconds: number): string {
 }
 
 export function PodcastTranscriptViewer({
-  episodeId: _episodeId,
+  episodeId,
+  documentId,
   segments = [],
   adIntervals = [],
   currentTime,
   onSeek,
+  onCreateExtract,
   initialMode = "clean",
   autoScroll: initialAutoScroll = true,
   className,
@@ -40,6 +73,9 @@ export function PodcastTranscriptViewer({
   const [autoScroll, setAutoScroll] = useState<boolean>(initialAutoScroll);
   const activeSegmentRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const addToast = useToastStore((s) => s.addToast);
+  const segmentMenu = useSurfaceMenu("podcast-transcript-segment-menu");
+  const exportMenu = useSurfaceMenu("podcast-transcript-export-menu");
 
   // Classify each segment as ad or clean
   const classifiedSegments = useMemo(() => {
@@ -99,6 +135,14 @@ export function PodcastTranscriptViewer({
     return items;
   }, [classifiedSegments, mode]);
 
+  const visibleSegments = useMemo(
+    () =>
+      mode === "clean"
+        ? classifiedSegments.filter((seg) => !seg.isAd)
+        : classifiedSegments,
+    [classifiedSegments, mode]
+  );
+
   // Find active segment index based on currentTime
   const activeSegmentId = useMemo(() => {
     const found = classifiedSegments.find(
@@ -115,6 +159,168 @@ export function PodcastTranscriptViewer({
       block: "center",
     });
   }, [activeSegmentId, autoScroll]);
+
+  const handleCreateExtractForSegment = useCallback(
+    async (seg: TranscriptSegment, overrideText?: string) => {
+      const text = (overrideText || seg.text).trim();
+      if (!text) return;
+      try {
+        if (onCreateExtract) {
+          await onCreateExtract({
+            text,
+            startTime: Math.floor(seg.start),
+            endTime: Math.ceil(seg.end),
+            segment: seg,
+          });
+        } else {
+          await createExtract({
+            document_id: documentId || episodeId,
+            content: text,
+            note: `[${formatTime(seg.start)} - ${formatTime(seg.end)}]`,
+          });
+        }
+        addToast({
+          type: ToastType.Success,
+          title: "Extract created",
+          message: "Saved podcast transcript extract.",
+        });
+      } catch (err) {
+        console.error("[PodcastTranscriptViewer] Failed to create extract:", err);
+        addToast({
+          type: ToastType.Error,
+          title: "Failed to create extract",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [onCreateExtract, documentId, episodeId, addToast]
+  );
+
+  const handleCopyFullTranscript = useCallback(() => {
+    const text = visibleSegments
+      .map((seg) => formatSegmentWithTimestamp(seg))
+      .join("\n");
+    void navigator.clipboard?.writeText(text);
+    addToast({
+      type: ToastType.Success,
+      title: "Copied transcript",
+      message: `${visibleSegments.length} segments copied to clipboard.`,
+    });
+  }, [visibleSegments, addToast]);
+
+  const handleExportFormat = useCallback(
+    (format: TranscriptExportFormat) => {
+      exportTranscriptToFile(visibleSegments, format, {
+        title: `Podcast-${episodeId}`,
+      });
+      segmentMenu.close();
+      exportMenu.close();
+      addToast({
+        type: ToastType.Success,
+        title: "Transcript exported",
+        message: `Downloaded .${format} transcript file.`,
+      });
+    },
+    [visibleSegments, episodeId, segmentMenu, exportMenu, addToast]
+  );
+
+  const buildExportMenuItems = useCallback((): ContextMenuItem[] => {
+    return TRANSCRIPT_EXPORT_FORMATS.map((fmt) => ({
+      id: `export-${fmt.format}`,
+      label: fmt.label,
+      icon: <Download className="w-4 h-4" />,
+      onClick: () => handleExportFormat(fmt.format),
+    }));
+  }, [handleExportFormat]);
+
+  const buildSegmentContextMenuItems = useCallback(
+    (seg: TranscriptSegment): ContextMenuItem[] => {
+      const domSelected =
+        typeof window !== "undefined" ? window.getSelection()?.toString().trim() ?? "" : "";
+      const targetText = domSelected || seg.text;
+      const isSelection = Boolean(domSelected);
+      const items: ContextMenuItem[] = [
+        {
+          id: "create-extract",
+          label: "Create Extract",
+          icon: <Quotes className="w-4 h-4" />,
+          onClick: () => void handleCreateExtractForSegment(seg, targetText),
+        },
+      ];
+
+      if (onSeek) {
+        items.push({
+          id: "play-from-here",
+          label: `Play from Here (${formatTime(seg.start)})`,
+          icon: <Play className="w-4 h-4" />,
+          onClick: () => onSeek(seg.start),
+        });
+      }
+
+      items.push(
+        {
+          id: "sep-actions",
+          type: ContextMenuItemType.Separator,
+          label: "",
+        },
+        {
+          id: "copy-text",
+          label: isSelection ? "Copy Selection" : "Copy Segment Text",
+          icon: <Copy className="w-4 h-4" />,
+          onClick: () => {
+            void navigator.clipboard?.writeText(targetText);
+            addToast({
+              type: ToastType.Success,
+              title: "Copied to clipboard",
+              message: isSelection ? "Copied selected text." : "Copied segment text.",
+            });
+          },
+        },
+        {
+          id: "copy-with-timestamp",
+          label: "Copy with Timestamp",
+          icon: <Clock className="w-4 h-4" />,
+          onClick: () => {
+            const formatted = isSelection
+              ? `[${formatTime(seg.start)}] ${targetText}`
+              : formatSegmentWithTimestamp(seg);
+            void navigator.clipboard?.writeText(formatted);
+            addToast({
+              type: ToastType.Success,
+              title: "Copied with timestamp",
+              message: formatted,
+            });
+          },
+        },
+        {
+          id: "copy-full-transcript",
+          label: "Copy Full Transcript",
+          icon: <Copy className="w-4 h-4" />,
+          onClick: handleCopyFullTranscript,
+        },
+        {
+          id: "sep-export",
+          type: ContextMenuItemType.Separator,
+          label: "",
+        },
+        {
+          id: "export-transcript",
+          label: "Export Transcript",
+          icon: <Download className="w-4 h-4" />,
+          children: buildExportMenuItems(),
+        }
+      );
+
+      return items;
+    },
+    [
+      handleCreateExtractForSegment,
+      onSeek,
+      addToast,
+      handleCopyFullTranscript,
+      buildExportMenuItems,
+    ]
+  );
 
   return (
     <div className={cn("flex flex-col h-full bg-background text-foreground", className)}>
@@ -155,20 +361,49 @@ export function PodcastTranscriptViewer({
           </button>
         </div>
 
-        <button
-          type="button"
-          onClick={() => setAutoScroll((prev) => !prev)}
-          className={cn(
-            "flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors",
-            autoScroll
-              ? "border-primary/30 bg-primary/10 text-primary"
-              : "border-border text-muted-foreground hover:bg-muted"
-          )}
-          title={autoScroll ? "Auto-scroll enabled" : "Auto-scroll paused"}
-        >
-          {autoScroll ? <Eye className="w-3.5 h-3.5" /> : <EyeSlash className="w-3.5 h-3.5" />}
-          <span>Auto-follow</span>
-        </button>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setAutoScroll((prev) => !prev)}
+            className={cn(
+              "flex items-center gap-1 px-2.5 py-1 text-xs font-medium rounded-md border transition-colors",
+              autoScroll
+                ? "border-primary/30 bg-primary/10 text-primary"
+                : "border-border text-muted-foreground hover:bg-muted"
+            )}
+            title={autoScroll ? "Auto-scroll enabled" : "Auto-scroll paused"}
+          >
+            {autoScroll ? <Eye className="w-3.5 h-3.5" /> : <EyeSlash className="w-3.5 h-3.5" />}
+            <span>Auto-follow</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={handleCopyFullTranscript}
+            className="p-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title="Copy transcript"
+            aria-label="Copy transcript"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              exportMenu.openPosition(
+                { x: rect.left, y: rect.bottom + 4 },
+                buildExportMenuItems(),
+                e.currentTarget
+              );
+            }}
+            className="p-1.5 rounded-md border border-border text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            title="Export transcript"
+            aria-label="Export transcript"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
       {/* Segment List */}
@@ -215,6 +450,9 @@ export function PodcastTranscriptViewer({
                 key={seg.id || `seg-${index}`}
                 ref={isActive ? activeSegmentRef : null}
                 onClick={() => onSeek?.(seg.start)}
+                onContextMenu={(e) => {
+                  segmentMenu.openEvent(e, buildSegmentContextMenuItems(seg));
+                }}
                 data-testid={`transcript-segment-${seg.id}`}
                 className={cn(
                   "group relative p-2.5 rounded-lg text-sm leading-relaxed transition-colors cursor-pointer border-l-4",
@@ -227,30 +465,48 @@ export function PodcastTranscriptViewer({
                 role="button"
                 tabIndex={0}
                 onKeyDown={(e) => {
+                  if (segmentMenu.handleRowKeyDown(e, () => buildSegmentContextMenuItems(seg))) {
+                    return;
+                  }
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
                     onSeek?.(seg.start);
                   }
                 }}
               >
-                <div className="flex items-center gap-2 mb-1 text-xs text-muted-foreground">
-                  <span className="flex items-center gap-1 font-mono">
-                    {isActive ? (
-                      <Play className="w-3 h-3 text-primary fill-current" />
-                    ) : (
-                      <Clock className="w-3 h-3" />
-                    )}
-                    {formatTime(seg.start)}
-                  </span>
-
-                  {seg.isAd && (
-                    <span
-                      data-testid="sponsor-badge"
-                      className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-800 dark:text-amber-200"
-                    >
-                      {seg.adCategory ? seg.adCategory.replace(/_/g, " ") : "Sponsor"}
+                <div className="flex items-center justify-between gap-2 mb-1 text-xs text-muted-foreground">
+                  <div className="flex items-center gap-2">
+                    <span className="flex items-center gap-1 font-mono">
+                      {isActive ? (
+                        <Play className="w-3 h-3 text-primary fill-current" />
+                      ) : (
+                        <Clock className="w-3 h-3" />
+                      )}
+                      {formatTime(seg.start)}
                     </span>
-                  )}
+
+                    {seg.isAd && (
+                      <span
+                        data-testid="sponsor-badge"
+                        className="px-1.5 py-0.5 rounded text-[10px] font-semibold uppercase tracking-wider bg-amber-500/20 text-amber-800 dark:text-amber-200"
+                      >
+                        {seg.adCategory ? seg.adCategory.replace(/_/g, " ") : "Sponsor"}
+                      </span>
+                    )}
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleCreateExtractForSegment(seg);
+                    }}
+                    title="Create extract from segment"
+                    aria-label="Create extract from segment"
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
+                  >
+                    <Quotes className="w-3.5 h-3.5" />
+                  </button>
                 </div>
 
                 <div className={cn(seg.isAd && "italic")}>
@@ -261,6 +517,22 @@ export function PodcastTranscriptViewer({
           })
         )}
       </div>
+
+      <ContextMenu
+        menuId="podcast-transcript-segment-menu"
+        items={segmentMenu.items}
+        visible={segmentMenu.visible}
+        position={segmentMenu.position}
+        onClose={segmentMenu.closeToTrigger}
+        preserveSelection
+      />
+      <ContextMenu
+        menuId="podcast-transcript-export-menu"
+        items={exportMenu.items}
+        visible={exportMenu.visible}
+        position={exportMenu.position}
+        onClose={exportMenu.closeToTrigger}
+      />
     </div>
   );
 }

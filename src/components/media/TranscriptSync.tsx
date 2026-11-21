@@ -6,6 +6,7 @@ import {
   KeyReturn,
   MagnifyingGlass,
   Play,
+  Quotes,
   Scissors,
   Lightning,
 } from "@phosphor-icons/react";
@@ -13,6 +14,20 @@ import { KaraokeText } from "./KaraokeText";
 import { LanguageTranscriptDomBridge } from "../language/LanguageTranscriptDomBridge";
 import { synthesizeWordTimings, type WordTiming } from "../../utils/wordTimings";
 import { createVideoExtract } from "../../api/video-extracts";
+import { createExtract } from "../../api/extracts";
+import { useToastStore, ToastType } from "../common/Toast";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import {
+  ContextMenu,
+  ContextMenuItemType,
+  type ContextMenuItem,
+} from "../common/ContextMenu";
+import {
+  TRANSCRIPT_EXPORT_FORMATS,
+  exportTranscriptToFile,
+  formatSegmentWithTimestamp,
+  type TranscriptExportFormat,
+} from "../../utils/transcriptExport";
 
 /**
  * Auto-follow tuning constants.
@@ -173,6 +188,13 @@ interface TranscriptSyncProps {
   currentTime: number;
   documentId?: string;
   onCaptureVideoSlice?: (slice: TranscriptSliceBounds) => Promise<void> | void;
+  onCreateExtract?: (payload: {
+    text: string;
+    startTime: number;
+    endTime: number;
+    segment?: TranscriptSegment;
+  }) => Promise<void> | void;
+  exportTitle?: string;
   onSeek?: (time: number) => void;
   /**
    * @deprecated use the in-header auto-follow toggle instead. Only used as the
@@ -322,7 +344,11 @@ interface TranscriptRowProps {
    * re-render on every clock tick.
    */
   wordClock: number;
+  canExtract: boolean;
   onSelect: (segment: TranscriptSegment) => void;
+  onExtractSegment: (segment: TranscriptSegment) => void;
+  onContextMenu: (e: React.MouseEvent, segment: TranscriptSegment) => void;
+  onRowKeyDown: (e: React.KeyboardEvent, segment: TranscriptSegment) => void;
   setRef: (element: HTMLDivElement | null, isActive: boolean, isHighlighted: boolean) => void;
 }
 
@@ -337,7 +363,11 @@ const TranscriptRow = React.memo(function TranscriptRow({
   compact,
   highlightQuery,
   wordClock,
+  canExtract,
   onSelect,
+  onExtractSegment,
+  onContextMenu,
+  onRowKeyDown,
   setRef,
 }: TranscriptRowProps) {
   const isParagraphStart = (segment as any).isParagraphStart;
@@ -371,6 +401,9 @@ const TranscriptRow = React.memo(function TranscriptRow({
     <div
       ref={handleRef}
       onClick={() => onSelect(segment)}
+      onContextMenu={(e) => onContextMenu(e, segment)}
+      onKeyDown={(e) => onRowKeyDown(e, segment)}
+      data-testid={`transcript-sync-segment-${segment.id}`}
       className={`group relative rounded-lg cursor-pointer transition-all duration-200 ${
         isActive
           ? "bg-primary/15 border-l-4 border-l-primary border-y border-r border-primary/20 shadow-sm"
@@ -441,11 +474,27 @@ const TranscriptRow = React.memo(function TranscriptRow({
             )}
           </span>
         </div>
+
+        {/* Hover quick-extract action */}
+        {canExtract && (
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onExtractSegment(segment);
+            }}
+            title="Create extract from segment"
+            aria-label="Create extract from segment"
+            className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity flex-shrink-0"
+          >
+            <Quotes className="w-3.5 h-3.5" />
+          </button>
+        )}
       </div>
 
       {/* Active indicator dot */}
       {isActive && (
-        <div className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-primary animate-pulse" />
+        <div className="absolute right-2 top-1/2 -translate-y-1/2 w-2 h-2 rounded-full bg-primary animate-pulse pointer-events-none" />
       )}
     </div>
   );
@@ -456,6 +505,8 @@ export function TranscriptSync({
   currentTime,
   documentId,
   onCaptureVideoSlice,
+  onCreateExtract,
+  exportTitle,
   onSeek,
   autoScroll = true,
   showTimestamps = true,
@@ -480,6 +531,10 @@ export function TranscriptSync({
   const [activeIndex, setActiveIndex] = useState<number>(-1);
   const [selectionSlice, setSelectionSlice] = useState<TranscriptSliceBounds | null>(null);
   const [isCapturingSlice, setIsCapturingSlice] = useState(false);
+  const [isCreatingExtract, setIsCreatingExtract] = useState(false);
+  const addToast = useToastStore((s) => s.addToast);
+  const segmentMenu = useSurfaceMenu("transcript-sync-segment-menu");
+  const exportMenu = useSurfaceMenu("transcript-sync-export-menu");
   // Persistent auto-follow preference (default on). When off, the active
   // segment is still highlighted but the panel never auto-scrolls. A stored
   // value always wins; otherwise the legacy `autoScroll` prop seeds the default
@@ -852,8 +907,11 @@ export function TranscriptSync({
     return undefined;
   };
 
+  const canExtractText = Boolean(documentId || onCreateExtract);
+  const canCaptureTimedSlice = Boolean(documentId || onCaptureVideoSlice);
+
   const handleSelection = () => {
-    const canCaptureSlice = Boolean(documentId || onCaptureVideoSlice);
+    const canCaptureSlice = canCaptureTimedSlice || canExtractText;
     if (!onSelectionChange && !canCaptureSlice) return;
 
     const updateSlice = () => {
@@ -917,32 +975,111 @@ export function TranscriptSync({
     }, 500);
   };
 
-  const handleCaptureVideoSlice = async () => {
-    if (!selectionSlice || isCapturingSlice) return;
-    setIsCapturingSlice(true);
-    try {
-      if (onCaptureVideoSlice) {
-        await onCaptureVideoSlice(selectionSlice);
-      } else if (documentId) {
-        const title =
-          selectionSlice.transcriptText.length > 80
-            ? `${selectionSlice.transcriptText.slice(0, 77)}...`
-            : selectionSlice.transcriptText;
-        await createVideoExtract({
-          document_id: documentId,
-          start_time: selectionSlice.startTime,
-          end_time: selectionSlice.endTime,
-          title: title || "Video Slice",
-          transcript_text: selectionSlice.transcriptText,
-          add_to_queue: true,
+  const executeCaptureVideoSlice = useCallback(
+    async (slice: TranscriptSliceBounds) => {
+      if (isCapturingSlice) return;
+      setIsCapturingSlice(true);
+      try {
+        if (onCaptureVideoSlice) {
+          await onCaptureVideoSlice(slice);
+        } else if (documentId) {
+          const title =
+            slice.transcriptText.length > 80
+              ? `${slice.transcriptText.slice(0, 77)}...`
+              : slice.transcriptText;
+          await createVideoExtract({
+            document_id: documentId,
+            start_time: slice.startTime,
+            end_time: slice.endTime,
+            title: title || "Video Slice",
+            transcript_text: slice.transcriptText,
+            add_to_queue: true,
+          });
+          addToast({
+            type: ToastType.Success,
+            title: "Video slice captured",
+            message: `Saved [${formatSliceTimestamp(slice.startTime)} - ${formatSliceTimestamp(slice.endTime)}]`,
+          });
+        }
+        setSelectionSlice(null);
+        window.getSelection()?.removeAllRanges();
+      } catch (err) {
+        console.error("[TranscriptSync] Failed to capture video slice:", err);
+        addToast({
+          type: ToastType.Error,
+          title: "Failed to capture video slice",
+          message: err instanceof Error ? err.message : String(err),
         });
+      } finally {
+        setIsCapturingSlice(false);
       }
-      setSelectionSlice(null);
-      window.getSelection()?.removeAllRanges();
-    } finally {
-      setIsCapturingSlice(false);
-    }
+    },
+    [isCapturingSlice, onCaptureVideoSlice, documentId, addToast]
+  );
+
+  const handleCaptureVideoSlice = async () => {
+    if (!selectionSlice) return;
+    await executeCaptureVideoSlice(selectionSlice);
   };
+
+  const executeCreateTextExtract = useCallback(
+    async (
+      text: string,
+      startTime: number,
+      endTime: number,
+      segment?: TranscriptSegment
+    ) => {
+      const trimmed = text.trim();
+      if (!trimmed || isCreatingExtract) return;
+      setIsCreatingExtract(true);
+      try {
+        if (onCreateExtract) {
+          await onCreateExtract({ text: trimmed, startTime, endTime, segment });
+        } else if (documentId) {
+          await createExtract({
+            document_id: documentId,
+            content: trimmed,
+            note: `[${formatSliceTimestamp(startTime)} - ${formatSliceTimestamp(endTime)}]`,
+          });
+        }
+        addToast({
+          type: ToastType.Success,
+          title: "Extract created",
+          message: "Saved transcript extract.",
+        });
+        setSelectionSlice(null);
+        window.getSelection()?.removeAllRanges();
+      } catch (err) {
+        console.error("[TranscriptSync] Failed to create extract:", err);
+        addToast({
+          type: ToastType.Error,
+          title: "Failed to create extract",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      } finally {
+        setIsCreatingExtract(false);
+      }
+    },
+    [isCreatingExtract, onCreateExtract, documentId, addToast]
+  );
+
+  const handleCreateExtractFromSelection = async () => {
+    if (!selectionSlice) return;
+    await executeCreateTextExtract(
+      selectionSlice.transcriptText,
+      selectionSlice.startTime,
+      selectionSlice.endTime
+    );
+  };
+
+  const handleExtractSegment = useCallback(
+    (segment: TranscriptSegment) => {
+      const startTime = Math.floor(segment.start);
+      const endTime = Math.max(startTime + 1, Math.ceil(segment.end));
+      void executeCreateTextExtract(segment.text, startTime, endTime, segment);
+    },
+    [executeCreateTextExtract]
+  );
 
   useEffect(() => {
     return () => {
@@ -956,7 +1093,7 @@ export function TranscriptSync({
   }, []);
 
   // Copy transcript text
-  const handleCopy = () => {
+  const handleCopy = useCallback(() => {
     const text = segments
       .map((seg) => {
         const timestamp = `[${formatTime(seg.start)}]`;
@@ -964,12 +1101,221 @@ export function TranscriptSync({
         return `${timestamp} ${speaker}${seg.text}`;
       })
       .join("\n");
-    navigator.clipboard.writeText(text);
-  };
+    void navigator.clipboard?.writeText(text);
+    addToast({
+      type: ToastType.Success,
+      title: "Copied transcript",
+      message: `${segments.length} segments copied to clipboard.`,
+    });
+  }, [segments, addToast]);
 
-  // Export transcript
-  const handleExport = () => {
-    onExport?.();
+  const handleExportFormat = useCallback(
+    (format: TranscriptExportFormat) => {
+      exportTranscriptToFile(segments, format, {
+        title: exportTitle || "Transcript",
+        includeTimestamps: showTimestamps,
+        includeSpeakers: showSpeakers,
+      });
+      onExport?.();
+      segmentMenu.close();
+      exportMenu.close();
+      addToast({
+        type: ToastType.Success,
+        title: "Transcript exported",
+        message: `Downloaded .${format} transcript file.`,
+      });
+    },
+    [segments, exportTitle, showTimestamps, showSpeakers, onExport, segmentMenu, exportMenu, addToast]
+  );
+
+  const buildExportMenuItems = useCallback((): ContextMenuItem[] => {
+    return TRANSCRIPT_EXPORT_FORMATS.map((fmt) => ({
+      id: `export-${fmt.format}`,
+      label: fmt.label,
+      icon: <Download className="w-4 h-4" />,
+      onClick: () => handleExportFormat(fmt.format),
+    }));
+  }, [handleExportFormat]);
+
+  const resolveContextMenuTarget = useCallback(
+    (segment: TranscriptSegment): {
+      isSelection: boolean;
+      text: string;
+      slice: TranscriptSliceBounds;
+    } => {
+      const domSel = typeof window !== "undefined" ? window.getSelection() : null;
+      const domText = domSel?.toString().trim() ?? "";
+      if (domText) {
+        const startIndex = resolveDomSegmentIndex(domSel?.anchorNode ?? null);
+        const endIndex = resolveDomSegmentIndex(domSel?.focusNode ?? null);
+        const resolved =
+          resolveTranscriptSelectionBounds(segments, {
+            startIndex,
+            endIndex,
+            text: domText,
+          }) || selectionSlice;
+        if (resolved) {
+          return {
+            isSelection: true,
+            text: resolved.transcriptText,
+            slice: resolved,
+          };
+        }
+      }
+      if (selectionSlice && selectionSlice.transcriptText.trim()) {
+        return {
+          isSelection: true,
+          text: selectionSlice.transcriptText,
+          slice: selectionSlice,
+        };
+      }
+      const startTime = Math.floor(segment.start);
+      const endTime = Math.max(startTime + 1, Math.ceil(segment.end));
+      return {
+        isSelection: false,
+        text: segment.text,
+        slice: {
+          startTime,
+          endTime,
+          transcriptText: segment.text,
+        },
+      };
+    },
+    [segments, selectionSlice]
+  );
+
+  const buildSegmentContextMenuItems = useCallback(
+    (segment: TranscriptSegment): ContextMenuItem[] => {
+      const target = resolveContextMenuTarget(segment);
+      const items: ContextMenuItem[] = [];
+
+      if (canExtractText) {
+        items.push({
+          id: "create-extract",
+          label: "Create Extract",
+          icon: <Quotes className="w-4 h-4" />,
+          onClick: () =>
+            void executeCreateTextExtract(
+              target.text,
+              target.slice.startTime,
+              target.slice.endTime,
+              target.isSelection ? undefined : segment
+            ),
+        });
+      }
+
+      if (canCaptureTimedSlice) {
+        items.push({
+          id: "capture-slice",
+          label: `Capture Video Slice [${formatSliceTimestamp(target.slice.startTime)} - ${formatSliceTimestamp(target.slice.endTime)}]`,
+          icon: <Scissors className="w-4 h-4" />,
+          onClick: () => void executeCaptureVideoSlice(target.slice),
+        });
+      }
+
+      if (onSeek) {
+        items.push({
+          id: "play-from-here",
+          label: `Play from Here (${formatTime(segment.start)})`,
+          icon: <Play className="w-4 h-4" />,
+          onClick: () => handleSegmentClick(segment),
+        });
+      }
+
+      if (items.length > 0) {
+        items.push({
+          id: "sep-actions",
+          type: ContextMenuItemType.Separator,
+          label: "",
+        });
+      }
+
+      items.push(
+        {
+          id: "copy-text",
+          label: target.isSelection ? "Copy Selection" : "Copy Segment Text",
+          icon: <Copy className="w-4 h-4" />,
+          onClick: () => {
+            void navigator.clipboard?.writeText(target.text);
+            addToast({
+              type: ToastType.Success,
+              title: "Copied to clipboard",
+              message: target.isSelection ? "Copied selected text." : "Copied segment text.",
+            });
+          },
+        },
+        {
+          id: "copy-with-timestamp",
+          label: "Copy with Timestamp",
+          icon: <Clock className="w-4 h-4" />,
+          onClick: () => {
+            const formatted = target.isSelection
+              ? `[${formatSliceTimestamp(target.slice.startTime)}] ${target.text}`
+              : formatSegmentWithTimestamp(segment);
+            void navigator.clipboard?.writeText(formatted);
+            addToast({
+              type: ToastType.Success,
+              title: "Copied with timestamp",
+              message: formatted,
+            });
+          },
+        },
+        {
+          id: "copy-full-transcript",
+          label: "Copy Full Transcript",
+          icon: <Copy className="w-4 h-4" />,
+          onClick: handleCopy,
+        },
+        {
+          id: "sep-export",
+          type: ContextMenuItemType.Separator,
+          label: "",
+        },
+        {
+          id: "export-transcript",
+          label: "Export Transcript",
+          icon: <Download className="w-4 h-4" />,
+          children: buildExportMenuItems(),
+        }
+      );
+
+      return items;
+    },
+    [
+      resolveContextMenuTarget,
+      canExtractText,
+      canCaptureTimedSlice,
+      onSeek,
+      executeCreateTextExtract,
+      executeCaptureVideoSlice,
+      handleSegmentClick,
+      addToast,
+      handleCopy,
+      buildExportMenuItems,
+    ]
+  );
+
+  const handleSegmentContextMenu = useCallback(
+    (e: React.MouseEvent, segment: TranscriptSegment) => {
+      segmentMenu.openEvent(e, buildSegmentContextMenuItems(segment));
+    },
+    [segmentMenu, buildSegmentContextMenuItems]
+  );
+
+  const handleSegmentRowKeyDown = useCallback(
+    (e: React.KeyboardEvent, segment: TranscriptSegment) => {
+      segmentMenu.handleRowKeyDown(e, () => buildSegmentContextMenuItems(segment));
+    },
+    [segmentMenu, buildSegmentContextMenuItems]
+  );
+
+  const handleHeaderExportClick = (e: React.MouseEvent<HTMLButtonElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    exportMenu.openPosition(
+      { x: rect.left, y: rect.bottom + 4 },
+      buildExportMenuItems(),
+      e.currentTarget
+    );
   };
 
   // Toggle persistent auto-follow and clear any transient user-scroll pause.
@@ -1039,18 +1385,18 @@ export function TranscriptSync({
               onClick={handleCopy}
               className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
               title="Copy transcript"
+              aria-label="Copy transcript"
             >
               <Copy className="w-4 h-4" />
             </button>
-            {onExport && (
-              <button
-                onClick={handleExport}
-                className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
-                title="Export transcript"
-              >
-                <Download className="w-4 h-4" />
-              </button>
-            )}
+            <button
+              onClick={handleHeaderExportClick}
+              className="p-2 text-muted-foreground hover:text-foreground hover:bg-muted rounded-lg transition-colors"
+              title="Export transcript"
+              aria-label="Export transcript"
+            >
+              <Download className="w-4 h-4" />
+            </button>
           </div>
         </div>
 
@@ -1151,7 +1497,11 @@ export function TranscriptSync({
                 // Inactive rows get a constant so React.memo can skip them —
                 // only the spoken line re-renders as the clock advances.
                 wordClock={isActive ? karaokeTime : 0}
+                canExtract={canExtractText}
                 onSelect={handleSegmentClick}
+                onExtractSegment={handleExtractSegment}
+                onContextMenu={handleSegmentContextMenu}
+                onRowKeyDown={handleSegmentRowKeyDown}
                 setRef={setSegmentRefs}
               />
             );
@@ -1165,24 +1515,56 @@ export function TranscriptSync({
           sourceId={languageSourceId}
         />
       )}
-      {selectionSlice && (documentId || onCaptureVideoSlice) && (
-        <div className="sticky bottom-3 z-20 flex justify-center px-3 pointer-events-none">
-          <button
-            type="button"
-            data-capture-video-slice="true"
-            disabled={isCapturingSlice}
-            onMouseDown={(e) => e.preventDefault()}
-            onClick={() => void handleCaptureVideoSlice()}
-            className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors disabled:opacity-60"
-          >
-            <span>
-              Capture Video Slice [{formatSliceTimestamp(selectionSlice.startTime)} -{" "}
-              {formatSliceTimestamp(selectionSlice.endTime)}]
-            </span>
-          </button>
+      {selectionSlice && (canCaptureTimedSlice || canExtractText) && (
+        <div className="sticky bottom-3 z-20 flex justify-center gap-2 px-3 pointer-events-none">
+          {canExtractText && (
+            <button
+              type="button"
+              data-create-transcript-extract="true"
+              disabled={isCreatingExtract}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => void handleCreateExtractFromSelection()}
+              className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-card border border-border px-3.5 py-1.5 text-xs font-medium text-foreground shadow-lg hover:bg-muted transition-colors disabled:opacity-60"
+            >
+              <Quotes className="w-3.5 h-3.5" />
+              <span>Create Extract</span>
+            </button>
+          )}
+          {canCaptureTimedSlice && (
+            <button
+              type="button"
+              data-capture-video-slice="true"
+              disabled={isCapturingSlice}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => void handleCaptureVideoSlice()}
+              className="pointer-events-auto inline-flex items-center gap-1.5 rounded-full bg-primary px-3.5 py-1.5 text-xs font-medium text-primary-foreground shadow-lg hover:bg-primary/90 transition-colors disabled:opacity-60"
+            >
+              <Scissors className="w-3.5 h-3.5" />
+              <span>
+                Capture Video Slice [{formatSliceTimestamp(selectionSlice.startTime)} -{" "}
+                {formatSliceTimestamp(selectionSlice.endTime)}]
+              </span>
+            </button>
+          )}
         </div>
       )}
       </div>
+
+      <ContextMenu
+        menuId="transcript-sync-segment-menu"
+        items={segmentMenu.items}
+        visible={segmentMenu.visible}
+        position={segmentMenu.position}
+        onClose={segmentMenu.closeToTrigger}
+        preserveSelection
+      />
+      <ContextMenu
+        menuId="transcript-sync-export-menu"
+        items={exportMenu.items}
+        visible={exportMenu.visible}
+        position={exportMenu.position}
+        onClose={exportMenu.closeToTrigger}
+      />
 
       {/* Footer with stats */}
       <div className={`flex-shrink-0 border-t border-border bg-muted/30 text-xs text-muted-foreground flex items-center justify-between ${compact ? "px-3 py-2" : "px-4 py-2.5"}`}>

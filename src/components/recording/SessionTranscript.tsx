@@ -16,6 +16,8 @@ import {
   ArrowsClockwise,
   WarningCircle,
   Clock,
+  Copy,
+  Download,
   Quotes,
   Cards,
   PencilSimple,
@@ -38,6 +40,18 @@ import { useToastStore, ToastType } from "../common/Toast";
 import { formatTime } from "./SessionPlayer";
 import { cn } from "../../utils/cn";
 import { useI18n } from "../../lib/i18n";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import {
+  ContextMenu,
+  ContextMenuItemType,
+  type ContextMenuItem,
+} from "../common/ContextMenu";
+import {
+  TRANSCRIPT_EXPORT_FORMATS,
+  exportTranscriptToFile,
+  fromSessionSegments,
+  type TranscriptExportFormat,
+} from "../../utils/transcriptExport";
 
 export interface SessionTranscriptProps {
   session: RecordingSession;
@@ -493,6 +507,225 @@ export const SessionTranscript: React.FC<SessionTranscriptProps> = ({
     }
   };
 
+  const segmentMenu = useSurfaceMenu("session-transcript-segment-menu");
+  const exportMenu = useSurfaceMenu("session-transcript-export-menu");
+  const exportableSegments = useMemo(
+    () => fromSessionSegments(segments),
+    [segments]
+  );
+
+  const handleDirectCreateExtract = useCallback(
+    async (segment: SessionTranscriptSegment, overrideText?: string) => {
+      const quote = (overrideText || segment.text).trim().slice(0, 8000);
+      if (!quote) return;
+      const startIdx = segment.text.indexOf(quote);
+      const startUtf16 = startIdx !== -1 ? startIdx : 0;
+      const endUtf16 = startUtf16 + quote.length;
+      try {
+        const evidence: SessionSourceEvidence = {
+          version: 1,
+          documentId: session.documentId,
+          sessionId: session.id,
+          assetId: session.mediaAssetId || undefined,
+          transcriptId: segment.transcriptId,
+          transcriptRevision: segment.revision,
+          segmentKeys: [segment.segmentKey],
+          quote,
+          ranges: [{ segmentKey: segment.segmentKey, startUtf16, endUtf16 }],
+          time:
+            segment.timing.kind !== "none"
+              ? {
+                  startMs: segment.timing.startMs,
+                  endMs: segment.timing.endMs,
+                  kind: segment.timing.kind,
+                }
+              : undefined,
+          speakerId: segment.speakerId,
+          markerIds: [],
+          precision: "segment",
+          fingerprint: quote,
+        };
+
+        const selectionContext: SessionTranscriptSelectionContext = {
+          type: "session_transcript",
+          documentId: session.documentId,
+          sessionId: session.id,
+          transcriptId: segment.transcriptId,
+          transcriptRevision: segment.revision,
+          segmentKeys: [segment.segmentKey],
+          ranges: [{ segmentKey: segment.segmentKey, startUtf16, endUtf16 }],
+          selectedText: quote,
+          evidence,
+        };
+
+        await createExtract({
+          document_id: session.documentId,
+          content: quote,
+          selection_context: selectionContext,
+        });
+
+        addToast({
+          type: ToastType.Success,
+          title: t("recording.extractSavedTitle", "Extract saved"),
+          message: t("recording.extractSavedMessage", "Exact transcript quote saved to extracts."),
+        });
+      } catch (err) {
+        console.error("[SessionTranscript] Failed to save extract:", err);
+        addToast({
+          type: ToastType.Error,
+          title: t("recording.extractErrorTitle", "Failed to save extract"),
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [session.documentId, session.id, session.mediaAssetId, addToast, t]
+  );
+
+  const handleCopyFullTranscript = useCallback(() => {
+    const text = segments
+      .map((seg) => {
+        const isTimed = seg.timing && seg.timing.kind !== "none";
+        const timePart = isTimed ? `[${formatTime(seg.timing.startMs / 1000)}] ` : "";
+        const speakerPart = seg.speakerId ? `${seg.speakerId}: ` : "";
+        return `${timePart}${speakerPart}${seg.text}`;
+      })
+      .join("\n");
+    void navigator.clipboard?.writeText(text);
+    addToast({
+      type: ToastType.Success,
+      title: "Copied transcript",
+      message: `${segments.length} segments copied to clipboard.`,
+    });
+  }, [segments, addToast]);
+
+  const sessionTitle = (session as { title?: string }).title;
+
+  const handleExportFormat = useCallback(
+    (format: TranscriptExportFormat) => {
+      exportTranscriptToFile(exportableSegments, format, {
+        title: sessionTitle || `Session-${session.id}`,
+      });
+      segmentMenu.close();
+      exportMenu.close();
+      addToast({
+        type: ToastType.Success,
+        title: "Transcript exported",
+        message: `Downloaded .${format} transcript file.`,
+      });
+    },
+    [exportableSegments, sessionTitle, session.id, segmentMenu, exportMenu, addToast]
+  );
+
+  const buildExportMenuItems = useCallback((): ContextMenuItem[] => {
+    return TRANSCRIPT_EXPORT_FORMATS.map((fmt) => ({
+      id: `export-${fmt.format}`,
+      label: fmt.label,
+      icon: <Download className="w-4 h-4" />,
+      onClick: () => handleExportFormat(fmt.format),
+    }));
+  }, [handleExportFormat]);
+
+  const buildSegmentContextMenuItems = useCallback(
+    (seg: SessionTranscriptSegment): ContextMenuItem[] => {
+      const domSelected =
+        typeof window !== "undefined" ? window.getSelection()?.toString().trim() ?? "" : "";
+      const targetText =
+        domSelected ||
+        (activeSelection?.segment.segmentKey === seg.segmentKey ? activeSelection.quote : "") ||
+        seg.text;
+      const isSelection = Boolean(domSelected || activeSelection?.segment.segmentKey === seg.segmentKey);
+      const isTimed = Boolean(seg.timing && seg.timing.kind !== "none");
+
+      const items: ContextMenuItem[] = [
+        {
+          id: "create-extract",
+          label: "Create Extract",
+          icon: <Quotes className="w-4 h-4" />,
+          onClick: () => void handleDirectCreateExtract(seg, targetText),
+        },
+      ];
+
+      if (isTimed && onSeek) {
+        items.push({
+          id: "play-from-here",
+          label: `Play from Here (${formatTime(seg.timing.startMs / 1000)})`,
+          icon: <Play className="w-4 h-4" />,
+          onClick: () => onSeek(seg.timing.startMs / 1000),
+        });
+      }
+
+      items.push(
+        {
+          id: "edit-segment",
+          label: "Edit Segment",
+          icon: <PencilSimple className="w-4 h-4" />,
+          onClick: () => handleStartEdit(seg),
+        },
+        {
+          id: "sep-actions",
+          type: ContextMenuItemType.Separator,
+          label: "",
+        },
+        {
+          id: "copy-text",
+          label: isSelection ? "Copy Selection" : "Copy Segment Text",
+          icon: <Copy className="w-4 h-4" />,
+          onClick: () => {
+            void navigator.clipboard?.writeText(targetText);
+            addToast({
+              type: ToastType.Success,
+              title: "Copied to clipboard",
+              message: isSelection ? "Copied selected text." : "Copied segment text.",
+            });
+          },
+        },
+        {
+          id: "copy-with-timestamp",
+          label: "Copy with Timestamp",
+          icon: <Clock className="w-4 h-4" />,
+          onClick: () => {
+            const timePart = isTimed ? `[${formatTime(seg.timing.startMs / 1000)}] ` : "";
+            const speakerPart = seg.speakerId ? `${seg.speakerId}: ` : "";
+            const formatted = `${timePart}${speakerPart}${targetText}`;
+            void navigator.clipboard?.writeText(formatted);
+            addToast({
+              type: ToastType.Success,
+              title: "Copied with timestamp",
+              message: formatted,
+            });
+          },
+        },
+        {
+          id: "copy-full-transcript",
+          label: "Copy Full Transcript",
+          icon: <Copy className="w-4 h-4" />,
+          onClick: handleCopyFullTranscript,
+        },
+        {
+          id: "sep-export",
+          type: ContextMenuItemType.Separator,
+          label: "",
+        },
+        {
+          id: "export-transcript",
+          label: "Export Transcript",
+          icon: <Download className="w-4 h-4" />,
+          children: buildExportMenuItems(),
+        }
+      );
+
+      return items;
+    },
+    [
+      activeSelection,
+      handleDirectCreateExtract,
+      onSeek,
+      addToast,
+      handleCopyFullTranscript,
+      buildExportMenuItems,
+    ]
+  );
+
   return (
     <div
       data-testid="session-transcript"
@@ -583,6 +816,33 @@ export const SessionTranscript: React.FC<SessionTranscriptProps> = ({
             <Scroll className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">Follow</span>
           </button>
+
+          <button
+            type="button"
+            onClick={handleCopyFullTranscript}
+            title="Copy transcript"
+            aria-label="Copy transcript"
+            className="p-1.5 rounded-md border border-border bg-background text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Copy className="w-3.5 h-3.5" />
+          </button>
+
+          <button
+            type="button"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              exportMenu.openPosition(
+                { x: rect.left, y: rect.bottom + 4 },
+                buildExportMenuItems(),
+                e.currentTarget
+              );
+            }}
+            title="Export transcript"
+            aria-label="Export transcript"
+            className="p-1.5 rounded-md border border-border bg-background text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <Download className="w-3.5 h-3.5" />
+          </button>
         </div>
       </div>
 
@@ -638,6 +898,12 @@ export const SessionTranscript: React.FC<SessionTranscriptProps> = ({
                 data-segment-key={seg.segmentKey}
                 onClick={() => handleSegmentClick(seg)}
                 onMouseUp={() => handleMouseUp(seg)}
+                onContextMenu={(e) => {
+                  segmentMenu.openEvent(e, buildSegmentContextMenuItems(seg));
+                }}
+                onKeyDown={(e) => {
+                  segmentMenu.handleRowKeyDown(e, () => buildSegmentContextMenuItems(seg));
+                }}
                 className={cn(
                   "group relative flex items-start gap-3 p-2.5 rounded-lg border transition-all cursor-pointer select-text",
                   isActive
@@ -991,6 +1257,22 @@ export const SessionTranscript: React.FC<SessionTranscriptProps> = ({
           </div>
         </div>
       )}
+
+      <ContextMenu
+        menuId="session-transcript-segment-menu"
+        items={segmentMenu.items}
+        visible={segmentMenu.visible}
+        position={segmentMenu.position}
+        onClose={segmentMenu.closeToTrigger}
+        preserveSelection
+      />
+      <ContextMenu
+        menuId="session-transcript-export-menu"
+        items={exportMenu.items}
+        visible={exportMenu.visible}
+        position={exportMenu.position}
+        onClose={exportMenu.closeToTrigger}
+      />
     </div>
   );
 };

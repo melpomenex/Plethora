@@ -2060,6 +2060,7 @@ export function LocalVideoPlayer({
                 <TranscriptSync
                   segments={transcriptSegments}
                   currentTime={currentTime}
+                  documentId={documentId}
                   onSeek={handleSeek}
                   className="h-full"
                   highlightQuery={initialTranscriptHighlightQuery}

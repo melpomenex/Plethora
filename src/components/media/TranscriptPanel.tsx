@@ -1,9 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranscriptionStore } from "../../stores/useTranscriptionStore";
 import {
   CircleNotch,
+  Clock,
+  Copy,
+  Download,
   MagnifyingGlass,
+  Play,
   PlayCircle,
+  Quotes,
   Scroll,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils";
@@ -22,6 +27,18 @@ import {
 } from "../viewer/selectionInteraction/SelectionActionBar";
 import { createExtract } from "../../api/extracts";
 import { useToastStore, ToastType } from "../common/Toast";
+import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
+import {
+  ContextMenu,
+  ContextMenuItemType,
+  type ContextMenuItem,
+} from "../common/ContextMenu";
+import {
+  TRANSCRIPT_EXPORT_FORMATS,
+  exportTranscriptToFile,
+  fromMsSegments,
+  type TranscriptExportFormat,
+} from "../../utils/transcriptExport";
 
 const PROGRAMMATIC_SCROLL_LOCK_MS = 500;
 
@@ -323,6 +340,128 @@ export function TranscriptPanel({
     s.text.toLowerCase().includes(searchQuery.toLowerCase())
   );
 
+  const segmentMenu = useSurfaceMenu("transcript-panel-segment-menu");
+  const exportMenu = useSurfaceMenu("transcript-panel-export-menu");
+  const exportableSegments = useMemo(
+    () => fromMsSegments(activeSegments),
+    [activeSegments]
+  );
+
+  const handleCopyFullTranscript = useCallback(() => {
+    const fullText = activeSegments
+      .map((s) => `[${formatMs(s.start_ms)}] ${s.text}`)
+      .join("\n");
+    void navigator.clipboard?.writeText(fullText);
+    addToast({
+      type: ToastType.Success,
+      title: "Copied transcript",
+      message: `${activeSegments.length} segments copied to clipboard.`,
+    });
+  }, [activeSegments, addToast]);
+
+  const handleExportFormat = useCallback(
+    (format: TranscriptExportFormat) => {
+      exportTranscriptToFile(exportableSegments, format, {
+        title: `Transcript-${chapterId || bookId}`,
+      });
+      segmentMenu.close();
+      exportMenu.close();
+      addToast({
+        type: ToastType.Success,
+        title: "Transcript exported",
+        message: `Downloaded .${format} transcript file.`,
+      });
+    },
+    [exportableSegments, chapterId, bookId, segmentMenu, exportMenu, addToast]
+  );
+
+  const buildExportMenuItems = useCallback((): ContextMenuItem[] => {
+    return TRANSCRIPT_EXPORT_FORMATS.map((fmt) => ({
+      id: `export-${fmt.format}`,
+      label: fmt.label,
+      icon: <Download className="w-4 h-4" />,
+      onClick: () => handleExportFormat(fmt.format),
+    }));
+  }, [handleExportFormat]);
+
+  const buildSegmentContextMenuItems = useCallback(
+    (segment: { start_ms: number; end_ms: number; text: string }): ContextMenuItem[] => {
+      const domSelected =
+        typeof window !== "undefined" ? window.getSelection()?.toString().trim() ?? "" : "";
+      const targetText = domSelected || segment.text;
+      const isSelection = Boolean(domSelected);
+
+      return [
+        {
+          id: "create-extract",
+          label: "Create Extract",
+          icon: <Quotes className="w-4 h-4" />,
+          onClick: () => void handleCreateExtract(targetText),
+        },
+        {
+          id: "play-from-here",
+          label: `Play from Here (${formatMs(segment.start_ms)})`,
+          icon: <Play className="w-4 h-4" />,
+          onClick: () => {
+            userScrollingRef.current = false;
+            setFollowPausedByUser(false);
+            onSeek(segment.start_ms);
+          },
+        },
+        {
+          id: "sep-actions",
+          type: ContextMenuItemType.Separator,
+          label: "",
+        },
+        {
+          id: "copy-text",
+          label: isSelection ? "Copy Selection" : "Copy Segment Text",
+          icon: <Copy className="w-4 h-4" />,
+          onClick: () => {
+            void navigator.clipboard?.writeText(targetText);
+            addToast({
+              type: ToastType.Success,
+              title: "Copied to clipboard",
+              message: isSelection ? "Copied selected text." : "Copied segment text.",
+            });
+          },
+        },
+        {
+          id: "copy-with-timestamp",
+          label: "Copy with Timestamp",
+          icon: <Clock className="w-4 h-4" />,
+          onClick: () => {
+            const formatted = `[${formatMs(segment.start_ms)}] ${targetText}`;
+            void navigator.clipboard?.writeText(formatted);
+            addToast({
+              type: ToastType.Success,
+              title: "Copied with timestamp",
+              message: formatted,
+            });
+          },
+        },
+        {
+          id: "copy-full-transcript",
+          label: "Copy Full Transcript",
+          icon: <Copy className="w-4 h-4" />,
+          onClick: handleCopyFullTranscript,
+        },
+        {
+          id: "sep-export",
+          type: ContextMenuItemType.Separator,
+          label: "",
+        },
+        {
+          id: "export-transcript",
+          label: "Export Transcript",
+          icon: <Download className="w-4 h-4" />,
+          children: buildExportMenuItems(),
+        },
+      ];
+    },
+    [onSeek, addToast, handleCopyFullTranscript, buildExportMenuItems]
+  );
+
   return (
     <div className="flex flex-col h-full bg-background border-l border-border">
       {/* Header */}
@@ -341,6 +480,31 @@ export function TranscriptPanel({
             />
             Auto-scroll
           </label>
+          <button
+            type="button"
+            onClick={handleCopyFullTranscript}
+            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+            title="Copy transcript"
+            aria-label="Copy transcript"
+          >
+            <Copy className="w-4 h-4" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => {
+              const rect = e.currentTarget.getBoundingClientRect();
+              exportMenu.openPosition(
+                { x: rect.left, y: rect.bottom + 4 },
+                buildExportMenuItems(),
+                e.currentTarget
+              );
+            }}
+            className="p-1.5 text-muted-foreground hover:text-foreground hover:bg-muted rounded-md transition-colors"
+            title="Export transcript"
+            aria-label="Export transcript"
+          >
+            <Download className="w-4 h-4" />
+          </button>
         </div>
       </div>
 
@@ -387,6 +551,7 @@ export function TranscriptPanel({
             <div
               key={index}
               ref={isActive ? activeSegmentRef : null}
+              data-testid={`transcript-panel-segment-${index}`}
               role="button"
               tabIndex={0}
               onClick={() => {
@@ -395,7 +560,15 @@ export function TranscriptPanel({
                 setFollowPausedByUser(false);
                 onSeek(segment.start_ms);
               }}
+              onContextMenu={(e) => {
+                segmentMenu.openEvent(e, buildSegmentContextMenuItems(segment));
+              }}
               onKeyDown={(e) => {
+                if (
+                  segmentMenu.handleRowKeyDown(e, () => buildSegmentContextMenuItems(segment))
+                ) {
+                  return;
+                }
                 if (e.key === 'Enter') {
                   userScrollingRef.current = false;
                   setFollowPausedByUser(false);
@@ -414,10 +587,24 @@ export function TranscriptPanel({
                 )}>
                   {formatMs(segment.start_ms)}
                 </span>
-                <PlayCircle className={cn(
-                  "w-3 h-3 transition-opacity",
-                  isActive ? "text-primary opacity-100" : "text-muted-foreground opacity-0 group-hover:opacity-100"
-                )} />
+                <div className="flex items-center gap-1.5">
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      void handleCreateExtract(segment.text);
+                    }}
+                    title="Create extract from segment"
+                    aria-label="Create extract from segment"
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-opacity"
+                  >
+                    <Quotes className="w-3 h-3" />
+                  </button>
+                  <PlayCircle className={cn(
+                    "w-3 h-3 transition-opacity",
+                    isActive ? "text-primary opacity-100" : "text-muted-foreground opacity-0 group-hover:opacity-100"
+                  )} />
+                </div>
               </div>
               <p className={cn(
                 "text-sm leading-relaxed",
@@ -429,6 +616,22 @@ export function TranscriptPanel({
           );
         })}
       </div>
+
+      <ContextMenu
+        menuId="transcript-panel-segment-menu"
+        items={segmentMenu.items}
+        visible={segmentMenu.visible}
+        position={segmentMenu.position}
+        onClose={segmentMenu.closeToTrigger}
+        preserveSelection
+      />
+      <ContextMenu
+        menuId="transcript-panel-export-menu"
+        items={exportMenu.items}
+        visible={exportMenu.visible}
+        position={exportMenu.position}
+        onClose={exportMenu.closeToTrigger}
+      />
 
       {selectionV2 && (
         <SelectionActionBar
