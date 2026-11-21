@@ -2565,6 +2565,10 @@ const commandHandlers: Record<string, CommandHandler> = {
         return null;
     },
 
+    update_pdf_annotation: async (args) => toCamelCase(
+        await db.updatePdfAnnotation(args.patch as Parameters<typeof db.updatePdfAnnotation>[0]),
+    ),
+
     delete_extract: async (args) => {
         const id = args.id as string;
         await db.deleteExtract(id);

@@ -9,8 +9,9 @@
 
 use base64::Engine as _;
 use serde::Deserialize;
-use tauri::{ipc::Response, AppHandle};
+use tauri::{ipc::Response, AppHandle, State};
 
+use crate::database::Repository;
 use crate::error::{PlethoraError, Result};
 use crate::pdf::analysis::{self, PageAnalysisRequest, TextItemInput};
 use crate::pdf::cache::PdfReflowCache;
@@ -91,8 +92,9 @@ pub async fn pdf_reflow_get_page(
     engine_version: String,
     page_number: u32,
     app: AppHandle,
+    repo: State<'_, Repository>,
 ) -> Result<Option<PdfCanonicalPage>> {
-    PdfReflowCache::open(&app)?
+    let page = PdfReflowCache::open(&app)?
         .get_page(
             &document_id,
             &source_identity,
@@ -100,7 +102,11 @@ pub async fn pdf_reflow_get_page(
             &engine_version,
             page_number,
         )
-        .await
+        .await?;
+    if let Some(page) = &page {
+        persist_index_evidence(&repo, &document_id, &source_identity, page).await;
+    }
+    Ok(page)
 }
 
 #[tauri::command]
@@ -111,6 +117,7 @@ pub async fn pdf_reflow_put_page(
     engine_version: String,
     page: PdfCanonicalPage,
     app: AppHandle,
+    repo: State<'_, Repository>,
 ) -> Result<()> {
     PdfReflowCache::open(&app)?
         .put_page(
@@ -120,7 +127,25 @@ pub async fn pdf_reflow_put_page(
             &engine_version,
             &page,
         )
-        .await
+        .await?;
+    persist_index_evidence(&repo, &document_id, &source_identity, &page).await;
+    Ok(())
+}
+
+async fn persist_index_evidence(
+    repo: &Repository,
+    document_id: &str,
+    source_identity: &str,
+    page: &PdfCanonicalPage,
+) {
+    use crate::pdf::model::{PDF_CANONICAL_ENGINE_VERSION, PDF_CANONICAL_SCHEMA_VERSION};
+    if page.schema_version == PDF_CANONICAL_SCHEMA_VERSION
+        && page.engine_version == PDF_CANONICAL_ENGINE_VERSION
+    {
+        if let Err(error) = crate::pdf::semantic_projection::store_page(repo, document_id, source_identity, page).await {
+            tracing::warn!(%error, "Could not persist canonical PDF search evidence");
+        }
+    }
 }
 
 /// Store a source-crop PNG (base64) and return its content-hash asset id.
@@ -189,6 +214,7 @@ pub async fn pdf_reflow_apply_ocr_page(
     rotation: u16,
     words: Vec<crate::pdf::ocr::OcrWordInput>,
     app: AppHandle,
+    repo: State<'_, Repository>,
 ) -> Result<PdfCanonicalPage> {
     let page = crate::pdf::ocr::build_page_from_ocr_args(
         page_number,
@@ -207,6 +233,7 @@ pub async fn pdf_reflow_apply_ocr_page(
             &page,
         )
         .await?;
+    persist_index_evidence(&repo, &document_id, &source_identity, &page).await;
     Ok(page)
 }
 

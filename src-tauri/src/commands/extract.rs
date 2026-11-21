@@ -184,6 +184,76 @@ pub async fn delete_extract(id: String, repo: State<'_, Repository>) -> Result<(
     Ok(())
 }
 
+#[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PdfAnnotationPatch {
+    pub id: String,
+    pub document_id: String,
+    pub expected_modified_at: chrono::DateTime<chrono::Utc>,
+    pub kind: Option<String>,
+    pub note: Option<String>,
+    pub color: Option<String>,
+    pub removed: Option<bool>,
+}
+
+impl PdfAnnotationPatch {
+    pub(crate) fn update_context(&self, raw: Option<&str>) -> Result<String> {
+        use crate::error::PlethoraError;
+        use serde_json::{json, Value};
+        let invalid =
+            || PlethoraError::Validation("This extract has no owned PDF annotation.".into());
+        let mut context: Value = serde_json::from_str(raw.ok_or_else(invalid)?)?;
+        if context["type"].as_str() != Some("pdf")
+            || context["documentId"]
+                .as_str()
+                .is_some_and(|owner| owner != self.document_id)
+            || !context["pages"].is_array()
+        {
+            return Err(invalid());
+        }
+        if self
+            .color
+            .as_deref()
+            .is_some_and(|color| !matches!(color, "yellow" | "green" | "blue" | "pink" | "purple"))
+        {
+            return Err(PlethoraError::Validation(
+                "Unknown PDF annotation color.".into(),
+            ));
+        }
+        if context.get("pdfMarkup").is_none() {
+            context["pdfMarkup"] = json!({ "version": 1, "kind": "highlight" });
+        }
+        let markup = &mut context["pdfMarkup"];
+        if markup["version"].as_u64() != Some(1) {
+            return Err(PlethoraError::Validation(
+                "This PDF annotation version cannot be edited.".into(),
+            ));
+        }
+        if let Some(kind) = &self.kind {
+            let is_text =
+                |kind: &str| matches!(kind, "highlight" | "underline" | "strikethrough" | "note");
+            if !is_text(kind) || !markup["kind"].as_str().is_some_and(is_text) {
+                return Err(PlethoraError::Validation(
+                    "This annotation type cannot be changed.".into(),
+                ));
+            }
+            markup["kind"] = json!(kind);
+        }
+        if let Some(removed) = self.removed {
+            markup["removed"] = json!(removed);
+        }
+        Ok(serde_json::to_string(&context)?)
+    }
+}
+
+#[tauri::command]
+pub async fn update_pdf_annotation(
+    patch: PdfAnnotationPatch,
+    repo: State<'_, Repository>,
+) -> Result<Extract> {
+    repo.update_pdf_annotation(patch).await
+}
+
 async fn append_daily_note_extract_link(extract: &Extract, repo: &Repository) -> Result<()> {
     let key = format!("daily_note:{}", chrono::Utc::now().format("%Y-%m-%d"));
     let row = sqlx::query("SELECT value FROM settings WHERE key = ?1")
@@ -236,6 +306,55 @@ pub async fn get_session_learning_object_sources(
 mod tests {
     use super::*;
     use crate::issue6_test_support::issue6_repository;
+
+    #[tokio::test]
+    async fn pdf_annotation_remove_and_restore_preserve_identity_and_anchor() {
+        let repo = issue6_repository().await;
+        let mut extract = Extract::new("issue6-document".into(), "source passage".into());
+        extract.page_number = Some(3);
+        let pages = serde_json::json!([{"pageNumber": 3, "pdfRects": [{"x1": 4, "y1": 5, "x2": 12, "y2": 18}]}]);
+        extract.selection_context = Some(serde_json::json!({
+            "type": "pdf",
+            "documentId": "issue6-document",
+            "fingerprint": "original-file",
+            "pages": pages.clone(),
+        }));
+        let created = repo.create_extract(&extract).await.unwrap();
+        let patch = |modified, removed| PdfAnnotationPatch {
+            id: created.id.clone(),
+            document_id: created.document_id.clone(),
+            expected_modified_at: modified,
+            kind: Some("underline".into()),
+            note: Some("review this".into()),
+            color: Some("green".into()),
+            removed: Some(removed),
+        };
+        let removed = repo
+            .update_pdf_annotation(patch(created.date_modified, true))
+            .await
+            .unwrap();
+        assert_eq!(
+            removed.selection_context.as_ref().unwrap()["pdfMarkup"]["removed"],
+            true
+        );
+        assert!(repo
+            .update_pdf_annotation(patch(created.date_modified, false))
+            .await
+            .is_err());
+        let restored = repo
+            .update_pdf_annotation(patch(removed.date_modified, false))
+            .await
+            .unwrap();
+        let context = restored.selection_context.unwrap();
+        assert_eq!(restored.id, created.id);
+        assert_eq!(restored.content, created.content);
+        assert_eq!(restored.page_number, Some(3));
+        assert_eq!(restored.notes.as_deref(), Some("review this"));
+        assert_eq!(restored.highlight_color.as_deref(), Some("green"));
+        assert_eq!(context["pages"], pages);
+        assert_eq!(context["fingerprint"], "original-file");
+        assert_eq!(context["pdfMarkup"]["removed"], false);
+    }
 
     #[tokio::test]
     async fn test_create_extract_inherits_document_priority() {

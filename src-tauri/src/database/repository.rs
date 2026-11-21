@@ -2921,6 +2921,43 @@ impl Repository {
         Ok(updated)
     }
 
+    /// Update a PDF sidecar in place, preserving the source geometry and learning links.
+    pub async fn update_pdf_annotation(
+        &self,
+        patch: crate::commands::extract::PdfAnnotationPatch,
+    ) -> Result<Extract> {
+        let mut tx = self.pool.begin().await?;
+        let row = sqlx::query(
+            "SELECT selection_context, date_modified FROM extracts WHERE id = ?1 AND document_id = ?2",
+        )
+        .bind(&patch.id)
+        .bind(&patch.document_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| PlethoraError::NotFound("PDF annotation".into()))?;
+        let modified: chrono::DateTime<Utc> = row.try_get("date_modified")?;
+        if modified != patch.expected_modified_at {
+            return Err(PlethoraError::Validation("The annotation changed. Reopen it and try again.".into()));
+        }
+        let raw: Option<String> = row.try_get("selection_context")?;
+        let context = patch.update_context(raw.as_deref())?;
+        sqlx::query(
+            "UPDATE extracts SET selection_context = ?1, notes = COALESCE(?2, notes), +             highlight_color = COALESCE(?3, highlight_color), date_modified = ?4 +             WHERE id = ?5 AND document_id = ?6",
+        )
+        .bind(context)
+        .bind(&patch.note)
+        .bind(&patch.color)
+        .bind(Utc::now())
+        .bind(&patch.id)
+        .bind(&patch.document_id)
+        .execute(&mut *tx)
+        .await?;
+        let updated = Self::journal_extract_fields(&mut tx, &patch.id, &["content"]).await?;
+        tx.commit().await?;
+        notify_after_commit();
+        Ok(updated)
+    }
+
     pub async fn update_extract_disclosure_level(&self, id: &str, level: i32) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         let rows = sqlx::query(

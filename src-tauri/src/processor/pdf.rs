@@ -115,59 +115,21 @@ pub async fn extract_pdf_content(file_path: &str) -> Result<ExtractedContent> {
     })
 }
 
-/// Extract a specific page from a PDF file
+/// Extract native text from one physical (1-based) page.
 pub async fn extract_pdf_page(file_path: &str, page_num: usize) -> Result<String> {
-    let path = Path::new(file_path);
-
-    let buffer = tokio::fs::read(path)
-        .await
-        .map_err(|e| crate::error::PlethoraError::NotFound(format!("Failed to read PDF: {}", e)))?;
-
-    let doc = lopdf::Document::load_mem(&buffer)
-        .map_err(|e| crate::error::PlethoraError::NotFound(format!("Failed to load PDF: {}", e)))?;
-
-    let pages = doc.get_pages();
-    let page_count = pages.len();
-
-    if page_num < 1 || page_num > page_count {
-        return Err(crate::error::PlethoraError::NotFound(format!(
-            "Page {} out of range (1-{})",
-            page_num, page_count
-        )));
-    }
-
-    // Get the page (0-indexed)
-    let _page_id = pages
-        .keys()
-        .nth(page_num - 1)
-        .ok_or_else(|| crate::error::PlethoraError::NotFound("Page not found".to_string()))?;
-
-    // Extract text on the blocking pool: pdf_extract is CPU-bound for seconds
-    // on large PDFs and must not stall an async runtime worker (design D5).
-    // spawn_blocking surfaces extractor panics as a JoinError, which replaces
-    // the previous catch_unwind while preserving the same "malformed PDF
-    // degrades to empty text" contract.
-    let text = match tokio::task::spawn_blocking(move || {
-        pdf_extract::extract_text_from_mem(&buffer)
+    let path = Path::new(file_path).to_owned();
+    run_pdf_page_extraction(move |deadline| {
+        let doc = load_text_pdf(&path)?;
+        let page_count = doc.get_pages().len();
+        if !(1..=page_count).contains(&page_num) {
+            return Err(crate::error::PlethoraError::NotFound(format!(
+                "Page {page_num} out of range (1-{page_count})"
+            )));
+        }
+        check_pdf_extraction_deadline(deadline)?;
+        extract_native_page_text(&doc, page_num as u32)
     })
     .await
-    {
-        Ok(Ok(t)) => t,
-        Ok(Err(e)) => {
-            eprintln!("PDF text extraction failed: {}", e);
-            String::new()
-        }
-        Err(join_error) => {
-            eprintln!("PDF text extraction panicked: {}", join_error);
-            String::new()
-        }
-    };
-
-    // Note: pdf-extract doesn't support per-page extraction easily
-    // For a production implementation, you'd want to use a library that supports
-    // per-page text extraction like poppler or pdfium
-
-    Ok(text)
 }
 
 /// Get the number of pages in a PDF file
@@ -187,81 +149,77 @@ pub async fn get_pdf_page_count(file_path: &str) -> Result<usize> {
 /// Extract per-page plain text for the semantic indexer (OpenSpec change
 /// `add-ondevice-ai-learning-system`, task 4.2).
 ///
-/// Decision (documented per task): `pdf-extract` has no true random-access
-/// per-page API, but `extract_text_from_mem_by_pages` splits its streamed
-/// extraction at page boundaries and is already used by
-/// `convert_pdf_to_html`. That is the primary path here. Fallback chain when
-/// it yields nothing (image-only pages / extractor failure): whole-document
-/// text split on form-feed boundaries, then a proportional paragraph split
-/// via the same helper the HTML converter uses. The caller (chunker) treats
-/// each returned entry as one page and records its 1-based number as the
-/// chunk location.
+/// Keep one slot per physical page, including unrecognized scan pages.
 pub async fn extract_pdf_pages_text(file_path: &str) -> Result<Vec<String>> {
-    let path = Path::new(file_path);
+    let path = Path::new(file_path).to_owned();
+    run_pdf_page_extraction(move |deadline| {
+        let doc = load_text_pdf(&path)?;
+        doc.get_pages()
+            .into_keys()
+            .map(|page| {
+                check_pdf_extraction_deadline(deadline)?;
+                Ok(
+                    extract_native_page_text(&doc, page).unwrap_or_else(|error| {
+                        tracing::warn!(page, %error, "Could not extract PDF page text");
+                        String::new()
+                    }),
+                )
+            })
+            .collect()
+    })
+    .await
+}
 
-    let buffer = tokio::fs::read(path)
+fn load_text_pdf(path: &Path) -> Result<pdf_extract::Document> {
+    let mut doc = pdf_extract::Document::load(path).map_err(|error| {
+        crate::error::PlethoraError::NotFound(format!("Failed to load PDF: {error}"))
+    })?;
+    if doc.is_encrypted() {
+        doc.decrypt("").map_err(|_| {
+            crate::error::PlethoraError::Internal(
+                "Unlock this PDF before extracting its text".to_string(),
+            )
+        })?;
+    }
+    Ok(doc)
+}
+
+fn extract_native_page_text(doc: &pdf_extract::Document, page: u32) -> Result<String> {
+    let mut text = String::new();
+    // Some font parsers can panic on malformed or unsupported content.
+    // Keep that failure on this physical page so later pages still resolve.
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        pdf_extract::output_doc_page(doc, &mut pdf_extract::PlainTextOutput::new(&mut text), page)
+    }))
+    .map_err(|_| {
+        crate::error::PlethoraError::Internal(format!("PDF page {page} extraction failed"))
+    })?
+    .map_err(|error| crate::error::PlethoraError::Internal(format!("PDF page {page}: {error}")))?;
+    Ok(normalize_extracted_text(&text))
+}
+
+async fn run_pdf_page_extraction<T: Send + 'static>(
+    run: impl FnOnce(std::time::Instant) -> Result<T> + Send + 'static,
+) -> Result<T> {
+    let budget = std::time::Duration::from_secs(10);
+    let deadline = std::time::Instant::now() + budget;
+    tokio::time::timeout(budget, tokio::task::spawn_blocking(move || run(deadline)))
         .await
-        .map_err(|e| crate::error::PlethoraError::NotFound(format!("Failed to read PDF: {}", e)))?;
+        .map_err(|_| pdf_extraction_timeout())?
+        .map_err(|error| {
+            crate::error::PlethoraError::Internal(format!("PDF extraction failed: {error}"))
+        })?
+}
 
-    let doc = lopdf::Document::load_mem(&buffer)
-        .map_err(|e| crate::error::PlethoraError::NotFound(format!("Failed to load PDF: {}", e)))?;
-    let page_count = doc.get_pages().len();
-    drop(doc);
-
-    // Primary: page-splitting extractor, on the blocking pool with a timeout
-    // (pdf-extract is CPU-bound for seconds on large documents).
-    let buffer = std::sync::Arc::new(buffer);
-    let buffer_for_pages = std::sync::Arc::clone(&buffer);
-    let pages = match tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        tokio::task::spawn_blocking(move || {
-            pdf_extract::extract_text_from_mem_by_pages(&buffer_for_pages)
-        }),
-    )
-    .await
-    {
-        Ok(Ok(Ok(pages))) => pages,
-        Ok(Ok(Err(e))) => {
-            eprintln!("PDF per-page extraction failed: {}", e);
-            Vec::new()
-        }
-        Ok(Err(e)) => {
-            eprintln!("PDF per-page extraction panicked: {}", e);
-            Vec::new()
-        }
-        Err(_) => {
-            eprintln!("PDF per-page extraction timed out after 10 seconds");
-            Vec::new()
-        }
-    };
-
-    let usable: Vec<String> = pages
-        .into_iter()
-        .map(|text| normalize_extracted_text(&text))
-        .filter(|text| !text.trim().is_empty())
-        .collect();
-    if !usable.is_empty() {
-        return Ok(usable);
+fn check_pdf_extraction_deadline(deadline: std::time::Instant) -> Result<()> {
+    if std::time::Instant::now() >= deadline {
+        return Err(pdf_extraction_timeout());
     }
+    Ok(())
+}
 
-    // Fallback: whole-document text, then split on form feeds / paragraphs.
-    let buffer_for_fallback = std::sync::Arc::clone(&buffer);
-    let fallback = match tokio::time::timeout(
-        std::time::Duration::from_secs(10),
-        tokio::task::spawn_blocking(move || {
-            pdf_extract::extract_text_from_mem(&buffer_for_fallback)
-        }),
-    )
-    .await
-    {
-        Ok(Ok(Ok(text))) => text,
-        _ => String::new(),
-    };
-
-    if fallback.trim().is_empty() {
-        return Ok(Vec::new());
-    }
-    Ok(split_text_across_pages(&fallback, page_count))
+fn pdf_extraction_timeout() -> crate::error::PlethoraError {
+    crate::error::PlethoraError::Internal("PDF page text extraction timed out".to_string())
 }
 
 /// Extract an embedded cover image from the first page of a PDF as a data URL.
@@ -1043,9 +1001,32 @@ mod tests {
 
     #[tokio::test]
     async fn test_pdf_page_count() {
-        // This test would require a sample PDF file
-        // For now, we just verify the function compiles
-        assert!(true);
+        assert_eq!(
+            get_pdf_page_count(&fixture("blank-middle-page.pdf"))
+                .await
+                .unwrap(),
+            3
+        );
+    }
+
+    #[tokio::test]
+    async fn extracts_only_the_requested_physical_page() {
+        let path = fixture("blank-middle-page.pdf");
+        assert_eq!(
+            extract_pdf_page(&path, 3).await.unwrap(),
+            "Third physical page"
+        );
+        assert_eq!(extract_pdf_page(&path, 2).await.unwrap(), "");
+        assert!(extract_pdf_page(&path, 0).await.is_err());
+        assert!(extract_pdf_page(&path, 4).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn retains_an_empty_slot_for_a_blank_middle_page() {
+        let pages = extract_pdf_pages_text(&fixture("blank-middle-page.pdf"))
+            .await
+            .unwrap();
+        assert_eq!(pages, ["First physical page", "", "Third physical page"]);
     }
 
     fn fixture(name: &str) -> String {

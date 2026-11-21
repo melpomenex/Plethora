@@ -484,7 +484,7 @@ impl StudySourceRepository {
                                 };
                                 let path: String = doc.try_get("file_path").unwrap_or_default();
                                 let projection =
-                                    match build_rich_text_chunks(&ctx, &path, doc_html.as_deref())
+                                    match build_rich_text_chunks(&super::Repository::new(self.pool.clone()), &ctx, &path, doc_html.as_deref())
                                         .await
                                     {
                                         Some(chunks) => BookProjection::Rich(chunks),
@@ -2375,7 +2375,7 @@ mod tests {
                 location_source_type: kind,
                 spine_index: None,
             };
-            let chunks = build_rich_text_chunks(&ctx, path, markup).await.unwrap();
+            let chunks = build_rich_text_chunks(&crate::database::Repository::new(pool.clone()), &ctx, path, markup).await.unwrap();
             let chunk = chunks.first().unwrap();
             let input = retrieved_book_ref(chunk, "book-rev");
             seed_document(

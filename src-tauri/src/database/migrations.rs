@@ -6185,6 +6185,33 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
+    Migration::new(
+        "156_pdf_page_evidence",
+        r#"
+        CREATE TABLE pdf_page_evidence (
+            document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+            source_revision TEXT NOT NULL,
+            projection_version INTEGER NOT NULL,
+            page_number INTEGER NOT NULL CHECK(page_number > 0),
+            blocks_json TEXT NOT NULL,
+            PRIMARY KEY (document_id, source_revision, projection_version, page_number)
+        );
+
+        UPDATE semantic_chunks
+        SET location_json = json_remove(location_json, '$.pageNumber', '$.pageRects')
+        WHERE source_type = 'document'
+          AND document_id IN (SELECT id FROM documents WHERE file_type = 'pdf')
+          AND CASE WHEN json_valid(location_json) THEN
+              json_extract(location_json, '$.sourceType') = 'pdf'
+              AND json_type(location_json, '$.pdfEvidence.version') IS NULL
+              ELSE false END;
+
+        UPDATE ai_index_state SET state = 'stale'
+        WHERE document_id IN (
+            SELECT id FROM documents WHERE file_type = 'pdf' AND is_ai_excluded = 0
+        );
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

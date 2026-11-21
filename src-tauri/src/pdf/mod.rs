@@ -13,7 +13,9 @@ pub mod coordinates;
 pub mod fallback;
 pub mod model;
 pub mod ocr;
+pub mod operations;
 pub mod selection;
+pub(crate) mod semantic_projection;
 
 pub use model::{
     PdfCanonicalBlock, PdfCanonicalBlockKind, PdfCanonicalClassification, PdfCanonicalDirection,

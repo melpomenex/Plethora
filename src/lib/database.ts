@@ -5,6 +5,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import type { PdfSelectionContext } from '../types/selection';
+import { patchPdfAnnotation, type PdfAnnotationPatch } from './pdf/annotationModel';
 import type { VideoExtract } from '../api/video-extracts';
 import { isMarketingCaptureNamespace } from './marketingCapture/namespace';
 import { DEFAULT_COLLECTION_ID } from '../types/collection';
@@ -854,6 +855,32 @@ export async function updateExtract(id: string, updates: Partial<Extract>): Prom
         date_modified: new Date().toISOString(),
     };
     return put(STORES.extracts, updated);
+}
+
+export async function updatePdfAnnotation(patch: PdfAnnotationPatch): Promise<Extract> {
+    return withRetry((database) => new Promise((resolve, reject) => {
+        const tx = database.transaction(STORES.extracts, 'readwrite');
+        const store = tx.objectStore(STORES.extracts);
+        const get = store.get(patch.id);
+        let updated: Extract;
+        tx.oncomplete = () => resolve(updated);
+        tx.onabort = () => reject(tx.error ?? new Error('The annotation update was cancelled.'));
+        get.onsuccess = () => {
+            try {
+                const existing = get.result as Extract | undefined;
+                if (!existing || existing._deleted) throw new Error('PDF annotation not found.');
+                updated = {
+                    ...existing,
+                    ...patchPdfAnnotation(existing as Parameters<typeof patchPdfAnnotation>[0], patch),
+                    date_modified: new Date(Math.max(Date.now(), Date.parse(existing.date_modified) + 1)).toISOString(),
+                };
+                store.put(updated);
+            } catch (error) {
+                reject(error);
+                tx.abort();
+            }
+        };
+    }));
 }
 
 export async function deleteExtract(id: string): Promise<void> {

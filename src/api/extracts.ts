@@ -1,5 +1,6 @@
 import { invokeCommand } from "../lib/tauri";
 import type { SelectionContext } from "../types/selection";
+import type { PdfAnnotationPatch } from "../lib/pdf/annotationModel";
 
 export interface Extract {
   id: string;
@@ -194,6 +195,10 @@ export async function updateExtract(input: UpdateExtractInput): Promise<Extract>
   });
   const normalized = normalizeExtract(extract);
   return normalized;
+}
+
+export async function updatePdfAnnotation(patch: PdfAnnotationPatch): Promise<Extract> {
+  return normalizeExtract(await invokeCommand<Extract>("update_pdf_annotation", { patch }));
 }
 
 /**

@@ -123,6 +123,10 @@ fn sampled_fingerprint(path: &Path, size: u64) -> std::result::Result<String, Pd
     Ok(format!("{:x}", hasher.finalize()))
 }
 
+pub(crate) fn registered_pdf_revision(path: &Path) -> Option<String> {
+    inspect_pdf_path(path, false).ok().map(|source| source.identity)
+}
+
 fn inspect_pdf_path(
     path: &Path,
     include_fingerprint: bool,
@@ -340,6 +344,105 @@ pub async fn read_pdf_document_range(
         read_pdf_document_range_impl(&document_id, offset, length, &expected_identity, &repo)
             .await?;
     Ok(tauri::ipc::Response::new(bytes))
+}
+
+#[tauri::command]
+pub async fn save_rotated_pdf_copy(
+    document_id: String,
+    page_number: u32,
+    expected_identity: String,
+    app: tauri::AppHandle,
+    repo: State<'_, Repository>,
+) -> std::result::Result<bool, String> {
+    save_pdf_output(&document_id, &expected_identity, &app, &repo, ("rotated-copy", "pdf"), move |source, destination| {
+        crate::pdf::operations::rotate_page_copy(source, destination, page_number)
+    }).await
+}
+
+#[tauri::command]
+pub async fn save_pdf_page_copy(
+    document_id: String,
+    expected_identity: String,
+    plan: crate::pdf::operations::PdfCopyPlan,
+    app: tauri::AppHandle,
+    repo: State<'_, Repository>,
+) -> std::result::Result<bool, String> {
+    save_pdf_output(&document_id, &expected_identity, &app, &repo, ("page-copy", "pdf"), move |source, destination| {
+        crate::pdf::operations::export_pdf_copy(source, destination, plan)
+    }).await
+}
+
+#[tauri::command]
+pub async fn save_pdf_viewer_artifact(
+    document_id: String,
+    expected_identity: String,
+    format: crate::pdf::operations::PdfArtifactFormat,
+    base64_data: String,
+    app: tauri::AppHandle,
+    repo: State<'_, Repository>,
+) -> std::result::Result<bool, String> {
+    use base64::Engine as _;
+
+    // The renderer and Tauri IPC both hold copies of this payload.
+    const MAX_BASE64_BYTES: usize = 44 * 1024 * 1024;
+    if base64_data.len() > MAX_BASE64_BYTES {
+        return Err("This export is too large to transfer from the reader.".into());
+    }
+    save_pdf_output(&document_id, &expected_identity, &app, &repo, ("document-export", format.extension()), move |source, destination| {
+        let bytes = base64::engine::general_purpose::STANDARD
+            .decode(base64_data).map_err(|_| "The exported data is invalid.")?;
+        crate::pdf::operations::save_pdf_artifact(source, destination, format, &bytes)
+    }).await
+}
+
+async fn save_pdf_output(
+    document_id: &str,
+    expected_identity: &str,
+    app: &tauri::AppHandle,
+    repo: &Repository,
+    (name, extension): (&str, &str),
+    write: impl FnOnce(&Path, &Path) -> std::result::Result<(), String> + Send + 'static,
+) -> std::result::Result<bool, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    static EXPORT: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _export = EXPORT
+        .try_lock()
+        .map_err(|_| "A PDF export is already open.")?;
+    let source = inspect_document_pdf(document_id, repo, false)
+        .await
+        .map_err(|error| error.message)?;
+    if source.identity != expected_identity {
+        return Err("The original PDF changed. Reopen it before exporting a copy.".into());
+    }
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .set_file_name(format!("{name}.{extension}"))
+        .add_filter("Export", &[extension])
+        .save_file(move |destination| {
+            let _ = send.send(destination);
+        });
+    let Some(destination) = receive
+        .await
+        .map_err(|_| "Could not choose a PDF export destination.")?
+    else {
+        return Ok(false);
+    };
+    let destination = destination
+        .into_path()
+        .map_err(|_| "Choose a local folder for the PDF copy.")?;
+    let expected_identity = expected_identity.to_owned();
+    tokio::task::spawn_blocking(move || {
+        let current = inspect_pdf_path(&source.path, false).map_err(|error| error.message)?;
+        if current.identity != expected_identity {
+            return Err("The original PDF changed. Reopen it before exporting a copy.".into());
+        }
+        write(&current.path, &destination)?;
+        Ok(true)
+    })
+    .await
+    .map_err(|_| "Could not process the PDF copy.")?
 }
 
 #[cfg(test)]
