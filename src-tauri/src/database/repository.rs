@@ -2662,10 +2662,8 @@ impl Repository {
         // element_tree node, in the same transaction so a failure rolls both
         // back. Documents register a root node on import (see create_document),
         // so the parent always exists for a real extract.
-        let doc_node = find_node_id_pool(&self.pool, ElementKind::Document, &extract.document_id)
-            .await
-            .ok()
-            .flatten();
+        let doc_node = find_node_id_in_tx(&mut tx, ElementKind::Document, &extract.document_id)
+            .await?;
         if let Some(parent_id) = doc_node {
             let created_at = extract.date_created.to_rfc3339();
             register_node_in_tx(
