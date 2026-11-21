@@ -1,12 +1,12 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AssistantPanel, type AssistantContext } from '../AssistantPanel';
 import { useLLMProvidersStore } from '../../../stores/llmProvidersStore';
 import { useDocumentStore } from '../../../stores/documentStore';
 
-const mocks = vi.hoisted(() => ({ turn: vi.fn(), getDoc: vi.fn(), tools: vi.fn(), callTool: vi.fn() }));
+const mocks = vi.hoisted(() => ({ turn: vi.fn(), getDoc: vi.fn(), extractDoc: vi.fn(), tools: vi.fn(), callTool: vi.fn() }));
 vi.mock('../../../lib/ai/assistant/orchestrator', () => ({ runAssistantTurn: mocks.turn }));
-vi.mock('../../../api/documents', () => ({ getDocument: mocks.getDoc, extractDocumentText: vi.fn().mockResolvedValue(''), getDocuments: vi.fn().mockResolvedValue([]) }));
+vi.mock('../../../api/documents', () => ({ getDocument: mocks.getDoc, extractDocumentText: mocks.extractDoc, getDocuments: vi.fn().mockResolvedValue([]) }));
 vi.mock('../../../api/mcp', () => ({ getAppMCPTools: mocks.tools, callAppMCPTool: mocks.callTool }));
 vi.mock('../../../lib/tauri', async original => ({ ...await original<typeof import('../../../lib/tauri')>(), isTauri: () => false, isNativeMobile: () => false, invokeCommand: vi.fn().mockResolvedValue([]) }));
 vi.mock('../../../hooks/useComposerDictation', () => ({ useComposerDictation: () => ({ phase: 'idle', cancel: vi.fn(), onEdit: vi.fn(), disabled: true }) }));
@@ -26,6 +26,7 @@ beforeEach(() => {
   useLLMProvidersStore.setState({ providers: [{ id: 'provider', provider: 'openai', name: 'OpenAI', enabled: true, model: 'gpt-4o-mini', apiKey: 'test', maxTokens: 1024, temperature: 0.2 }] });
   useDocumentStore.setState({ documents: [{ id: 'a', title: 'Source A', content: 'Canonical complete source', contentHash: 'v1' } as never], currentDocument: null });
   mocks.getDoc.mockResolvedValue({ id: 'a', title: 'Source A', content: 'Canonical complete source', contentHash: 'v1' });
+  mocks.extractDoc.mockResolvedValue('');
   mocks.tools.mockResolvedValue([{ name: 'create_qa_card', description: 'Card', inputSchema: {} }, { name: 'create_extract', inputSchema: {} }, { name: 'batch_create_cards', inputSchema: {} }]);
   mocks.callTool.mockResolvedValue({ isError: false, content: [{ type: 'text', text: '{"id":"card-1"}' }] });
   mocks.turn.mockResolvedValue({ rawContent: 'A useful response explaining only the selected material.' });
@@ -59,11 +60,37 @@ describe('contextual action integration', () => {
     await waitFor(() => expect(mocks.turn).toHaveBeenCalledOnce());
     expect(mocks.turn.mock.calls[0][0].action.target).toMatchObject({ kind: 'document', content: 'Entire canonical book', coverage: 'full' });
   });
+  it('explains the selected PDF from pages across the document when native extraction is empty', async () => {
+    mocks.getDoc.mockResolvedValue({ id: 'a', title: 'Source A', fileType: 'pdf', content: '', contentHash: 'v1' });
+    mocks.extractDoc.mockResolvedValue({ content: '', extracted: false });
+    const loadPageText = vi.fn(async (page: number) => `Readable programming language material from physical page ${page}.`);
+    render(<AssistantPanel {...props} context={{
+      ...source,
+      getPdfPageSource: () => ({ documentId: 'a', version: 'pdf-v1', pageCount: 784, isCurrent: () => true, loadPageText }),
+    }} />);
+    menu();
+    const select = screen.getByRole('combobox', { name: 'Use' });
+    fireEvent.change(select, { target: { value: withinSelect(select, 'This document') } });
+    fireEvent.click(action('Explain'));
+
+    await waitFor(() => expect(mocks.turn).toHaveBeenCalledOnce());
+    const request = mocks.turn.mock.calls[0][0];
+    expect(request.action.target).toMatchObject({ documentId: 'a', kind: 'document', coverage: 'window' });
+    expect(request.sourceCoverage).toBe('window');
+    expect(request.sourceContent).toContain('Readable programming language material');
+    expect(request.sourceContent).not.toContain('Selected text only');
+    expect(request.userQuestion).toContain('based on excerpts from the document');
+    const pagesRead = loadPageText.mock.calls.map(([page]) => page);
+    expect(pagesRead.length).toBeLessThan(784);
+    expect(Math.min(...pagesRead)).toBeLessThan(100);
+    expect(Math.max(...pagesRead)).toBeGreaterThan(684);
+  });
   it('stops async loading, discards late responses and permits an exact-target retry after source switch', async () => {
     const response = pending<{ rawContent: string }>(); mocks.turn.mockReturnValueOnce(response.promise);
     const { rerender } = render(<AssistantPanel {...props} />); menu(); fireEvent.click(action('Explain'));
     await waitFor(() => expect(mocks.turn).toHaveBeenCalledOnce());
-    fireEvent.click(screen.getByRole('button', { name: 'Stop' }));
+    const pendingReply = document.querySelector<HTMLElement>('[data-pending-reply]')!;
+    fireEvent.click(within(pendingReply).getByRole('button', { name: 'Stop' }));
     rerender(<AssistantPanel {...props} context={{ type: 'document', documentId: 'b', content: 'New source B', metadata: { title: 'Source B' } }} />);
     await act(async () => response.resolve({ rawContent: 'Late response must be discarded' }));
     expect(screen.queryByText('Late response must be discarded')).toBeNull();
@@ -183,6 +210,47 @@ describe('target availability and coverage', () => {
     fireEvent.click(action('Explain'));
     await waitFor(() => expect(mocks.turn).toHaveBeenCalledOnce());
     expect(mocks.turn.mock.calls[0][0].action.target).toMatchObject({ documentId: 'a', content: 'Selected text only' });
+  });
+  it('refreshes # section content once PDF text finishes loading so Explain receives the chapter body', async () => {
+    const { useDocumentOutlineStore } = await import('../../../stores/documentOutlineStore');
+    useDocumentOutlineStore.getState().setOutline('pdf-a', {
+      pdfOutline: [
+        { title: 'Chapter 1: Intro', pageNumber: 1 },
+        { title: 'Chapter 2: Evolution of the Major Programming Languages', pageNumber: 2 },
+        { title: 'Chapter 3: Describing Syntax', pageNumber: 3 },
+      ],
+    });
+    const extracted = pending<{ content: string; extracted: boolean }>();
+    mocks.getDoc.mockResolvedValue({ id: 'pdf-a', title: 'Sebesta', content: '' });
+    mocks.extractDoc.mockReturnValue(extracted.promise);
+
+    render(
+      <AssistantPanel
+        context={{ type: 'document', documentId: 'pdf-a', content: '', metadata: { title: 'Sebesta' } }}
+        conversationKey="desktop:pdf-a"
+        appendContextMessages={false}
+      />,
+    );
+
+    const textarea = screen.getByRole('textbox');
+    fireEvent.focus(textarea);
+    fireEvent.change(textarea, { target: { value: '#' } });
+    const options = await screen.findAllByText('Chapter 2: Evolution of the Major Programming Languages');
+    fireEvent.click(options[0]);
+
+    await act(async () => extracted.resolve({
+      extracted: true,
+      content: [
+        '<div class="page" id="page-1"><div class="page-header">Page 1 of 3</div><div class="page-content"><p>Intro</p></div></div>',
+        '<div class="page" id="page-2"><div class="page-header">Page 2 of 3</div><div class="page-content"><p>Zuse Plankalkul Fortran Lisp Algol Cobol.</p></div></div>',
+        '<div class="page" id="page-3"><div class="page-header">Page 3 of 3</div><div class="page-content"><p>Syntax</p></div></div>',
+      ].join('\n'),
+    }));
+
+    fireEvent.click(screen.getByRole('button', { name: /^(More|Actions)$/ }));
+    fireEvent.click(action('Explain'));
+    await waitFor(() => expect(mocks.turn).toHaveBeenCalledOnce());
+    expect(mocks.turn.mock.calls[0][0].action.target.content).toContain('Zuse Plankalkul Fortran Lisp Algol Cobol.');
   });
 });
 function withinSelect(select: HTMLElement, label: string) {

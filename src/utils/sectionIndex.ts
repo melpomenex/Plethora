@@ -324,6 +324,21 @@ function stripMarkup(text: string): string {
     .trim();
 }
 
+const HTML_HEADING_PATTERN = /<h([1-6])\b[^<>]*>([\s\S]*?)<\/h\1\s*>/gi;
+
+function decodeHtmlTitle(value: string): string {
+  return value
+    .replace(/<[^<>]+>/g, " ")
+    .replace(/&nbsp;/gi, " ")
+    .replace(/&amp;/gi, "&")
+    .replace(/&lt;/gi, "<")
+    .replace(/&gt;/gi, ">")
+    .replace(/&quot;/gi, "\"")
+    .replace(/&#39;/gi, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export function parseMarkdownHeadings(content: string): HeadingInfo[] {
   if (!content) return [];
   const lines = content.split("\n");
@@ -376,24 +391,19 @@ export function parseMarkdownHeadings(content: string): HeadingInfo[] {
     charIndex += line.length + 1;
   }
 
-  const decodeHtmlTitle = (value: string) => value
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&amp;/gi, "&")
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, "\"")
-    .replace(/&#39;/gi, "'")
-    .replace(/\s+/g, " ")
-    .trim();
-  const htmlHeadingPattern = /<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1\s*>/gi;
-  for (const match of content.matchAll(htmlHeadingPattern)) {
+  let htmlLineIndex = 0;
+  let nextLineStart = lines[0].length + 1;
+  for (const match of content.matchAll(HTML_HEADING_PATTERN)) {
     const title = decodeHtmlTitle(match[2]);
     if (!title) continue;
+    while (nextLineStart <= match.index) {
+      htmlLineIndex += 1;
+      nextLineStart += lines[htmlLineIndex].length + 1;
+    }
     headings.push({
       title,
       level: Number(match[1]),
-      lineIndex: content.slice(0, match.index).split("\n").length - 1,
+      lineIndex: htmlLineIndex,
       charIndex: match.index,
       rawLine: match[0],
     });
@@ -745,10 +755,6 @@ function findStructuralMatch(
     : { ambiguous: candidates.length > 1, candidateCount: candidates.length };
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 function normalizePdfHeadingLine(value: string): string {
   return value
     .replace(/\uFB01/g, "fi")
@@ -790,9 +796,10 @@ function recoverPdfPageSpanRange(
   section: SectionNode,
   available: SectionNode[],
   fullContent: string,
+  cachedPageRanges?: Array<{ page: number; start: number; end: number }>,
 ): SectionNode | undefined {
   if (section.source !== "pdf-outline" || !section.page || section.page < 1) return undefined;
-  const pageRanges = findPdfPageRanges(fullContent);
+  const pageRanges = cachedPageRanges ?? findPdfPageRanges(fullContent);
   if (pageRanges.length === 0) return undefined;
 
   const startEntry = pageRanges.find((r) => r.page === section.page);
@@ -831,38 +838,65 @@ function recoverPdfPageSpanRange(
   };
 }
 
+interface HeadingOccurrence {
+  start: number;
+  raw: string;
+}
+
+interface OutlineRecoveryCache {
+  pageRanges?: ReturnType<typeof findPdfPageRanges>;
+  headings?: ReturnType<typeof indexOutlineHeadings>;
+}
+
+function indexOutlineHeadings(fullContent: string) {
+  const exact = new Map<string, HeadingOccurrence[]>();
+  const normalized = new Map<string, HeadingOccurrence[]>();
+  const add = (index: Map<string, HeadingOccurrence[]>, key: string, occurrence: HeadingOccurrence) => {
+    if (!key) return;
+    const matches = index.get(key);
+    if (matches) matches.push(occurrence);
+    else index.set(key, [occurrence]);
+  };
+  const addHeading = (title: string, occurrence: HeadingOccurrence) => {
+    add(exact, title.toLowerCase(), occurrence);
+    const normalizedTitle = normalizePdfHeadingLine(title);
+    if (normalizedTitle.length >= 2) add(normalized, normalizedTitle, occurrence);
+  };
+
+  // Collect occurrences once. Searching the full document for every outline
+  // title repeatedly scans large PDF pages and their inline image data.
+  let offset = 0;
+  for (const line of fullContent.split("\n")) {
+    const raw = line.trim();
+    if (raw && !/<h[1-6]\b/i.test(raw)) {
+      const title = raw.startsWith("<")
+        ? decodeHtmlTitle(raw)
+        : raw.replace(/^#{1,6}\s*/, "");
+      addHeading(title, { start: offset + line.indexOf(raw), raw });
+    }
+    offset += line.length + 1;
+  }
+  // HTML headings may share a line with surrounding markup and body text.
+  for (const match of fullContent.matchAll(HTML_HEADING_PATTERN)) {
+    addHeading(decodeHtmlTitle(match[2]), { start: match.index, raw: match[0] });
+  }
+  return { exact, normalized };
+}
+
 function recoverOutlineRangeFromText(
   section: SectionNode,
   available: SectionNode[],
   fullContent: string,
+  cache: OutlineRecoveryCache,
 ): SectionNode | undefined {
   if (section.source !== "pdf-outline" && section.source !== "epub-toc") return undefined;
-  const cleanTitle = escapeRegExp(section.title.trim());
-  const titlePattern = new RegExp(
-    `(?:^\\s*(?:#{1,6}\\s*)?${cleanTitle}\\s*$|<h[1-6][^>]*>\\s*(?:<[^>]*>)*\\s*${cleanTitle}\\s*(?:<[^>]*>)*\\s*<\\/h[1-6]\\s*>|^\\s*(?:<p[^>]*>|<div[^>]*>|<li[^>]*>)*(?:<[^>]*>)*\\s*${cleanTitle}\\s*(?:<[^>]*>)*(?:<\\/p>|<\\/div>|<\\/li>)?\\s*$)`,
-    "gim"
-  );
-  let occurrences: RegExpMatchArray[] = [...fullContent.matchAll(titlePattern)];
-
-  // Fallback for PDFs with ligatures, collapsed whitespace, or minor punctuation differences
-  if (occurrences.length === 0 && section.source === "pdf-outline") {
-    const normalizedTarget = normalizePdfHeadingLine(section.title);
-    if (normalizedTarget.length >= 2) {
-      const lines = fullContent.split(/\r?\n/);
-      let offset = 0;
-      for (const line of lines) {
-        if (normalizePdfHeadingLine(line) === normalizedTarget) {
-          const fakeMatch = [line] as unknown as RegExpMatchArray;
-          fakeMatch.index = offset;
-          occurrences.push(fakeMatch);
-        }
-        offset += line.length + 1;
-      }
-    }
-  }
-
-  if (occurrences.length === 0) {
-    return recoverPdfPageSpanRange(section, available, fullContent);
+  const { exact, normalized } = cache.headings ??= indexOutlineHeadings(fullContent);
+  const matches = exact.get(section.title.trim().toLowerCase())
+    ?? (section.source === "pdf-outline" ? normalized.get(normalizePdfHeadingLine(section.title)) : undefined)
+    ?? [];
+  if (matches.length === 0) {
+    const pageRanges = cache.pageRanges ??= findPdfPageRanges(fullContent);
+    return recoverPdfPageSpanRange(section, available, fullContent, pageRanges);
   }
 
   const sameTitleOutlineNodes = available.filter((candidate) =>
@@ -875,15 +909,15 @@ function recoverOutlineRangeFromText(
   // A title that also appears in a front-matter table of contents or on a title
   // page is matched first by position but yields no body, so it must lose to the
   // real chapter heading further down the document.
-  const scored = occurrences.map((match) => {
-    const range = computeOccurrenceRange(match, section, available, fullContent);
-    const body = range.content.replace(match[0], "");
+  const scored = matches.slice().sort((a, b) => a.start - b.start).map((match) => {
+    const range = computeOccurrenceRange(match, section, available, fullContent, exact);
+    const body = range.content.slice(match.raw.length);
     const bodyLength = stripMarkup(body).length;
-    const isTocLike = /\.{3,}\s*\d+\s*$/.test(match[0]);
+    const isTocLike = /\.{3,}\s*\d+\s*$/.test(match.raw);
     return { match, ...range, bodyLength, isTocLike };
   });
 
-  const primarySlot = Math.min(occurrenceIndex, occurrences.length - 1);
+  const primarySlot = Math.min(occurrenceIndex, scored.length - 1);
   const primary = scored[primarySlot];
   const titleLength = stripMarkup(section.title).length;
   const primaryHasBody = !primary.isTocLike && primary.bodyLength > Math.max(titleLength, 15);
@@ -893,8 +927,9 @@ function recoverOutlineRangeFromText(
         .slice()
         .sort((a, b) => Number(a.isTocLike) - Number(b.isTocLike) || b.bodyLength - a.bodyLength || a.start - b.start)[0];
 
-  if (!chosen.content || stripMarkup(chosen.content.replace(chosen.match[0], "")).length === 0) {
-    return recoverPdfPageSpanRange(section, available, fullContent);
+  if (!chosen.bodyLength) {
+    const pageRanges = cache.pageRanges ??= findPdfPageRanges(fullContent);
+    return recoverPdfPageSpanRange(section, available, fullContent, pageRanges);
   }
   return {
     ...section,
@@ -902,25 +937,27 @@ function recoverOutlineRangeFromText(
     endChar: chosen.end,
     directEndChar: chosen.end,
     content: chosen.content,
-    preview: cleanPreview(chosen.content.replace(chosen.match[0], "")),
+    preview: cleanPreview(chosen.content.slice(chosen.match.raw.length)),
     hasAuthoritativeRange: true,
   };
 }
 
 function computeOccurrenceRange(
-  match: RegExpMatchArray,
+  match: HeadingOccurrence,
   section: SectionNode,
   available: SectionNode[],
   fullContent: string,
+  headings: Map<string, HeadingOccurrence[]>,
 ): { start: number; end: number; content: string } {
-  const start = match.index;
+  const start = match.start;
+  const afterHeading = start + match.raw.length;
   let end = fullContent.length;
   for (const candidate of available) {
-    if (candidate.id === section.id || candidate.level > section.level || !candidate.title.trim()) continue;
-    const candidatePattern = new RegExp(`^\\s*(?:#{1,6}\\s*)?${escapeRegExp(candidate.title.trim())}\\s*$`, "gim");
-    candidatePattern.lastIndex = start + match[0].length;
-    const next = candidatePattern.exec(fullContent);
-    if (next && next.index > start && next.index < end) end = next.index;
+    if (candidate.id === section.id || candidate.level > section.level) continue;
+    const matches = headings.get(candidate.title.trim().toLowerCase());
+    for (const next of matches ?? []) {
+      if (next.start >= afterHeading && next.start < end) end = next.start;
+    }
   }
   const content = fullContent.slice(start, end).trim();
   return { start, end, content };
@@ -957,6 +994,7 @@ export function resolveSectionFocusedContext(
   const { documentId, maxTokens = 4000, includeNeighbors = true, radiusChars = 300, trimRatio = 0.7 } = options;
   const unresolved: SectionContextDiagnostic[] = [];
   const resolved: SectionNode[] = [];
+  const recoveryCache: OutlineRecoveryCache = {};
   const contentHash = hashSectionContent(fullContent);
   const emptySource = (): SectionSourceReference => ({
     documentId,
@@ -986,22 +1024,24 @@ export function resolveSectionFocusedContext(
     if (currentById && rangeIsCurrent(currentById, fullContent)) candidateChain.push(currentById);
     if (rangeIsCurrent(requested, fullContent) && (requested.id !== currentById?.id)) candidateChain.push(requested);
     if (structural.match && rangeIsCurrent(structural.match, fullContent)) candidateChain.push(structural.match);
-    const recovered = recoverOutlineRangeFromText(requested, available, fullContent);
-    if (recovered && rangeIsCurrent(recovered, fullContent)) candidateChain.push(recovered);
-
     // A range that resolves but yields no body (a table-of-contents line that
     // is immediately followed by the next table-of-contents line, or a
     // mis-resolved title-page hit) is not real context. Pick the first
     // candidate whose sliced body carries any prose beyond its own heading;
     // if every candidate is heading-only, the section is unresolved rather
     // than sent empty. Short sections (even a single sentence) still resolve.
-    const candidate = candidateChain.find((node) => {
+    const hasBody = (node: SectionNode) => {
       if (node.startChar === undefined || node.endChar === undefined) return false;
       const body = stripMarkup(fullContent.slice(node.startChar, node.endChar).replace(requested.title, ""));
       return body.length > 0;
-    });
+    };
+    let candidate = candidateChain.find(hasBody);
+    if (!candidate) {
+      const recovered = recoverOutlineRangeFromText(requested, available, fullContent, recoveryCache);
+      if (recovered && rangeIsCurrent(recovered, fullContent) && hasBody(recovered)) candidate = recovered;
+    }
 
-    if (!candidate || !rangeIsCurrent(candidate, fullContent)) {
+    if (!candidate) {
       unresolved.push({
         id: requested.id,
         label,
@@ -1087,9 +1127,10 @@ export function buildDocumentSections(
   if (outlineNodes && outlineNodes.length > 0) {
     finalTree = mergeOutlineWithHeuristics(outlineNodes, heuristicTree);
     const flatOutline = flattenTree(finalTree);
+    const recoveryCache: OutlineRecoveryCache = {};
     for (const node of flatOutline) {
       if ((node.source === "pdf-outline" || node.source === "epub-toc") && !node.content && content) {
-        const recovered = recoverOutlineRangeFromText(node, flatOutline, content);
+        const recovered = recoverOutlineRangeFromText(node, flatOutline, content, recoveryCache);
         if (recovered) {
           node.startChar = recovered.startChar;
           node.endChar = recovered.endChar;

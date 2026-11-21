@@ -98,7 +98,7 @@ import { useToast } from "../common/Toast";
 import { createExtract, patchDocumentExtractCount } from "../../api/extracts";
 import { requestDestinationAction } from "../../commandPalette/destinationActions";
 import { SELECTION_PRECEDENCE_INSTRUCTION, type ResolveAssistantPromptOptions, type ResolvedAssistantContext } from "../../utils/assistantContext";
-import { pdfSourceTokenBudget, type PdfPageSource } from "../../utils/pdfAssistantEvidence";
+import { parsePdfPageRequest, pdfSourceTokenBudget, type PdfPageSource } from "../../utils/pdfAssistantEvidence";
 import type { Citation } from "../../lib/ai/assistant/conversations/types";
 import { PdfAssistantCitations } from "./PdfAssistantCitations";
 import {
@@ -1035,6 +1035,31 @@ export function AssistantPanel({
     };
   }, [context?.documentId, context?.sections?.length, sectionsArmed, mobilePresentation?.visible]);
 
+  // Refresh selected section chips when the section catalog finishes loading
+  // or resolves outline ranges so token counts and action targets don't stay
+  // stuck on an early empty-content outline node.
+  useEffect(() => {
+    if (selectedSectionNodes.length === 0 || assistantSectionFlat.length === 0) return;
+    setSelectedSectionNodes((prev) => {
+      let changed = false;
+      const next = prev.map((node) => {
+        const updated = assistantSectionFlat.find((candidate) => candidate.id === node.id);
+        if (
+          updated &&
+          (updated.content !== node.content ||
+            updated.startChar !== node.startChar ||
+            updated.endChar !== node.endChar ||
+            updated.hasAuthoritativeRange !== node.hasAuthoritativeRange)
+        ) {
+          changed = true;
+          return updated;
+        }
+        return node;
+      });
+      return changed ? next : prev;
+    });
+  }, [assistantSectionFlat, selectedSectionNodes.length]);
+
   const isThreadContext = useMemo(() => {
     if (!context) return false;
     if (context.content?.includes("[Post 1 by @") || context.content?.includes("X Thread by")) return true;
@@ -1838,6 +1863,9 @@ export function AssistantPanel({
     }
 
     const turnContext = actionTurnContext(action) ?? (isMobileSession ? context?.snapshotForSubmit?.() ?? context : context);
+    const pdfPageSource = action?.target.kind === "sections" || action?.target.kind === "document"
+      ? context?.getPdfPageSource?.()
+      : undefined;
     const turnProvenance = actionProvenance(action) ?? (isMobileSession ? mergeAssistantProvenance(assistantSourceProvenance(turnContext), messages.map(m => m.provenance)) : undefined);
     const initialProviderSnapshot = useLLMProvidersStore.getState().providers.map(provider => ({ ...provider }));
     const initialModel = initialProviderSnapshot.find((p) => p.provider === effectiveProvider)?.model;
@@ -1873,7 +1901,9 @@ export function AssistantPanel({
       toolExecutionContextRef.current = Object.freeze({ ...captured, documentId: sourceEnvelope?.documentId,
         sourceEnvelope, acceptanceId: flightId });
       if (action) {
-        action = await resolveActionEnvelope(action, effectiveProvider, useLLMProvidersStore.getState().providers.find(p => p.provider === effectiveProvider));
+        action = await resolveActionEnvelope(action, effectiveProvider, useLLMProvidersStore.getState().providers.find(p => p.provider === effectiveProvider), {
+          pdfPageSource, signal: controller.signal,
+        });
         if (!isCurrentRequest(conversationKeyAtStart)) return;
         userInput = buildActionPrompt(action, locale);
         appendMessagesIfSameConversation(conversationKeyAtStart, prev => prev.map(m => m.id === userMessage.id ? { ...m, action } : m));
@@ -2283,10 +2313,11 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     if (!documentId || context?.extractId) throw new Error("Select sections from one source document before running the agent.");
     const focused = await resolveScopedSectionContext({ selectedSections: sections, availableSections: assistantSectionFlat, documentId,
       maxTokens: Number.MAX_SAFE_INTEGER / 8, loadCanonicalText: () => loadDocumentQaText(documentId, { getDocument, extractDocumentText }),
+      pdfPageSource: context?.getPdfPageSource?.(),
       rebuildAvailableSections: (text) => buildSectionsSnapshot(documentId, text, useDocumentOutlineStore.getState().getOutline(documentId)).flat });
     if (!focused.ok) throw new Error(`Could not load the selected sections: ${focused.unresolved.map(describeSectionDiagnostic).join("; ")}. Reselect them; no request was made.`);
     return { documentId, title: focused.labels.join("; "), text: focused.content, sectionId: focused.source.sectionIds.join(","), source: focused.source, bodies: focused.bodySegments };
-  }, [selectedSectionNodes, context?.documentId, context?.extractId, assistantSectionFlat]);
+  }, [selectedSectionNodes, context?.documentId, context?.extractId, context?.getPdfPageSource, assistantSectionFlat]);
 
   const appendAgentSystemMessage = useCallback(
     (conversationKeyAtStart: string, content: string) => {
@@ -2762,8 +2793,10 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       const sourceContentOverride = typeof contextData.sourceContentOverride === "string"
         ? contextData.sourceContentOverride.trim()
         : "";
+      const pdfSectionSource = promptSectionNodes.length > 0 ? llmContext?.getPdfPageSource?.() : undefined;
+      const usesPdfSections = pdfSectionSource && !parsePdfPageRequest(prompt);
 
-      const resolvedContext: ResolvedAssistantContext = sourceContentOverride
+      const resolvedContext: ResolvedAssistantContext = sourceContentOverride || usesPdfSections
         ? {
             status: "ready" as const,
             content: sourceContentOverride,
@@ -2820,12 +2853,15 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         const realDocumentId = documentId && !llmContext.extractId && !documentId.startsWith("extract:") ? documentId : undefined;
         const available = [ ...(selectionSection ? [selectionSection] : []), ...assistantSectionFlat ];
         const focused = await resolveScopedSectionContext({ selectedSections: promptSectionNodes, availableSections: available,
-          documentId: documentId ?? attachedKey, maxTokens: Math.min(effectiveContextWindow, scopedTokens), currentText: llmContext.content,
+          documentId: documentId ?? attachedKey,
+          maxTokens: usesPdfSections ? pdfSourceTokenBudget(promptBudget, effectivePrompt, contextData.conversationHistory as Message[], toolInstruction + (providerConfig?.systemPrompt ?? "")) : Math.min(effectiveContextWindow, scopedTokens),
+          currentText: llmContext.content, pdfPageSource: pdfSectionSource, signal: contextData.signal,
           loadCanonicalText: () => realDocumentId ? loadDocumentQaText(realDocumentId, { getDocument, extractDocumentText }) : Promise.resolve(llmContext.content ?? ""),
           rebuildAvailableSections: (text) => [ ...(selectionSection ? [selectionSection] : []), ...buildSectionsSnapshot(documentId ?? attachedKey, text, realDocumentId ? useDocumentOutlineStore.getState().getOutline(realDocumentId) : undefined).flat ] });
         if (!focused.ok) throw new Error(`Could not focus the selected sections: ${focused.unresolved.map(describeSectionDiagnostic).join("; ")}. Reselect them before sending; no request was made.`);
         finalResolvedContent = focused.content;
         sourceContext = focused.source;
+        sourceCoverageForRequest = focused.truncated ? "window" : "chunks";
         selectionTruncated = focused.truncated;
         if (selectionNodes.length) selectionContext = focused.content;
         const request = createDocumentQaRequestContent({ documentContext: focused.content, userQuestion: prompt.replace(/#{([^}]+)}/g, "").trim(), focusLabel: focused.labels.join(", ") });
@@ -2922,7 +2958,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
       // better grounding for the whole document. Oversized documents keep the
       // window and are marked partial so the answer cannot claim exhaustiveness.
       if (scope === "document") {
-        sourceCoverageForRequest = resolvedContext.coverage;
+        sourceCoverageForRequest ??= resolvedContext.coverage;
         if (
           isWholeDocumentRequest(effectivePrompt) &&
           !resolvedContext.pageScoped &&

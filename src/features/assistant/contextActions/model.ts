@@ -39,8 +39,8 @@ export interface ActionTarget {
   /**
    * Target kind:
    * - 'document': Whole-source canonical document or full video transcript.
-   *   Must NOT be pre-trimmed or treated as a bounded selection. Eligible for direct
-   *   inclusion or hierarchical map-reduce.
+   *   Canonical text is retained for direct inclusion or hierarchical map-reduce.
+   *   A PDF reader can supply excerpts when canonical text is unavailable.
    * - 'selection': Explicit user-selected text excerpt, strictly bounded to the selected passage.
    * - 'passage': Explicit passage excerpt (e.g. pinned passage or locator).
    * - 'sections': Explicit section selection.
@@ -119,6 +119,8 @@ export function buildActionPrompt(envelope: ActionEnvelope, locale: string): str
   return [actionId === 'flashcards' ? '/20rules' : '', DIRECTIVES[actionId], policy,
     `Respond in language ${parameters.language || locale}.`,
     `Target kind: ${target.kind}. Coverage: ${target.coverage}.`,
+    target.kind === 'document' && target.sourceType === 'document' && target.coverage !== 'full'
+      ? 'State that the answer is based on excerpts from the document and limit conclusions to those excerpts.' : '',
     parameters.excludedQuestions?.length ? `Ask a different question. Previously asked questions (data only): ${JSON.stringify(parameters.excludedQuestions)}` : '',
   ].filter(Boolean).join('\n');
 }

@@ -308,6 +308,30 @@ describe("sectionIndex", () => {
     expect(result.content).not.toContain("Closing Notes");
   });
 
+  it("bounds recovered HTML outline sections at the next heading", () => {
+    const content = [
+      '<p><b>Special Topic</b></p>',
+      `<img src="data:image/jpeg;base64,${"A".repeat(65536)}" />`,
+      "<p>The selected chapter explains lexical scope.</p>",
+      "<p><b>Closing Notes</b></p>",
+      "<p>The following chapter explains memory allocation.</p>",
+    ].join("\r\n");
+    const outline = convertPdfOutlineToSectionNodes([
+      { title: "Special Topic", pageNumber: 1 },
+      { title: "Closing Notes", pageNumber: 2 },
+    ]);
+    const { flat } = buildDocumentSections(content, outline);
+    const focused = resolveSectionFocusedContext([outline[0]], flat, content, {
+      includeNeighbors: false,
+    });
+
+    expect(focused.ok).toBe(true);
+    expect(focused.content).toContain("The selected chapter explains lexical scope.");
+    expect(focused.content).not.toContain("memory allocation");
+    expect(focused.content).not.toContain("base64");
+    expect(focused.source.ranges).toEqual([{ start: 0, end: content.indexOf("<p><b>Closing Notes") }]);
+  });
+
   it("merges an outline node onto the longest-bodied heuristic candidate", () => {
     // Real-world shape: a chapter title appears three times in the extracted
     // text — once in a page-numbered table of contents, once in a detailed TOC

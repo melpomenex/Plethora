@@ -1,6 +1,6 @@
 import type { AssistantContext } from '../../../components/assistant/AssistantPanel';
 import type { SelectionAskSnapshot } from '../../../utils/selectionAskHandoff';
-import { hashSectionContent, type SectionNode } from '../../../utils/sectionIndex';
+import { hashSectionContent, stripHtmlTags, type SectionNode } from '../../../utils/sectionIndex';
 import { canCreateFlashcardsFromMessage, type AssistantMessageLike } from '../assistantMessageFlashcards';
 import type { ActionTarget } from './model';
 
@@ -24,7 +24,17 @@ export function resolveActionTargets(input: { context?: AssistantContext; pin?: 
   const add = (target: Omit<ActionTarget, 'key'>) => targets.push({ ...target, key: `${target.kind}:${target.owner}:${hashSectionContent(target.content)}:${target.locator ?? ''}` });
   if (context?.selection?.trim()) add({ ...base, kind: 'selection', content: context.selection, coverage: 'window', locator, labelKey: 'selection' });
   if (hasSource && pin?.excerpt && pin.excerpt !== context?.selection) add({ ...base, documentId: pin.documentId, title: pin.documentTitle, revision: pin.documentId === context?.documentId ? revision : undefined, owner: pin.documentId ? `document:${pin.documentId}` : owner, sourceType: 'document', kind: 'selection', content: pin.excerpt, locator: pin.locator, coverage: 'window', labelKey: 'selection' });
-  const sectionText = sections.map(s => `${s.title}\n${s.content}`).join('\n\n');
+  const sectionBodies = sections.map(section => {
+    const body = section.source === 'pdf-outline' && /<\/?(?:p|div|h[1-6]|img)\b/i.test(section.content)
+      ? stripHtmlTags(section.content)
+      : section.content;
+    const trimmed = body.trim();
+    return trimmed === section.title.trim() ? '' : trimmed;
+  });
+  // Outline rows can exist before any body text is available.
+  const sectionText = sectionBodies.every(Boolean)
+    ? sections.map((section, index) => `${section.title}\n${sectionBodies[index]}`).join('\n\n')
+    : '';
   const sectionSource = { documentId: context?.documentId, sectionIds: sections.map(s => s.id), labels: sections.map(s => s.title), contentHash: hashSectionContent(sectionText), contextKey: hashSectionContent(sections.map(s => s.id).join(',')), ranges: sections.flatMap(s => s.hasAuthoritativeRange && s.startChar != null && s.endChar != null ? [{ start: s.startChar, end: s.endChar }] : []) };
   if (hasSource && sections.length) add({ ...base, sourceContext: sectionSource, kind: 'sections', sectionIds: sections.map(s => s.id), content: sectionText, coverage: 'chunks', locator: sections.map(s => s.title).join(', '), labelKey: 'sections' });
   const bounded = context?.coverage === 'window' || context?.coverage === 'chunks' || context?.source === 'pdf-window' || context?.source === 'ocr';

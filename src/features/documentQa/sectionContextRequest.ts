@@ -1,4 +1,6 @@
 import { resolveMixedSectionFocusedContext, type FocusedSectionContextResult, type SectionNode } from "../../utils/sectionIndex";
+import type { PdfPageSource } from "../../utils/pdfAssistantEvidence";
+import { resolvePdfOutlineSectionContext } from "./pdfOutlineContext";
 
 export interface DocumentQaRequestContent {
   userPromptContent: string;
@@ -93,6 +95,8 @@ interface ResolveScopedSectionContextOptions {
   documentId: string;
   maxTokens: number;
   currentText?: string;
+  pdfPageSource?: PdfPageSource;
+  signal?: AbortSignal;
   loadCanonicalText: () => Promise<string>;
   rebuildAvailableSections?: (freshText: string) => SectionNode[];
 }
@@ -108,13 +112,20 @@ export async function resolveScopedSectionContext({
   documentId,
   maxTokens,
   currentText = "",
+  pdfPageSource,
+  signal,
   loadCanonicalText,
   rebuildAvailableSections,
 }: ResolveScopedSectionContextOptions): Promise<FocusedSectionContextResult> {
+  if (pdfPageSource?.documentId === documentId) {
+    const pdf = await resolvePdfOutlineSectionContext(selectedSections, availableSections, pdfPageSource, maxTokens, signal);
+    if (pdf) return pdf;
+    if (signal?.aborted || !pdfPageSource.isCurrent()) throw new Error("The PDF changed before the selected sections could be loaded.");
+  }
   const requiresCanonicalText = selectedSections.some(
     (section) => !DIRECT_SECTION_SOURCES.has(section.source),
   );
-  let fullContent = requiresCanonicalText ? await loadCanonicalText() : currentText;
+  const fullContent = requiresCanonicalText ? await loadCanonicalText() : currentText;
   let focused = resolveMixedSectionFocusedContext(
     selectedSections,
     availableSections,
@@ -126,8 +137,7 @@ export async function resolveScopedSectionContext({
     },
   );
 
-  if (!focused.ok && requiresCanonicalText && rebuildAvailableSections) {
-    fullContent = await loadCanonicalText();
+  if (!focused.ok && fullContent && requiresCanonicalText && rebuildAvailableSections) {
     focused = resolveMixedSectionFocusedContext(
       selectedSections,
       rebuildAvailableSections(fullContent),

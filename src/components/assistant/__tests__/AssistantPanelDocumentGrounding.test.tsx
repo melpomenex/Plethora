@@ -11,7 +11,7 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { AssistantPanel, type AssistantContext } from "../AssistantPanel";
 import { useLLMProvidersStore } from "../../../stores/llmProvidersStore";
-import { chatWithContext } from "../../../api/llm";
+import { streamChatWithContext } from "../../../api/llm";
 
 const { fullDocumentText } = vi.hoisted(() => ({
   fullDocumentText:
@@ -29,7 +29,7 @@ vi.mock("../../../lib/tauri", async (importOriginal) => {
 });
 
 vi.mock("../../../api/llm", () => ({
-  chatWithContext: vi.fn(),
+  streamChatWithContext: vi.fn(),
   streamChatWithLLM: vi.fn(),
 }));
 
@@ -97,8 +97,10 @@ describe("AssistantPanel Document-scope grounding", () => {
     localStorage.clear();
     Element.prototype.scrollTo = vi.fn();
     seedProviders();
-    vi.mocked(chatWithContext).mockReset();
-    vi.mocked(chatWithContext).mockResolvedValue({ content: "A grounded summary." } as never);
+    vi.mocked(streamChatWithContext).mockReset();
+    vi.mocked(streamChatWithContext).mockImplementation(async (_provider, _model, _messages, _context, options) => {
+      options.onChunk("A grounded summary.");
+    });
   });
 
   it("presents a library generation failure with existing retry and AI Settings actions", async () => {
@@ -118,13 +120,13 @@ describe("AssistantPanel Document-scope grounding", () => {
   it("answers a summary from the canonical full text when it fits the budget", async () => {
     await askSummarizeDocument();
 
-    await waitFor(() => expect(chatWithContext).toHaveBeenCalled());
-    const [provider, , messages, context] = vi.mocked(chatWithContext).mock.calls[0];
+    await waitFor(() => expect(streamChatWithContext).toHaveBeenCalled());
+    const [provider, , messages, context] = vi.mocked(streamChatWithContext).mock.calls[0];
     expect(provider).toBe("openai");
     expect(context.scope).toBe("document");
     expect(String(context.content)).toContain("complete canonical document text");
     expect(String((messages as Array<{ content: string }>)[0].content)).not.toContain("SOURCE COVERAGE LIMIT");
-    expect(screen.getByText("A grounded summary.")).toBeInTheDocument();
+    expect(await screen.findByText("A grounded summary.")).toBeInTheDocument();
   });
 
   it("keeps the window and discloses partial coverage when the full text does not fit", async () => {
@@ -135,8 +137,8 @@ describe("AssistantPanel Document-scope grounding", () => {
     fireEvent.change(input, { target: { value: "summarize this document" } });
     fireEvent.keyDown(input, { key: "Enter", code: "Enter" });
 
-    await waitFor(() => expect(chatWithContext).toHaveBeenCalled());
-    const [, , messages, context] = vi.mocked(chatWithContext).mock.calls[0];
+    await waitFor(() => expect(streamChatWithContext).toHaveBeenCalled());
+    const [, , messages, context] = vi.mocked(streamChatWithContext).mock.calls[0];
     expect(String(context.content)).toContain("Window-only text around the reader position.");
     expect(String(context.content)).toContain("Source Coverage: window");
     expect(String((messages as Array<{ content: string }>)[0].content)).toContain("SOURCE COVERAGE LIMIT");
@@ -145,7 +147,7 @@ describe("AssistantPanel Document-scope grounding", () => {
   it("never returns the library-empty answer while the document text is available", async () => {
     await askSummarizeDocument();
 
-    await waitFor(() => expect(chatWithContext).toHaveBeenCalled());
+    await waitFor(() => expect(streamChatWithContext).toHaveBeenCalled());
     expect(screen.queryByText(/library does not appear to contain material/i)).not.toBeInTheDocument();
   });
 });

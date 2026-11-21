@@ -90,6 +90,22 @@ describe('deterministic targets', () => {
     const result = resolve({ context: { type: 'web', url: 'https://example.test/article', content: 'A supplied excerpt', coverage: 'window' } });
     expect(result.fullTarget).toMatchObject({ content: 'A supplied excerpt', coverage: 'window', kind: 'document' });
   });
+  it('uses PDF outline text without image data in an attached section target', () => {
+    const content = [
+      '<p>First chapter</p>',
+      '<img src="data:image/jpeg;base64,fixture" />',
+      '<p>A concrete example of lexical scope.</p>',
+      '<p>Second chapter</p>',
+      '<p>Unrelated material.</p>',
+    ].join('\n');
+    const { flat } = buildSectionsSnapshot('a', content, {
+      pdfOutline: [{ title: 'First chapter', pageNumber: 1 }, { title: 'Second chapter', pageNumber: 2 }],
+    });
+    const target = resolve({ sections: flat.slice(0, 1) }).target!;
+    expect(target.content).toContain('A concrete example of lexical scope.');
+    expect(target.content).not.toMatch(/base64|Unrelated material/);
+    expect(target.sourceContext?.ranges).toEqual([{ start: 0, end: content.indexOf('<p>Second chapter') }]);
+  });
   it('requires a target choice for an old source and resets manual choice after switch/detach', () => {
     const pin = createSelectionAskSnapshot('Old source quote', { documentId: 'b', documentTitle: 'B' });
     const result = resolve({ pin });

@@ -77,6 +77,45 @@ export function usablePdfPageText(value?: string): string {
   return /^(?:page\s+)?\d+(?:\s*\/\s*\d+)?$/iu.test(normalized) ? "" : normalized;
 }
 
+async function fitPdfPageBodies(
+  bodies: readonly { label: string; text: string }[],
+  tokenBudget: number,
+  model?: string,
+) {
+  const budgeted = budgetScopedBodies(bodies, tokenBudget, 0.7);
+  const measured = await countTokens(budgeted.content, model);
+  if (measured <= tokenBudget) return budgeted;
+  const reduced = budgetScopedBodies(bodies, Math.floor(tokenBudget * tokenBudget / measured), 0.65);
+  if (await countTokens(reduced.content, model) > tokenBudget) throw new Error();
+  return reduced;
+}
+
+/** Load readable pages across a PDF when whole-document extraction is unavailable. */
+export async function resolvePdfDocumentEvidence(
+  source: PdfPageSource,
+  tokenBudget: number,
+  model?: string,
+  signal?: AbortSignal,
+): Promise<{ content: string; coverage: "full" | "window" } | undefined> {
+  const sampleCount = Math.min(source.pageCount, MAX_REQUESTED_PAGES, Math.floor(tokenBudget / 100));
+  const bodies: Array<{ label: string; text: string }> = [];
+  const isCurrent = () => !signal?.aborted && source.isCurrent();
+  for (let index = 0; index < sampleCount; index += 1) {
+    if (!isCurrent()) return;
+    const page = Math.floor((index + 0.5) * source.pageCount / sampleCount) + 1;
+    const text = usablePdfPageText(await source.loadPageText(page).catch(() => ""));
+    if (text) bodies.push({ label: `Physical PDF page ${page}`, text });
+  }
+  if (!bodies.length || !isCurrent()) return;
+  try {
+    const { content, truncated } = await fitPdfPageBodies(bodies, tokenBudget, model);
+    if (!isCurrent()) return;
+    return { content, coverage: !truncated && bodies.length === source.pageCount ? "full" : "window" };
+  } catch {
+    return;
+  }
+}
+
 export async function resolvePdfPageEvidence(options: {
   source?: PdfPageSource;
   documentId?: string;
@@ -108,12 +147,7 @@ export async function resolvePdfPageEvidence(options: {
     return { message: `Readable text is unavailable on PDF page${missing.length === 1 ? "" : "s"} ${missing.join(", ")}. Recognize the page text with OCR or choose a smaller range.` };
   }
   try {
-    let budgeted = budgetScopedBodies(bodies, tokenBudget, 0.7);
-    const measured = await countTokens(budgeted.content, model);
-    if (measured > tokenBudget) {
-      budgeted = budgetScopedBodies(bodies, Math.floor(tokenBudget * tokenBudget / measured), 0.65);
-      if (await countTokens(budgeted.content, model) > tokenBudget) throw new Error();
-    }
+    const budgeted = await fitPdfPageBodies(bodies, tokenBudget, model);
     if (signal?.aborted || !source.isCurrent()) {
       return { message: "The PDF changed before the requested pages could be loaded." };
     }
