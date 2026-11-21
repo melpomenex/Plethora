@@ -1,6 +1,6 @@
 ---
 id: scheduler.adaptive
-title: Plethora Adaptive Algorithm (3D SInc)
+title: SM-18 Algorithm (3D SInc)
 domain: scheduling
 status: implemented
 platforms:
@@ -9,10 +9,12 @@ platforms:
   - desktop-linux
   - mobile-android
   - mobile-ios
-summary: Complete 212KB Rust implementation of the Plethora Adaptive scheduler with 3D Stability Increase (SInc) matrix, D-Factor, and Retrievability calculations.
-how_to: Open Settings → Learning → Spaced Repetition Algorithm and select Plethora Adaptive.
-why: Plethora Adaptive features a continuous 3D SInc interpolation matrix across Difficulty, Stability, and Retrievability based on decades of empirical memory research.
+summary: Complete 212KB Rust implementation of the SM-18 scheduler with 3D Stability Increase (SInc) matrix, D-Factor, and Retrievability calculations.
+how_to: Open Settings → Learning → Spaced Repetition Algorithm and select SM-18.
+why: SM-18 features a continuous 3D SInc interpolation matrix across Difficulty, Stability, and Retrievability based on decades of empirical memory research.
 aliases:
+  - sm-18
+  - sm18
   - plethora adaptive
   - adaptive
   - sinc matrix
@@ -30,7 +32,7 @@ related:
   - import.anki_apkg
 ---
 
-# Plethora Adaptive Algorithm (3D SInc)
+# SM-18 Algorithm (3D SInc)
 
 ## Purpose
 Provides a high-performance Rust implementation of the continuous 3D SInc adaptive spaced repetition engine.

@@ -21,6 +21,7 @@ import {
   ArrowClockwise,
   ArrowCounterClockwise,
   Brain,
+  CardsThree,
   CaretLeft,
   CaretRight,
   CheckCircle,
@@ -235,6 +236,7 @@ import { resolveLocalMediaSource, type ResolvedLocalMediaSource } from "./localM
 import { logAudiobookDiagnostic } from "../../lib/audiobookDiagnostics";
 import type { EpubVimRuntime, PdfVimRuntime } from "../../utils/vim/readerRuntimes";
 import { InlineDocumentTitle } from "./InlineDocumentTitle";
+import { DueDateRescheduleControl } from "./DueDateRescheduleControl";
 import { ItemStatsButton } from "../stats/ItemStatsButton";
 import type { SectionNode } from "../../utils/sectionIndex";
 import type { MarketingSceneApplication } from "../../lib/marketingCapture/sceneApplicators";
@@ -2308,8 +2310,8 @@ export function DocumentViewer({
         const viewState: ViewState = {
           docId,
           pageNumber: state.pageNumber,
-          scale: state.scale ?? scale,
-          zoomMode,
+          scale: scaleRef.current,
+          zoomMode: zoomModeRef.current,
           rotation: 0,
           viewMode,
           dest: state.dest ?? null,
@@ -2416,8 +2418,12 @@ export function DocumentViewer({
     if (!currentDocument?.id) return;
     if (restorationInProgressRef.current || suppressPdfAutoScroll) return;
 
-    const state = lastScrollStateRef.current ?? captureScrollState();
-    if (!state) return;
+    const state = lastScrollStateRef.current ?? captureScrollState() ?? {
+      pageNumber: pageNumber || 1,
+      scrollTop: 0,
+      scrollLeft: 0,
+      scrollPercent: 0,
+    };
 
     const docId = currentDocument.id;
     const primaryKey = resolvePreferredViewStateKey(docId);
@@ -2430,6 +2436,7 @@ export function DocumentViewer({
       rotation: 0,
       viewMode,
       dest: lastViewStateRef.current?.dest ?? null,
+      pdfAnchor: lastViewStateRef.current?.pdfAnchor ?? null,
       scrollTop: state.scrollTop,
       scrollLeft: state.scrollLeft,
       scrollPercent: state.scrollPercent,
@@ -4250,6 +4257,8 @@ export function DocumentViewer({
     setPdfNavigationRequest(null);
     setRestoreRequestId(0);
     setPagesRendered(false);
+    setScale(1.0);
+    setZoomMode("fit-width");
     pendingViewStateRef.current = null;
     lastViewStateRef.current = null;
     lastScrollStateRef.current = null;
@@ -4625,10 +4634,15 @@ export function DocumentViewer({
         localStorage.setItem(`pdf-position-${documentId}`, JSON.stringify(legacyPayload));
       }
 
-      const primaryViewStateKey = getPreferredViewStateKey({ documentId });
+      const primaryViewStateKey = resolvePreferredViewStateKey(documentId) ?? getPreferredViewStateKey({ documentId });
       const legacyViewStateKey = getViewStateKey({ documentId });
       const viewState = lastViewStateRef.current
-        ? { ...lastViewStateRef.current, updatedAt: Date.now() }
+        ? {
+          ...lastViewStateRef.current,
+          scale: scaleRef.current,
+          zoomMode: zoomModeRef.current,
+          updatedAt: Date.now(),
+        }
         : {
           docId: documentId,
           pageNumber: stateToSave.pageNumber,
@@ -5234,8 +5248,24 @@ export function DocumentViewer({
   }, [markdownWidthCh]);
 
   const handlePdfInfo = useCallback((info: { fingerprint?: string | null }) => {
-    pdfFingerprintRef.current = info.fingerprint ?? null;
-  }, []);
+    const fingerprint = info.fingerprint ?? null;
+    pdfFingerprintRef.current = fingerprint;
+    if (!fingerprint || !currentDocument?.id) return;
+    const fpKey = getPreferredViewStateKey({
+      documentId: currentDocument.id,
+      contentHash: currentDocument.contentHash ?? null,
+      pdfFingerprint: fingerprint,
+    });
+    const fpViewState = fpKey ? getViewState(fpKey) : null;
+    const currentUpdatedAt = lastViewStateRef.current?.updatedAt ?? 0;
+    if (fpViewState && fpViewState.updatedAt > currentUpdatedAt) {
+      lastViewStateRef.current = fpViewState;
+      if (fpViewState.zoomMode) setZoomMode(fpViewState.zoomMode);
+      if (typeof fpViewState.scale === "number" && Number.isFinite(fpViewState.scale) && fpViewState.scale > 0) {
+        setScale(fpViewState.scale);
+      }
+    }
+  }, [currentDocument?.id, currentDocument?.contentHash]);
 
   const handleDocumentLoad = useCallback((numPages: number, outline: any[] = []) => {
 
@@ -7600,8 +7630,9 @@ export function DocumentViewer({
                 }
                 className="p-2 rounded-md hover:bg-muted transition-colors text-muted-foreground flex-shrink-0"
                 title={t("flashcardStudio.title")}
+                aria-label={t("flashcardStudio.title")}
               >
-                <Brain className="w-4 h-4" />
+                <CardsThree className="w-4 h-4" />
               </button>
 
               <button
@@ -7932,18 +7963,11 @@ export function DocumentViewer({
             className="hidden sm:inline-flex"
           />
 
-          {/* Due date badge */}
-          {(() => {
-            const nrd = currentDocument.nextReadingDate;
-            if (!nrd) return null;
-            const due = new Date(nrd);
-            if (Number.isNaN(due.getTime())) return null;
-            const diff = Math.round((due.getTime() - Date.now()) / (1000 * 60 * 60 * 24));
-            if (diff > 7) return null;
-            const label = diff < 0 ? `Overdue ${Math.abs(diff)}d` : diff === 0 ? "Due today" : `Due in ${diff}d`;
-            const color = diff < 0 ? "bg-red-500/10 text-red-600 dark:text-red-400" : diff === 0 ? "bg-amber-500/10 text-amber-600" : "bg-blue-500/10 text-blue-600";
-            return <span className={`hidden sm:inline text-[10px] font-medium px-2 py-1 rounded ${color}`}>{label}</span>;
-          })()}
+          {/* Interactive due date / reschedule control */}
+          <DueDateRescheduleControl
+            documentId={currentDocument.id}
+            nextReadingDate={currentDocument.nextReadingDate}
+          />
 
           {/* Interval modifier indicator */}
           {currentDocument.intervalModifier != null && currentDocument.intervalModifier !== 1.0 && (
@@ -8140,8 +8164,9 @@ export function DocumentViewer({
             }
             className="flex-shrink-0 p-2 rounded-md hover:bg-muted transition-colors text-muted-foreground hover:text-foreground"
             title={t("flashcardStudio.title")}
+            aria-label={t("flashcardStudio.title")}
           >
-            <Brain className="w-4 h-4" />
+            <CardsThree className="w-4 h-4" />
           </button>
 
           {/* Share Button */}

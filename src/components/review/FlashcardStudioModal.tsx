@@ -37,6 +37,7 @@ import {
   AlignLeft,
   BookOpen,
   Brain,
+  CardsThree,
   CaretRight,
   ChartBar,
   ChatCircle,
@@ -3088,7 +3089,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                     : "text-muted-foreground"
                 )}
               >
-                <Brain className="h-3.5 w-3.5" />
+                <CardsThree className="h-3.5 w-3.5" />
                 {t("flashcardStudio.draftCards")}
                 {stats.total > 0 && (
                   <span

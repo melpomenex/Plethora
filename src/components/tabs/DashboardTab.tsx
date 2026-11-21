@@ -38,6 +38,7 @@ import { useSurfaceMenu } from "../../hooks/useSurfaceMenu";
 import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../common/ContextMenu";
 import { CaptureActivityCard } from "../analytics/CaptureActivityCard";
 import { StudyPlansDashboardCard } from "../study-plans/StudyPlansDashboardCard";
+import { SleepLearningDashboardCard } from "../health/SleepLearningDashboardCard";
 import { TodaysHorizonBanner } from "../dashboard/TodaysHorizonBanner";
 import {
   QuickReviewWidget,
@@ -1000,6 +1001,7 @@ export function DashboardTab() {
             </div>
           </div>
 
+          <SleepLearningDashboardCard />
         </div>
         </SummarySection>
 

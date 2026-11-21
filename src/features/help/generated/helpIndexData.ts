@@ -14,8 +14,8 @@ export interface GeneratedHelpIndex {
 
 export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
   "version": "1.0.0",
-  "corpusHash": "sha256:2d3177bc32e8c416ac250cb957a688afd8ab902b7d2dc9aad289f4a6a4141c4a",
-  "generatedAt": "2026-11-20T03:22:40.561Z",
+  "corpusHash": "sha256:6566c86c48e7de039917997cdf379e6a7b02e118b508dac60e2c0eb0f871f1d7",
+  "generatedAt": "2026-11-21T18:30:17.566Z",
   "totalDocs": 77,
   "totalChunks": 232,
   "aliasMap": {
@@ -303,7 +303,9 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     "fullscreen review": "review.zen_mode",
     "distraction free review": "review.zen_mode",
     "focus mode": "review.zen_mode",
-    "plethora adaptive algorithm (3d sinc)": "scheduler.adaptive",
+    "sm-18 algorithm (3d sinc)": "scheduler.adaptive",
+    "sm-18": "scheduler.adaptive",
+    "sm18": "scheduler.adaptive",
     "plethora adaptive": "scheduler.adaptive",
     "adaptive": "scheduler.adaptive",
     "sinc matrix": "scheduler.adaptive",
@@ -3005,7 +3007,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     },
     {
       "id": "scheduler.adaptive",
-      "title": "Plethora Adaptive Algorithm (3D SInc)",
+      "title": "SM-18 Algorithm (3D SInc)",
       "domain": "scheduling",
       "status": "implemented",
       "platforms": [
@@ -3015,10 +3017,12 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "mobile-android",
         "mobile-ios"
       ],
-      "summary": "Complete 212KB Rust implementation of the Plethora Adaptive scheduler with 3D Stability Increase (SInc) matrix, D-Factor, and Retrievability calculations.",
-      "how_to": "Open Settings → Learning → Spaced Repetition Algorithm and select Plethora Adaptive.",
-      "why": "Plethora Adaptive features a continuous 3D SInc interpolation matrix across Difficulty, Stability, and Retrievability based on decades of empirical memory research.",
+      "summary": "Complete 212KB Rust implementation of the SM-18 scheduler with 3D Stability Increase (SInc) matrix, D-Factor, and Retrievability calculations.",
+      "how_to": "Open Settings → Learning → Spaced Repetition Algorithm and select SM-18.",
+      "why": "SM-18 features a continuous 3D SInc interpolation matrix across Difficulty, Stability, and Retrievability based on decades of empirical memory research.",
       "aliases": [
+        "sm-18",
+        "sm18",
         "plethora adaptive",
         "adaptive",
         "sinc matrix",
@@ -3042,7 +3046,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       ],
       "filePath": "docs/product/features/scheduling/adaptive-algorithm.md",
       "sections": {
-        "intro": "# Plethora Adaptive Algorithm (3D SInc)",
+        "intro": "# SM-18 Algorithm (3D SInc)",
         "Purpose": "Provides a high-performance Rust implementation of the continuous 3D SInc adaptive spaced repetition engine.",
         "User-Facing Behavior": "- 6-grade rating scale (0-5) or simplified 4-button review interface.\n- Real-time display of A-Factor, D-Factor, Stability ($S$), and Retrievability ($R$).\n- Forgetting Index configuration (default 10%, meaning 90% expected recall).",
         "Exact Behavioral Rules": "1. Uses the 3D Stability Increase matrix $\\text{SInc}[D, S, R]$:\n   $$S_{n+1} = S_n \\times \\text{SInc}(D, S_n, R)$$\n2. Matrix entries are smoothed and updated continuously based on actual repetition outcomes.\n3. Post-lapse stability recovery accounts for previous memory traces rather than resetting intervals to 1 day.",
@@ -3162,7 +3166,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "mobile-android",
         "mobile-ios"
       ],
-      "summary": "Head-to-head algorithm arena comparing FSRS-6, Plethora Adaptive, and Plethora Precision recommendations with live coach advice.",
+      "summary": "Head-to-head algorithm arena comparing FSRS-6, SM-18, and SM-20 recommendations with live coach advice.",
       "how_to": "Toggle \"Algorithm Arena\" in Review Settings. During card review, an arena rail displays side-by-side interval comparisons.",
       "why": "Learners want empirical transparency into how different spaced repetition algorithms compute future due dates for the exact same card.",
       "aliases": [
@@ -3191,7 +3195,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "sections": {
         "intro": "# Algorithm Arena",
         "Purpose": "Enables simultaneous parallel evaluation of multiple spaced repetition algorithms on your actual personal review cards.",
-        "User-Facing Behavior": "- Displays the Arena Choice Rail at the bottom of the card review screen.\n- Shows live side-by-side calculated intervals:\n  - **FSRS-6**: e.g., \"14 days ($R = 90\\%$)\"\n  - **Plethora Adaptive**: e.g., \"12 days (SInc 2.41)\"\n  - **Plethora Precision**: e.g., \"16 days (Optimal load smoothed)\"\n- An intelligent Coach Badge highlights which algorithm is making the most statistically sound prediction for that card type.",
+        "User-Facing Behavior": "- Displays the Arena Choice Rail at the bottom of the card review screen.\n- Shows live side-by-side calculated intervals:\n  - **FSRS-6**: e.g., \"14 days ($R = 90\\%$)\"\n  - **SM-18**: e.g., \"12 days (SInc 2.41)\"\n  - **SM-20**: e.g., \"16 days (Optimal load smoothed)\"\n- An intelligent Coach Badge highlights which algorithm is making the most statistically sound prediction for that card type.",
         "Exact Behavioral Rules": "1. Every review grades all enabled engines simultaneously in shadow mode.\n2. The user can either let their primary engine decide or click a specific engine badge to override that repetition.\n3. Historical accuracy (Brier score and log loss) is tracked and plotted in Analytics.",
         "Rationale": "Removes the dogma around algorithm superiority by presenting transparent empirical data for your own learning material.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `review.arena.enabled` | `false` | Enable live side-by-side algorithm comparison rail |",
@@ -9742,11 +9746,13 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     {
       "id": "scheduler.adaptive#summary",
       "docId": "scheduler.adaptive",
-      "title": "Plethora Adaptive Algorithm (3D SInc)",
+      "title": "SM-18 Algorithm (3D SInc)",
       "domain": "scheduling",
       "section": "Summary & How-To",
-      "content": "Title: Plethora Adaptive Algorithm (3D SInc)\nDomain: scheduling\nSummary: Complete 212KB Rust implementation of the Plethora Adaptive scheduler with 3D Stability Increase (SInc) matrix, D-Factor, and Retrievability calculations.\nHow to use: Open Settings → Learning → Spaced Repetition Algorithm and select Plethora Adaptive.\nRationale: Plethora Adaptive features a continuous 3D SInc interpolation matrix across Difficulty, Stability, and Retrievability based on decades of empirical memory research.\nAliases: plethora adaptive, adaptive, sinc matrix, adaptive algorithm\nSettings: scheduler.algorithm, scheduler.adaptive.forgettingIndex",
+      "content": "Title: SM-18 Algorithm (3D SInc)\nDomain: scheduling\nSummary: Complete 212KB Rust implementation of the SM-18 scheduler with 3D Stability Increase (SInc) matrix, D-Factor, and Retrievability calculations.\nHow to use: Open Settings → Learning → Spaced Repetition Algorithm and select SM-18.\nRationale: SM-18 features a continuous 3D SInc interpolation matrix across Difficulty, Stability, and Retrievability based on decades of empirical memory research.\nAliases: sm-18, sm18, plethora adaptive, adaptive, sinc matrix, adaptive algorithm\nSettings: scheduler.algorithm, scheduler.adaptive.forgettingIndex",
       "aliases": [
+        "sm-18",
+        "sm18",
         "plethora adaptive",
         "adaptive",
         "sinc matrix",
@@ -9756,6 +9762,8 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
         "scheduling",
         "scheduler.algorithm",
         "scheduler.adaptive.forgettingIndex",
+        "sm-18",
+        "sm18",
         "plethora adaptive",
         "adaptive",
         "sinc matrix",
@@ -9780,11 +9788,13 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     {
       "id": "scheduler.adaptive#rules",
       "docId": "scheduler.adaptive",
-      "title": "Plethora Adaptive Algorithm (3D SInc) › Behavioral Rules",
+      "title": "SM-18 Algorithm (3D SInc) › Behavioral Rules",
       "domain": "scheduling",
       "section": "Exact Behavioral Rules",
       "content": "1. Uses the 3D Stability Increase matrix $\\text{SInc}[D, S, R]$:\n   $$S_{n+1} = S_n \\times \\text{SInc}(D, S_n, R)$$\n2. Matrix entries are smoothed and updated continuously based on actual repetition outcomes.\n3. Post-lapse stability recovery accounts for previous memory traces rather than resetting intervals to 1 day.",
       "aliases": [
+        "sm-18",
+        "sm18",
         "plethora adaptive",
         "adaptive",
         "sinc matrix",
@@ -9813,11 +9823,13 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
     {
       "id": "scheduler.adaptive#rationale",
       "docId": "scheduler.adaptive",
-      "title": "Plethora Adaptive Algorithm (3D SInc) › Purpose & Rationale",
+      "title": "SM-18 Algorithm (3D SInc) › Purpose & Rationale",
       "domain": "scheduling",
       "section": "Rationale",
       "content": "Accounts for the spacing effect and retrievability at the exact moment of repetition: reviewing when $R=0.9$ yields a different stability increase than reviewing when $R=0.6$.",
       "aliases": [
+        "sm-18",
+        "sm18",
         "plethora adaptive",
         "adaptive",
         "sinc matrix",
@@ -10068,7 +10080,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "title": "Algorithm Arena",
       "domain": "scheduling",
       "section": "Summary & How-To",
-      "content": "Title: Algorithm Arena\nDomain: scheduling\nSummary: Head-to-head algorithm arena comparing FSRS-6, Plethora Adaptive, and Plethora Precision recommendations with live coach advice.\nHow to use: Toggle \"Algorithm Arena\" in Review Settings. During card review, an arena rail displays side-by-side interval comparisons.\nRationale: Learners want empirical transparency into how different spaced repetition algorithms compute future due dates for the exact same card.\nAliases: algorithm arena, arena, srs comparison, algorithm coach\nSettings: review.arena.enabled, review.arena.coachMode",
+      "content": "Title: Algorithm Arena\nDomain: scheduling\nSummary: Head-to-head algorithm arena comparing FSRS-6, SM-18, and SM-20 recommendations with live coach advice.\nHow to use: Toggle \"Algorithm Arena\" in Review Settings. During card review, an arena rail displays side-by-side interval comparisons.\nRationale: Learners want empirical transparency into how different spaced repetition algorithms compute future due dates for the exact same card.\nAliases: algorithm arena, arena, srs comparison, algorithm coach\nSettings: review.arena.enabled, review.arena.coachMode",
       "aliases": [
         "algorithm arena",
         "arena",

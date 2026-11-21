@@ -308,6 +308,53 @@ pub async fn postpone_item(
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RescheduleDocumentResult {
+    pub document_id: String,
+    pub previous_date: Option<String>,
+    pub next_date: String,
+}
+
+/// Reschedule a document to an explicit RFC 3339 target date without altering
+/// its reading progress, priority, memory state, or review history.
+#[tauri::command]
+pub async fn reschedule_document(
+    document_id: String,
+    next_reading_date: String,
+    repo: State<'_, Repository>,
+) -> Result<RescheduleDocumentResult> {
+    let parsed = chrono::DateTime::parse_from_rfc3339(&next_reading_date)
+        .map(|dt| dt.with_timezone(&Utc))
+        .map_err(|_| {
+            crate::error::PlethoraError::Validation(format!(
+                "Invalid next_reading_date RFC 3339 timestamp: {}",
+                next_reading_date
+            ))
+        })?;
+
+    let doc = repo.get_document(&document_id).await?.ok_or_else(|| {
+        crate::error::PlethoraError::NotFound(format!("Document {}", document_id))
+    })?;
+
+    let previous_date = doc.next_reading_date.map(|d| d.to_rfc3339());
+    repo.update_document_scheduling(
+        &document_id,
+        Some(parsed),
+        doc.stability,
+        doc.difficulty,
+        None,
+        None,
+    )
+    .await?;
+
+    Ok(RescheduleDocumentResult {
+        document_id,
+        previous_date,
+        next_date: parsed.to_rfc3339(),
+    })
+}
+
 /// Bulk suspend items
 #[tauri::command]
 pub async fn bulk_suspend_items(

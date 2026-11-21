@@ -225,6 +225,26 @@ export interface LoadManagementResult {
   skipped: number;
 }
 
+export interface RescheduleDocumentResult {
+  documentId: string;
+  previousDate: string | null;
+  nextDate: string;
+}
+
+/**
+ * Reschedule a document to an explicit RFC 3339 timestamp without altering
+ * reading progress or review history.
+ */
+export async function rescheduleDocument(
+  documentId: string,
+  nextReadingDate: string
+): Promise<RescheduleDocumentResult> {
+  return invokeCommand<RescheduleDocumentResult>("reschedule_document", {
+    documentId,
+    nextReadingDate,
+  });
+}
+
 /**
  * Advance an item by N days (inverse of postpone). Pulls a future-due item
  * closer to today. Memory state is preserved.

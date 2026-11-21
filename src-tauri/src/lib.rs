@@ -767,6 +767,21 @@ fn apply_window_icons(app: &tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+fn tray_take_pending_action(app: tauri::AppHandle) -> Option<String> {
+    #[cfg(desktop)]
+    {
+        return app
+            .try_state::<crate::tray::PendingTrayAction>()
+            .and_then(|state| state.0.lock().ok().and_then(|mut guard| guard.take()));
+    }
+    #[cfg(not(desktop))]
+    {
+        let _ = app;
+        None
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(not(target_os = "linux"))]
@@ -1224,6 +1239,7 @@ pub fn run() {
             // environments without a status-notifier host) — warn and continue.
             #[cfg(desktop)]
             {
+                app.manage(crate::tray::PendingTrayAction::default());
                 if let Err(err) = crate::tray::setup_tray(app) {
                     tracing::warn!("[tray] failed to create tray icon: {err}");
                 }
@@ -2091,6 +2107,7 @@ pub fn run() {
             commands::get_queue_with_playlist_intersperse,
             commands::get_queue_stats,
             commands::postpone_item,
+            commands::reschedule_document,
             commands::bulk_suspend_items,
             commands::bulk_unsuspend_items,
             commands::bulk_delete_items,
@@ -2104,6 +2121,7 @@ pub fn run() {
             commands::export_queue,
             commands::advance_item,
             commands::advance_due_queue,
+            tray_take_pending_action,
             commands::load_balance_queue,
             commands::apply_easy_days,
             commands::simulate_review_forecast,

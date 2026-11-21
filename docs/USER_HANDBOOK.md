@@ -277,15 +277,15 @@ Once imported, open any document to access:
 - **Difficulty**: How hard the item is for you (1–10 scale)
 - **Retrievability**: Current probability of recall (0–100%), derived from the dual-trace model
 
-### Understanding Plethora Adaptive
+### Understanding SM-18
 
-**Plethora Adaptive** is the previous-generation scheduler in the family. It represents a significant evolution over Plethora Classic, introducing memory stability modeling and a data-driven approach to interval calculation.
+**SM-18** is the previous-generation scheduler in the family. It represents a significant evolution over SM-2, introducing memory stability modeling and a data-driven approach to interval calculation.
 
-Plethora Adaptive:
+SM-18:
 
 1. **Models Forgetting Exponentially**: Uses the formula `R = 0.9^(t/S)` to calculate retrievability — the probability that you'll remember an item at time `t` given its stability `S`
 2. **Tracks Difficulty Independently**: Maintains a difficulty value `D ∈ [0, 1]` for each item, updated using a trailing-average formula that becomes more responsive with each repetition
-3. **Uses a 3D SInc Matrix**: Looks up the Stability Increase factor from a 21×21×21 matrix indexed by binned difficulty, stability, and retrievability — this is the core of Plethora Adaptive's intelligence
+3. **Uses a 3D SInc Matrix**: Looks up the Stability Increase factor from a 21×21×21 matrix indexed by binned difficulty, stability, and retrievability — this is the core of SM-18's intelligence
 4. **Handles Lapses Gracefully**: On failure, reduces stability by a factor of 0.87 (divided further by accumulated lapses) and resets the repetition counter, but preserves the difficulty estimate
 5. **Computes Intervals from Stability**: Derives the next review interval from the desired retention target: `interval = S × ln(1-FI) / ln(0.9)`
 
@@ -296,24 +296,24 @@ Plethora Adaptive:
 - **SInc**: The Stability Increase factor looked up from the 9,261-entry matrix — how much stability grows after each successful review
 - **Lapses**: Count of failures, which penalize future stability on subsequent lapses
 
-### Understanding Plethora Precision
+### Understanding SM-20 and the Algorithm Arena
 
-Plethora's **Plethora Precision** option is the **Algorithm Arena** — a faithful reimplementation of the original scheduler that runs **five** spaced-repetition algorithms in parallel on every flashcard and blends their predictions into one schedule. The five competitors, with the default blend weights they start at:
+Plethora's **SM-20** option is an **Algorithm Arena** — an independent ensemble implementation that runs **five** spaced-repetition algorithms in parallel on every flashcard and blends their predictions into one schedule (distinct from a pure single-kernel SM-20 mode). The five competitors, with the default blend weights they start at:
 
 | Slot | Model | Default weight | Learns how? |
 |------|-------|---------------:|-------------|
-| 1 | **Plethora Classic** | 6% | Fixed |
-| 2 | **Plethora Classic 15** | 14% | Continuously, on every review |
-| 3 | **Classic 19** | 45% | Continuously, on every review |
-| 4 | **Plethora Precision** (the 35-parameter "M4" forgetting-curve kernel) | 25% | On-demand, via the Optimize button |
+| 1 | **SM-2** | 6% | Fixed |
+| 2 | **SM-15** | 14% | Continuously, on every review |
+| 3 | **SM-19** | 45% | Continuously, on every review |
+| 4 | **SM-20** (the 35-parameter "M4" forgetting-curve kernel) | 25% | On-demand, via the Optimize button |
 | 5 | **FSRS** | 10% | On-demand, via the Optimize button |
 
 **How the blend works.** Each model independently produces a stability estimate for the card; the Arena takes a weighted average and derives the next interval from that. The weights are not fixed — they **adapt to you**. Every time you review a card whose previous review was at least a day ago, the Arena scores each model's *previous* prediction against what actually happened (you remembered or forgot) and nudges the weights toward whichever models have been predicting you best. No model is ever fully eliminated, so a slow starter can recover.
 
 **Two ways it learns:**
 
-1. **Automatically, on every review** — the Plethora Classic 15 optimizer and Classic 19 matrices update immediately, and the blend weights shift. This starts with your very first review. You can watch it in Settings → Learning: the **Arena weights** panel shows each model's current percentage and, once you have enough scored reviews, an **R-Metric** (how much better the blended prediction does than Classic 19 alone).
-2. **On-demand, when you click Optimize** — two of the five competitors (the Plethora Precision kernel and FSRS) can be fitted to your personal review history. These fits are gated behind a minimum amount of data (roughly several hundred day-spaced reviews) and a held-out validation check: a fit is only accepted if it genuinely beats the shipped defaults on reviews the fit hasn't seen. Until then the Optimize buttons report "Not enough review history yet" and those two models keep using their default parameters.
+1. **Automatically, on every review** — the SM-15 optimizer and SM-19 matrices update immediately, and the blend weights shift. This starts with your very first review. You can watch it in Settings → Learning: the **Arena weights** panel shows each model's current percentage and, once you have enough scored reviews, an **R-Metric** (how much better the blended prediction does than SM-19 alone).
+2. **On-demand, when you click Optimize** — two of the five competitors (the SM-20 kernel and FSRS) can be fitted to your personal review history. These fits are gated behind a minimum amount of data (roughly several hundred day-spaced reviews) and a held-out validation check: a fit is only accepted if it genuinely beats the shipped defaults on reviews the fit hasn't seen. Until then the Optimize buttons report "Not enough review history yet" and those two models keep using their default parameters.
 
 **Why it may say it hasn't started training.** Only reviews spaced at least **a day apart** carry signal — first reviews and same-day re-reviews tell the Arena nothing (every model correctly predicts you'll remember), so they don't count toward the scored total. If you have only a handful of cards, expect the Arena weights to stay near their defaults and the R-Metric to stay hidden until those cards start coming back at day-scale intervals. This is expected, not a bug.
 
@@ -321,23 +321,23 @@ Plethora's **Plethora Precision** option is the **Algorithm Arena** — a faithf
 - **Stability (S)**: Each model's estimate of how long the memory persists (days); the Arena blends these.
 - **Difficulty (D)**: Each model's item-difficulty estimate.
 - **Arena weights**: The live blend percentages per model, shown in Learning settings.
-- **R-Metric**: Relative improvement of the blend over Classic 19 alone, computed over a decaying window of your reviews.
+- **R-Metric**: Relative improvement of the blend over SM-19 alone, computed over a decaying window of your reviews.
 
-**How Plethora Precision differs from FSRS-7:**
+**How SM-20 (Algorithm Arena) differs from FSRS-7:**
 - FSRS-7 is the single production scheduler and the only option shown in Learning settings.
-- Plethora Precision is a legacy experimental ensemble that pits five algorithms against each other and lets your own data pick the blend. It remains in the codebase for research but is hidden from the scheduler picker.
+- SM-20 (Algorithm Arena) is a legacy experimental ensemble that pits five algorithms against each other and lets your own data pick the blend (whereas Pure SM-20 Mode runs only the M4 kernel directly). It remains in the codebase for research but is hidden from the scheduler picker.
 
-#### Choosing a Memory Horizon after an Plethora Precision review
+#### Choosing a Memory Horizon after an SM-20 review
 
 Under **Settings → Learning → Algorithm Arena → After each rating**, choose how much scheduling detail you want:
 
 - **Keep the flow (recommended)** commits Arena's weighted pick immediately and moves to the next card. This is the default.
 - **Show the Arena** pauses after an eligible rating and opens the **Memory Horizon**, with your answer still visible while the five models show where they would place the next review.
 
-The same compact choice appears below the six Plethora Precision rating controls, so the next rating can use a different mode without leaving the review. Both modes run and train the same five collection models; this setting changes only whether you make the final interval choice. The decision step remains limited to normal Plethora Precision flashcard reviews; document reading, cram mode, other algorithms, and **Pure Plethora Precision Mode** keep their existing direct scheduling flow.
+The same compact choice appears below the six SM-20 rating controls, so the next rating can use a different mode without leaving the review. Both modes run and train the same five collection models; this setting changes only whether you make the final interval choice. The decision step remains limited to normal SM-20 flashcard reviews; document reading, cram mode, other algorithms, and **Pure SM-20 Mode** keep their existing direct scheduling flow.
 
 - **Arena Pick** is selected by default. It is the weighted recommendation and is usually the best choice when you want the Arena to decide.
-- **Plethora Classic, Plethora Classic 15, Classic 19, Plethora Precision, and FSRS** let you deliberately follow one model's exact proposal for this review. Choosing one does not give that model extra voting weight; future weights continue to learn only from prediction accuracy.
+- **SM-2, SM-15, SM-19, SM-20, and FSRS** let you deliberately follow one model's exact proposal for this review. Choosing one does not give that model extra voting weight; future weights continue to learn only from prediction accuracy.
 - **Custom** accepts an amount and unit or a position on the logarithmic time lens. The displayed bounds protect against invalid schedules, and the exact due date updates before you confirm.
 - **Why this interval** expands the proposals, current weights, and the Arena range. The range is the earliest-to-latest interval proposed by the five models, not an uncertainty or confidence interval.
 
@@ -348,7 +348,7 @@ Keyboard controls while the Memory Horizon is open:
 | Key | Action |
 |-----|--------|
 | `←` / `→` | Explore proposals in time order |
-| `1`–`5` | Select Plethora Classic, Plethora Classic 15, Classic 19, Plethora Precision, or FSRS |
+| `1`–`5` | Select SM-2, SM-15, SM-19, SM-20, or FSRS |
 | `A` | Select Arena Pick |
 | `M` | Select Custom |
 | `Enter` or `Space` | Confirm the displayed schedule |
@@ -358,7 +358,7 @@ In hands-free audio review, Plethora automatically confirms Arena Pick so playba
 
 ### Document Reading Schedule (Incremental Reading)
 
-FSRS-7 is the **flashcard** scheduler — it trains on Q&A, cloze, and basic cards, where the goal is long-term recall. (Legacy schedulers such as Plethora Adaptive and Plethora Precision remain in the codebase but are hidden from the UI.) **Documents** (the articles, papers, and passages you read via Incremental Reading) are scheduled by a **modified FSRS-7** — the *Engaging* scheduler — tuned for a different goal: keeping content in regular rotation rather than maximizing long-term retention of a single fact. It runs in its own FSRS instance, separate from your flashcard scheduler, so the **stability**, **stability (fast)**, and **difficulty** values you see for a document in the Schedule view are real FSRS-7 memory parameters.
+FSRS-7 is the **flashcard** scheduler — it trains on Q&A, cloze, and basic cards, where the goal is long-term recall. (Legacy schedulers such as SM-18 and SM-20 remain in the codebase but are hidden from the UI.) **Documents** (the articles, papers, and passages you read via Incremental Reading) are scheduled by a **modified FSRS-7** — the *Engaging* scheduler — tuned for a different goal: keeping content in regular rotation rather than maximizing long-term retention of a single fact. It runs in its own FSRS instance, separate from your flashcard scheduler, so the **stability**, **stability (fast)**, and **difficulty** values you see for a document in the Schedule view are real FSRS-7 memory parameters.
 
 **Two scheduling tracks, not one.** This is the single biggest source of confusion:
 
@@ -934,7 +934,7 @@ To set a temporary learning target for a study block:
 
 Tag-Aware Scheduling adds semantic intelligence to the review queue.
 When enabled in Settings, TAS applies two post-processing passes over
-your due items without changing underlying Plethora Precision/FSRS intervals:
+your due items without changing underlying SM-20/FSRS intervals:
 
 - **Prerequisite Gating**: Blocks items whose tag prerequisites haven't
   reached the configured maturity threshold.  Foundational material is
@@ -1016,7 +1016,7 @@ interference jitter is applied for those tags.
 
 #### Tag Maturity
 
-A tag is **mature** for an item when that item's Plethora Precision/FSRS stability
+A tag is **mature** for an item when that item's SM-20/FSRS stability
 meets or exceeds the tag's `maturityThreshold` (default 0.8).  The
 overall maturity ratio is `matureCount / itemCount`.
 
@@ -1124,7 +1124,7 @@ The Analytics dashboard provides comprehensive insights:
 - Cards by type (Flashcard, Cloze, etc.)
 - New vs. mature cards
 
-**Algorithm Metrics (FSRS/Plethora Adaptive):**
+**Algorithm Metrics (FSRS/SM-18):**
 - Average stability
 - Average difficulty
 - Predicted retention
@@ -1266,7 +1266,7 @@ Health data is sensitive and subject to strict local-first isolation:
 
 #### Algorithm Selection
 
-Plethora schedules flashcard reviews with **FSRS-7**, the production spaced-repetition algorithm. Learning settings show FSRS-7 as the sole scheduler; legacy algorithms (Plethora Adaptive, Plethora Precision, Plethora Classic) remain compiled for research and migration but are hidden from the picker.
+Plethora schedules flashcard reviews with **FSRS-7**, the production spaced-repetition algorithm. Learning settings show FSRS-7 as the sole scheduler; legacy algorithms (SM-18, SM-20, Plethora Classic) remain compiled for research and migration but are hidden from the picker.
 
 **FSRS-7 (Production):**
 - Dual-trace memory model (slow + fast stability traces)

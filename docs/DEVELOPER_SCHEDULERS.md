@@ -22,8 +22,8 @@ the UI** and not user-selectable:
 
 | Canonical id | Label |
 |--------------|-------|
-| `adaptive` | Plethora Adaptive |
-| `precision` | Plethora Precision (Algorithm Arena) |
+| `adaptive` | SM-18 |
+| `precision` | SM-20 (Algorithm Arena) |
 | `classic` | Plethora Classic |
 | `classic_5` | Plethora Classic 5 |
 | `classic_8` | Plethora Classic 8 |

@@ -647,7 +647,7 @@ export function MainLayout() {
     }
 
     const config = tabConfig[type];
-    if (!config && type !== "study-plans") return;
+    if (!config && type !== "study-plans" && type !== "learning-insights" && type !== "continue-reading") return;
     addTab(config ? {
       title: config.title,
       // TabBar derives the icon from `type` via getTabIcon(); no emoji needed.
@@ -676,6 +676,58 @@ export function MainLayout() {
     const handleOpenFlashcard = () => openTabByType("review");
     window.addEventListener("plethora:open-flashcard", handleOpenFlashcard);
     return () => window.removeEventListener("plethora:open-flashcard", handleOpenFlashcard);
+  }, [openTabByType]);
+
+  // Native system tray quick actions (desktop). Consumes any pending action
+  // issued during frontend boot and listens for live `tray://action` events.
+  useEffect(() => {
+    if (!isTauri()) return;
+    let active = true;
+    const dispatchTrayAction = (action: string | null | undefined) => {
+      if (!active || !action) return;
+      switch (action) {
+        case "open-queue":
+          openTabByType("queue");
+          break;
+        case "start-review":
+          openTabByType("review");
+          break;
+        case "continue-reading":
+          openTabByType("continue-reading");
+          break;
+        case "import-document":
+          requestDestinationAction({ destination: "documents", action: "import" });
+          break;
+        case "learning-insights":
+          openTabByType("learning-insights");
+          break;
+        case "open-settings":
+          openTabByType("settings");
+          break;
+        default:
+          break;
+      }
+    };
+
+    void invokeCommand<string | null>("tray_take_pending_action")
+      .then((pending) => dispatchTrayAction(pending))
+      .catch(() => {});
+
+    let unlisten: (() => void) | null = null;
+    void listen<string>("tray://action", (event) => {
+      void invokeCommand<string | null>("tray_take_pending_action").catch(() => null);
+      dispatchTrayAction(event.payload);
+    })
+      .then((fn) => {
+        if (active) unlisten = fn;
+        else fn();
+      })
+      .catch(() => {});
+
+    return () => {
+      active = false;
+      if (unlisten) unlisten();
+    };
   }, [openTabByType]);
 
   // Tour ↔ shell navigation. Steps declare `navigateToView: { kind: "event",
