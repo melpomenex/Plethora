@@ -566,6 +566,7 @@ pub async fn build_file_index(
             let lower = p.to_lowercase();
             lower.ends_with(".onnx")
                 || lower.ends_with(".gguf")
+                || lower.ends_with(".safetensors")
                 || lower.ends_with(".bin")
                 || lower.ends_with(".json")
                 || lower == "tokens.txt"

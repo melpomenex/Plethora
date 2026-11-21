@@ -30,6 +30,10 @@ export interface LayaCheckpoint {
   runtime: HfRuntime;
   /** Hugging Face repo, `org/name`. */
   repoId: string;
+  /** Pinned Hugging Face commit SHA verified against upstream. */
+  revision: string;
+  /** Published SHA-256 of the primary model.safetensors weight file. */
+  safetensorsSha256: string;
   /** What this checkpoint is for, for the picker. */
   noteKey?: string;
   /** Only a hint for the size line; the installer's real total wins. */
@@ -37,30 +41,36 @@ export interface LayaCheckpoint {
 }
 
 /**
- * Laya checkpoints, smallest first.
+ * Laya checkpoints, ordered with the typed-decision default first.
  *
- * `laya` and `laya-multilingual` are the base checkpoints; `laya-typed-decision`
- * is the one fine-tuned for the typed-decision protocol DAQE speaks, so it is the
- * default a reader should reach for.
+ * `laya` and `laya-multilingual` are the base checkpoints;
+ * `laya-typed-decisions` is fine-tuned for the typed-decision System One
+ * protocol DAQE speaks, so it is the default a reader should reach for.
  */
 export const LAYA_CHECKPOINTS: readonly LayaCheckpoint[] = [
   {
     runtime: "laya-decision",
-    repoId: "convaiinnovations/laya-typed-decision",
+    repoId: "convaiinnovations/laya-typed-decisions",
+    revision: "3903ff997712bd73ccb2dc879262dac8f0d443bb",
+    safetensorsSha256: "4fa56de72383a9d3efa9cfa78955733c81b9fc8067a587ca4beb82c78107a24e",
     noteKey: "daqeDownload.typedDecision",
-    approxBytes: 808_000_000,
+    approxBytes: 842_609_220,
   },
   {
     runtime: "laya-decision",
     repoId: "convaiinnovations/laya-multilingual",
+    revision: "7888aeecb5e80bfde9952292c18de28e974eabc4",
+    safetensorsSha256: "9d628fd971b700382ac6f65920a86f149777b2e748e0c955fb3b19695aa8f204",
     noteKey: "daqeDownload.multilingual",
-    approxBytes: 647_000_000,
+    approxBytes: 643_835_514,
   },
   {
     runtime: "laya-decision",
     repoId: "convaiinnovations/laya",
+    revision: "fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1",
+    safetensorsSha256: "891102d372688fc2a094dac56a384bc537b87c63f21f9f3dac0be2b7cbc8d86c",
     noteKey: "daqeDownload.english",
-    approxBytes: 808_000_000,
+    approxBytes: 842_609_210,
   },
 ] as const;
 

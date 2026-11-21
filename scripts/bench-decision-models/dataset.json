@@ -1,0 +1,126 @@
+{
+  "version": "1.0.0",
+  "description": "Versioned synthetic + public-domain DAQE decision benchmark dataset covering load_tier, goal_alignment, and ready_to_review across short notes, long papers, RSS items, multilingual, ambiguous, and adversarial inputs.",
+  "items": [
+    {
+      "id": "note-short-1",
+      "category": "short-note",
+      "goal": "distributed consensus algorithms",
+      "type": "markdown",
+      "lengthChars": 240,
+      "outline": [],
+      "text": "Quick note on Raft leader election: terms act as logical clocks and prevent split-brain when a majority quorum votes.",
+      "expected": { "load_tier": "surface-skim", "goal_alignment": 0.75, "ready_to_review": true }
+    },
+    {
+      "id": "paper-long-1",
+      "category": "academic-paper",
+      "goal": "distributed consensus algorithms",
+      "type": "pdf",
+      "lengthChars": 48000,
+      "outline": ["1. Introduction", "2. Replicated State Machines", "3. Raft Consensus", "4. Safety Proof", "5. Evaluation"],
+      "text": "In Search of an Understandable Consensus Algorithm. Raft separates key elements of consensus including leader election, log replication, and safety.",
+      "expected": { "load_tier": "deep-foundational", "goal_alignment": 1.0, "ready_to_review": true }
+    },
+    {
+      "id": "rss-headline-1",
+      "category": "rss-headline",
+      "goal": "spaced repetition memory",
+      "type": "html",
+      "lengthChars": 1200,
+      "outline": ["Summary"],
+      "text": "FSRS-7 introduces trainable forgetting curve parameters that adapt to individual review history and difficulty.",
+      "expected": { "load_tier": "surface-skim", "goal_alignment": 0.75, "ready_to_review": true }
+    },
+    {
+      "id": "rss-offtopic-1",
+      "category": "adversarial-irrelevant",
+      "goal": "distributed consensus algorithms",
+      "type": "html",
+      "lengthChars": 3400,
+      "outline": ["Ingredients", "Instructions"],
+      "text": "Sourdough bread baking guide: preheat Dutch oven to 250C and score the dough before baking for 20 minutes.",
+      "expected": { "load_tier": "medium-analysis", "goal_alignment": 0.0, "ready_to_review": true }
+    },
+    {
+      "id": "empty-stub-1",
+      "category": "adversarial-empty",
+      "goal": "spaced repetition memory",
+      "type": "html",
+      "lengthChars": 18,
+      "outline": [],
+      "text": "Loading article...",
+      "expected": { "load_tier": "surface-skim", "goal_alignment": 0.0, "ready_to_review": false }
+    },
+    {
+      "id": "multilingual-es-1",
+      "category": "multilingual",
+      "goal": "memoria y aprendizaje",
+      "type": "epub",
+      "lengthChars": 14500,
+      "outline": ["Capítulo 1: Consolidación", "Capítulo 2: Repetición espaciada"],
+      "text": "La repetición espaciada mejora la retención a largo plazo mediante intervalos crecientes.",
+      "expected": { "load_tier": "medium-analysis", "goal_alignment": 1.0, "ready_to_review": true }
+    },
+    {
+      "id": "ambiguous-1",
+      "category": "ambiguous",
+      "goal": "compiler optimization",
+      "type": "markdown",
+      "lengthChars": 4200,
+      "outline": ["Overview", "Benchmarks"],
+      "text": "LLVM pass ordering affects register allocation and instruction scheduling on ARM64 targets.",
+      "expected": { "load_tier": "medium-analysis", "goal_alignment": 0.75, "ready_to_review": true }
+    },
+    {
+      "id": "textbook-deep-2",
+      "category": "academic-paper",
+      "goal": "compiler optimization",
+      "type": "pdf",
+      "lengthChars": 92000,
+      "outline": ["Ch 1 SSA Form", "Ch 2 Dataflow Analysis", "Ch 3 Loop Transformations", "Ch 4 Register Allocation"],
+      "text": "Static Single Assignment form simplifies dead-code elimination, global value numbering, and sparse conditional constant propagation.",
+      "expected": { "load_tier": "deep-foundational", "goal_alignment": 1.0, "ready_to_review": true }
+    },
+    {
+      "id": "rss-body-2",
+      "category": "rss-body",
+      "goal": "wearable sleep tracking",
+      "type": "html",
+      "lengthChars": 5800,
+      "outline": ["Methods", "Results", "Limitations"],
+      "text": "Overnight heart rate variability (RMSSD) and sleep regularity correlate with next-day cognitive throughput in observational cohorts.",
+      "expected": { "load_tier": "medium-analysis", "goal_alignment": 1.0, "ready_to_review": true }
+    },
+    {
+      "id": "short-placeholder-2",
+      "category": "adversarial-empty",
+      "goal": "wearable sleep tracking",
+      "type": "pdf",
+      "lengthChars": 0,
+      "outline": [],
+      "text": "",
+      "expected": { "load_tier": "surface-skim", "goal_alignment": 0.0, "ready_to_review": false }
+    },
+    {
+      "id": "multilingual-ja-1",
+      "category": "multilingual",
+      "goal": "分散合意アルゴリズム",
+      "type": "html",
+      "lengthChars": 7500,
+      "outline": ["概要", "安全性"],
+      "text": "分散合意アルゴリズムにおけるクオーラムの交差は線形化可能性を保証する。",
+      "expected": { "load_tier": "medium-analysis", "goal_alignment": 1.0, "ready_to_review": true }
+    },
+    {
+      "id": "long-offtopic-2",
+      "category": "adversarial-irrelevant",
+      "goal": "wearable sleep tracking",
+      "type": "epub",
+      "lengthChars": 38000,
+      "outline": ["Part I", "Part II", "Part III", "Part IV"],
+      "text": "A comprehensive history of maritime navigation in the eighteenth century and the invention of the marine chronometer.",
+      "expected": { "load_tier": "deep-foundational", "goal_alignment": 0.0, "ready_to_review": true }
+    }
+  ]
+}

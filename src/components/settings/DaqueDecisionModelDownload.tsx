@@ -113,7 +113,7 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
                           decisionModelProviderId: LAYA_PROVIDER_ID,
                           decisionEngine: {
                             baseUrl: decisionEngine?.baseUrl || "http://127.0.0.1:8000",
-                            model: checkpoint.repoId,
+                            model: "",
                           },
                         });
                       }}

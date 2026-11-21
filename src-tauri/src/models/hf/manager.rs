@@ -1169,7 +1169,10 @@ async fn download_artifact_files(
 fn ensure_sherpa_hash_pinned(runtime: HfRuntime, specs: &[DownloadSpec]) -> Result<()> {
     if matches!(
         runtime,
-        HfRuntime::SherpaOnnxStt | HfRuntime::SherpaOnnxTts | HfRuntime::NemotronAsr
+        HfRuntime::SherpaOnnxStt
+            | HfRuntime::SherpaOnnxTts
+            | HfRuntime::NemotronAsr
+            | HfRuntime::LayaDecision
     ) && specs.iter().any(|s| s.expected_sha.is_none())
     {
         return Err(anyhow!(
