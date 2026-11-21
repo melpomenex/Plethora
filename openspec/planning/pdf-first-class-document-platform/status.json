@@ -1,0 +1,443 @@
+[
+  {
+    "workstream": "pdf-foundation-consolidation",
+    "id": "1.1",
+    "task": "Fix single-page and bulk extraction with a blank-middle-page regression.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [],
+    "status": "verified",
+    "files": [
+      "src-tauri/src/processor/pdf.rs",
+      "src-tauri/tests/fixtures/pdf-baseline/blank-middle-page.pdf"
+    ],
+    "tests": [
+      "cargo test --offline --locked --lib processor::pdf::tests",
+      "qpdf --check and pdftotext -f N -l N on blank-middle-page.pdf"
+    ],
+    "evidence": [
+      "9 Rust tests passed. Independent extraction returned text on pages 1 and 3, with page 2 empty."
+    ],
+    "blockers": [],
+    "remainingWork": ""
+  },
+  {
+    "workstream": "pdf-foundation-consolidation",
+    "id": "1.2",
+    "task": "Preserve sparse Reading Trail locations and refresh semantic metadata when the ordinal matches.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-foundation-consolidation:1.1"
+    ],
+    "status": "verified",
+    "files": [
+      "src-tauri/src/ai_learning/chunker.rs",
+      "src-tauri/src/ai_learning/indexer.rs",
+      "src-tauri/src/commands/study_trails.rs",
+      "src-tauri/src/study_trail/structural_analyzer.rs"
+    ],
+    "tests": [
+      "pdf_index_repairs_a_page_locator_without_changing_chunk_identity",
+      "sparse_pdf_units_keep_their_physical_page_numbers"
+    ],
+    "evidence": [
+      "Native extraction and sparse structural projection preserve physical page keys. The reconciler compares locator content when the ordinal matches.",
+      "The latest native targeted run passed both the sparse Reading Trail regression and the persisted semantic locator repair."
+    ],
+    "blockers": [],
+    "remainingWork": "Legacy source validation and repeated-passage identity remain under 1.3."
+  },
+  {
+    "workstream": "pdf-foundation-consolidation",
+    "id": "1.3",
+    "task": "Qualify corrected locator rebuilds and duplicate-text identities against persisted evidence.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-foundation-consolidation:1.2"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Qualify repeated passages and legacy learning references. Add derived-index versioning and a bounded rebuild without mutating authored locators."
+  },
+  {
+    "workstream": "pdf-foundation-consolidation",
+    "id": "1.4",
+    "task": "Unify canonical and native projections, including cache versioning and real-device rollout gates.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-foundation-consolidation:1.1"
+    ],
+    "status": "implemented",
+    "files": [
+      "src/components/viewer/PDFViewer.tsx"
+    ],
+    "tests": [],
+    "evidence": [
+      "The reader window projects the canonical representation per ready page and native text on other pages."
+    ],
+    "blockers": [],
+    "remainingWork": "Unify the same contract across ingestion, semantic indexing and OCR. Bound analysis memory and collect device rollout evidence."
+  },
+  {
+    "workstream": "pdf-foundation-consolidation",
+    "id": "1.5",
+    "task": "Explicitly select the reflow engine by runtime and preserve both rollout switches.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [],
+    "status": "verified",
+    "files": [
+      "src/components/viewer/pdfFeatureFlags.ts",
+      "src/components/viewer/PDFViewer.tsx"
+    ],
+    "tests": [
+      "pdfMobileFoundation.test.ts"
+    ],
+    "evidence": [
+      "Canonical analysis is reserved for Tauri. Browser reflow uses the existing JavaScript engine and explicit opt-outs remain supported."
+    ],
+    "blockers": [],
+    "remainingWork": "Real-device rollout qualification remains tracked under 1.4."
+  },
+  {
+    "workstream": "pdf-modern-reader-experience",
+    "id": "1.1",
+    "task": "Wire safe embedded links and reader destination routing. Qualify pointer and keyboard interaction.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-foundation-consolidation:1.1"
+    ],
+    "status": "verified",
+    "files": [
+      "src/components/viewer/pdfEmbeddedLinks.ts",
+      "src/components/viewer/PdfPageView.tsx",
+      "src/components/viewer/PDFViewer.css",
+      "src/components/viewer/pdfTextMarks.ts"
+    ],
+    "tests": [
+      "pdfEmbeddedLinks.test.ts",
+      "pdfTextMarks.test.ts",
+      "pdf-native-annotations.visual.spec.ts"
+    ],
+    "evidence": [
+      "Chromium pointer and keyboard activation reached page 3. HTTPS uses an isolated new tab in browser. Unsupported schemes are rejected. Text decoration preserves literal characters."
+    ],
+    "blockers": [],
+    "remainingWork": ""
+  },
+  {
+    "workstream": "pdf-modern-reader-experience",
+    "id": "1.2",
+    "task": "Display printed page labels while retaining physical page entry.",
+    "model": "GPT-6.2 Sol (bounded worker and lead integration)",
+    "dependsOn": [
+      "pdf-foundation-consolidation:1.1"
+    ],
+    "status": "verified",
+    "files": [
+      "src/components/viewer/PDFViewer.tsx",
+      "src/lib/i18n/locales"
+    ],
+    "tests": [
+      "PDFViewer.navigation.test.tsx",
+      "i18n-completeness.test.ts"
+    ],
+    "evidence": [
+      "Physical input remained numeric with differing printed labels shown separately. Deferred and rejected label lookups were covered."
+    ],
+    "blockers": [],
+    "remainingWork": ""
+  },
+  {
+    "workstream": "pdf-modern-reader-experience",
+    "id": "1.3",
+    "task": "Extend page thumbnails, history, spreads, cover handling, presentation, rotation, margin cropping and RTL layout.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-modern-reader-experience:1.1",
+      "pdf-modern-reader-experience:1.2"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Extend the reader navigation surface and reversible view transforms with geometry and accessibility tests."
+  },
+  {
+    "workstream": "pdf-modern-reader-experience",
+    "id": "1.4",
+    "task": "Measure canvas and scroll lifecycle on a large PDF and smoke-test desktop and mobile.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-modern-reader-experience:1.3",
+      "pdf-foundation-consolidation:1.4"
+    ],
+    "status": "implemented",
+    "files": [],
+    "tests": [
+      "Linux Chromium large-document DOM probe using 704 synthetic pages"
+    ],
+    "evidence": [
+      "Warm-server reload first visible canvas at 3.98 s, five jumps in 55–164 ms, peak seven mounted canvases."
+    ],
+    "blockers": [],
+    "remainingWork": "Measure native desktop and mobile scroll memory, large scans, tab switching and runtime qualification."
+  },
+  {
+    "workstream": "pdf-annotation-platform",
+    "id": "1.1",
+    "task": "Verify embedded sticky-note display and session-level text and checkbox edits independently from sidecar authoring and export.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-modern-reader-experience:1.1"
+    ],
+    "status": "verified",
+    "files": [
+      "src/components/viewer/PdfPageView.tsx",
+      "src/visual/pdf-native-annotations.visual.spec.ts"
+    ],
+    "tests": [
+      "Chromium PDF-native annotation acceptance with system Chromium"
+    ],
+    "evidence": [
+      "Embedded sticky contents are visible. Edited text and checkbox values survive page eviction and remount in the same open PDF."
+    ],
+    "blockers": [],
+    "remainingWork": "Qualify other annotation types. Widget changes are session-local and have no persistent export."
+  },
+  {
+    "workstream": "pdf-annotation-platform",
+    "id": "1.2",
+    "task": "Extend existing sidecar storage and undoable editing for markup and notes, then shapes and ink.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-annotation-platform:1.1",
+      "pdf-foundation-consolidation:1.4"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Define additive sidecar geometry, legacy compatibility and undoable annotation operations."
+  },
+  {
+    "workstream": "pdf-annotation-platform",
+    "id": "1.3",
+    "task": "Add annotation navigation, inspector, filtering, review and source-linked actions.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-annotation-platform:1.2"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Add a shared inspector and source-linked annotation actions using existing learning systems."
+  },
+  {
+    "workstream": "pdf-annotation-platform",
+    "id": "1.4",
+    "task": "Validate annotation export and idempotent import with independent readers and legacy fixtures.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-annotation-platform:1.2",
+      "pdf-document-operations:1.2"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Implement standard annotation appearance export and duplicate-free import keyed by source revision."
+  },
+  {
+    "workstream": "pdf-intelligence-learning-integration",
+    "id": "1.1",
+    "task": "Compose per-page windows using canonical and native fallback. Guard window races across page and document changes.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-foundation-consolidation:1.1"
+    ],
+    "status": "verified",
+    "files": [
+      "src/components/viewer/PDFViewer.tsx",
+      "src/components/viewer/DocumentViewer.tsx",
+      "src/components/viewer/DocumentViewerWrapper.tsx",
+      "src/pages/QueueScrollPage.tsx"
+    ],
+    "tests": [
+      "PDFViewer.navigation.test.tsx",
+      "QueueScrollPage.assistantContext.test.tsx",
+      "assistantContext.test.ts"
+    ],
+    "evidence": [
+      "A ready neighboring canonical page leaves active native text intact. Stale page and other-document context are rejected."
+    ],
+    "blockers": [],
+    "remainingWork": ""
+  },
+  {
+    "workstream": "pdf-intelligence-learning-integration",
+    "id": "1.2",
+    "task": "Require evidence for reader-relative Assistant actions. Validate output citations and grounded cross-document comparisons.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-intelligence-learning-integration:1.1"
+    ],
+    "status": "implemented",
+    "files": [
+      "src/utils/assistantContext.ts",
+      "src/lib/ai/assistant/documentIntent.ts",
+      "src/components/assistant/AssistantPanel.tsx",
+      "src/components/assistant/PwaAssistantButton.tsx"
+    ],
+    "tests": [
+      "assistantContext.test.ts",
+      "QueueScrollPage.assistantContext.test.tsx"
+    ],
+    "evidence": [
+      "Reader-relative prompts use the active physical page or selection and return an actionable unavailable state before model invocation when required evidence is missing."
+    ],
+    "blockers": [],
+    "remainingWork": "Validate output citations, add explicit-range and multi-document grounding, and exercise native providers end to end."
+  },
+  {
+    "workstream": "pdf-intelligence-learning-integration",
+    "id": "1.3",
+    "task": "Index canonical and verified OCR projections with geometry and support selective, resumable OCR and review.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-foundation-consolidation:1.3",
+      "pdf-foundation-consolidation:1.4"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Project OCR provenance and geometry into the canonical index and implement resumable OCR review."
+  },
+  {
+    "workstream": "pdf-intelligence-learning-integration",
+    "id": "1.4",
+    "task": "Verify extract and cloze return to source, then run Reading Trail, Study Plan and assessment round trips.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-foundation-consolidation:1.2",
+      "pdf-intelligence-learning-integration:1.3"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Qualify native Extract, direct cloze, Study Plans and assessment evidence round trips."
+  },
+  {
+    "workstream": "pdf-intelligence-learning-integration",
+    "id": "1.5",
+    "task": "Integrate figure, table and equation selection, previews, copying and explicitly routed optional explanation.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-intelligence-learning-integration:1.2",
+      "pdf-intelligence-learning-integration:1.3"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Connect structured and visual regions to selection, exports and optional authorized Assistant explanations."
+  },
+  {
+    "workstream": "pdf-document-operations",
+    "id": "1.1",
+    "task": "Verify the isolated page-rotation writer against an independent parser and a viewer-readable copy.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [],
+    "status": "verified",
+    "files": [
+      "src-tauri/src/pdf/operations.rs"
+    ],
+    "tests": [
+      "rotates_one_page_in_a_new_copy_and_refuses_existing_destinations",
+      "qpdf --check and pdfinfo -f 1 -l 3 on independent output"
+    ],
+    "evidence": [
+      "The copy reopens with rotations 0/90/0, retains an internal destination to page 3, and leaves original SHA-256 unchanged."
+    ],
+    "blockers": [],
+    "remainingWork": ""
+  },
+  {
+    "workstream": "pdf-document-operations",
+    "id": "1.2",
+    "task": "Connect explicit Save As UX, print and text/HTML/image exports to the existing reader actions.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-document-operations:1.1"
+    ],
+    "status": "implemented",
+    "files": [
+      "src-tauri/src/commands/pdf_mobile.rs",
+      "src/components/viewer/PdfSaveRotatedCopyButton.tsx"
+    ],
+    "tests": [
+      "npm run build:check"
+    ],
+    "evidence": [
+      "Native desktop range-backed reading exposes a rotate-current-page action with a Save As dialog. The command checks source identity and uses no-overwrite finalization."
+    ],
+    "blockers": [],
+    "remainingWork": "Run the native Save As smoke test. Add print and text, HTML and image exports."
+  },
+  {
+    "workstream": "pdf-document-operations",
+    "id": "1.3",
+    "task": "Add merge, split, insert, delete, duplicate and crop with reference remapping and validation fixtures.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-document-operations:1.5"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Build page-tree and object-reference remapping and qualify form and outline compatibility."
+  },
+  {
+    "workstream": "pdf-document-operations",
+    "id": "1.4",
+    "task": "Qualify form persistence, password-protected export and visual signatures. Treat cryptographic and redaction features independently.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-document-operations:1.2"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Implement persistent form export, then qualify protected output and visual signatures."
+  },
+  {
+    "workstream": "pdf-document-operations",
+    "id": "1.5",
+    "task": "Add and qualify reorder and range export, including valid page order, destination identities and link handling.",
+    "model": "GPT-6.2 Sol",
+    "dependsOn": [
+      "pdf-document-operations:1.1"
+    ],
+    "status": "not started",
+    "files": [],
+    "tests": [],
+    "evidence": [],
+    "blockers": [],
+    "remainingWork": "Implement reorder and range operations using validated copy plans."
+  }
+]
