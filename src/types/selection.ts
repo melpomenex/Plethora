@@ -28,6 +28,17 @@ export interface PdfSelectionTokenData {
   tokenIds: string[];
 }
 
+export type PdfTextMarkupKind = "highlight" | "underline" | "strikethrough" | "note";
+export type PdfRegionMarkupKind = "rectangle" | "ellipse" | "ink" | "freeText" | "stamp";
+
+/** Appearance stored alongside the source anchor. Coordinates stay in PDF user space. */
+export interface PdfMarkup {
+  version: 1;
+  kind: PdfTextMarkupKind | PdfRegionMarkupKind;
+  removed?: boolean;
+  path?: { x: number; y: number }[];
+}
+
 /**
  * Canonical model anchoring (selection_context v2, additive): exact word-ID
  * range resolved by the Rust canonical model. When present, downstream
@@ -64,6 +75,7 @@ export interface PdfSelectionContext {
   mappingConfidence?: number;
   /** Canonical word-ID anchoring (v2); takes precedence when present. */
   canonical?: PdfCanonicalSelectionAnchor;
+  pdfMarkup?: PdfMarkup;
 }
 
 export interface EpubSelectionContext {
