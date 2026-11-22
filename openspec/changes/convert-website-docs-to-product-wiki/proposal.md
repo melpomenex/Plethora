@@ -22,7 +22,7 @@ This change converts the current `/docs` section into a comprehensive, searchabl
   4. *Understand & Extract* (Selections & Highlights, Incremental Reading Extracts, Priority & Inheritance, Extract Lifecycle, Dictionary Peek, Notes)
   5. *Organize & Connect* (Collections, Smart Tagging, Knowledge Graph, Topic Clustering, Global Search)
   6. *Remember & Review* (Flashcard Studio, Cloze Cards, Q&A, Image Occlusion, Audio Review Mode, Review Sessions)
-  7. *Scheduling & Algorithms* (SRS Principles, FSRS-6, Plethora Plethora Adaptive / Plethora Precision / Plethora Classic/5/8/15, Topic-Aware Scheduling, Neural Queue)
+  7. *Scheduling & Algorithms* (SRS Principles, FSRS-6, Plethora SM-18 / SM-20 / Plethora Classic/5/8/15, Topic-Aware Scheduling, Neural Queue)
   8. *Language Learning* (Language Profiles, Lexical Coverage, Sentence Mining, Dictation & Shadowing)
   9. *AI & Providers* (BYO API Keys, On-Device Models / Gemini Nano, Socratic Tutor, Grounded RAG, Cost & Privacy Controls)
   10. *RSS & Podcasts* (RSS Management, Full-Text Extraction, Semantic Preferences, Podcast Whisper Transcription)

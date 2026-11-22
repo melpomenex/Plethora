@@ -1,7 +1,7 @@
 {
   "version": "1.0.0",
-  "corpusHash": "sha256:6566c86c48e7de039917997cdf379e6a7b02e118b508dac60e2c0eb0f871f1d7",
-  "generatedAt": "2026-11-21T18:30:17.566Z",
+  "corpusHash": "sha256:0f3db6a7555f1dd27ced9041a02394dc0ef965e25dab852475909d2918f2f35a",
+  "generatedAt": "2026-11-22T04:44:15.875Z",
   "totalDocs": 77,
   "totalChunks": 232,
   "aliasMap": {
@@ -865,7 +865,7 @@
         "intro": "# Anki Deck Import (.apkg)",
         "Purpose": "Enables total migration of Anki flashcard decks, card styling templates, audio recordings, images, and card repetition histories into Plethora.",
         "User-Facing Behavior": "- Unpacks compressed `.apkg` zip archive and inspects internal SQLite `collection.anki2` database.\n- Displays deck hierarchy, card count, note types, and media asset summary before import confirmation.\n- Converts Cloze deletions (`{{c1::answer}}`), MathJax/KaTeX formulas, and image assets seamlessly.",
-        "Exact Behavioral Rules": "1. Maps Anki note models (Basic, Cloze, Reverse) to Plethora `CardType` structures.\n2. Extracts media files (audio MP3, WebP, PNG) into the local asset storage folder.\n3. Converts Anki stability/difficulty/interval values into FSRS-6 / Plethora Adaptive state parameters so due dates remain consistent.",
+        "Exact Behavioral Rules": "1. Maps Anki note models (Basic, Cloze, Reverse) to Plethora `CardType` structures.\n2. Extracts media files (audio MP3, WebP, PNG) into the local asset storage folder.\n3. Converts Anki stability/difficulty/interval values into FSRS-6 / SM-18 state parameters so due dates remain consistent.",
         "Rationale": "No user should be forced to abandon their hard-earned spaced repetition memory stability when switching to Plethora's incremental reading environment.",
         "Settings & Defaults": "| Key | Default | Description |\n| :--- | :--- | :--- |\n| `import.anki.preserveScheduling` | `true` | Retain historical ease factors and review intervals |\n| `import.anki.importMedia` | `true` | Extract and link audio and image files |",
         "Platform Behavior": "- **All Platforms**: Fast native unpacking with progress indicator."
@@ -4996,7 +4996,7 @@
       "title": "Anki Deck Import (.apkg) › Behavioral Rules",
       "domain": "imports",
       "section": "Exact Behavioral Rules",
-      "content": "1. Maps Anki note models (Basic, Cloze, Reverse) to Plethora `CardType` structures.\n2. Extracts media files (audio MP3, WebP, PNG) into the local asset storage folder.\n3. Converts Anki stability/difficulty/interval values into FSRS-6 / Plethora Adaptive state parameters so due dates remain consistent.",
+      "content": "1. Maps Anki note models (Basic, Cloze, Reverse) to Plethora `CardType` structures.\n2. Extracts media files (audio MP3, WebP, PNG) into the local asset storage folder.\n3. Converts Anki stability/difficulty/interval values into FSRS-6 / SM-18 state parameters so due dates remain consistent.",
       "aliases": [
         "anki import",
         "apkg deck",

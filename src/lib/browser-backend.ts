@@ -4052,7 +4052,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             val_loss_before: 0,
             val_loss_after: 0,
             iterations: 0,
-            message: "Plethora Precision parameter fitting runs in the desktop app; browser data stays on this device.",
+            message: "SM-20 parameter fitting runs in the desktop app; browser data stays on this device.",
         };
     },
 
@@ -4066,7 +4066,7 @@ const commandHandlers: Record<string, CommandHandler> = {
             val_loss_before: 0,
             val_loss_after: 0,
             iterations: 0,
-            message: "Plethora Precision parameter fitting runs in the desktop app; browser data stays on this device.",
+            message: "SM-20 parameter fitting runs in the desktop app; browser data stays on this device.",
         };
     },
 

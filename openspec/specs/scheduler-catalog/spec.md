@@ -1,7 +1,7 @@
 # scheduler-catalog Specification
 
 ## Purpose
-Plethora's spaced-repetition schedulers are user-visible under Plethora-derived names (Plethora Classic, Plethora Adaptive, Plethora Precision, plus arena baselines Classic 15/Classic 19). For commercial launch these must appear as Plethora product names, without renaming any persisted identifier, and scheduler-specific rating semantics (mobile joystick vs. desktop six-grade buttons) must not regress.
+Plethora's spaced-repetition schedulers are user-visible under Plethora-derived names (Plethora Classic, SM-18, SM-20, plus arena baselines Classic 15/Classic 19). For commercial launch these must appear as Plethora product names, without renaming any persisted identifier, and scheduler-specific rating semantics (mobile joystick vs. desktop six-grade buttons) must not regress.
 
 ## Requirements
 
@@ -10,18 +10,18 @@ The system SHALL provide a single scheduler catalog that maps every selectable s
 
 #### Scenario: UI resolves labels from catalog
 - **WHEN** any settings, statistics, inspector, transparency, or onboarding surface needs a scheduler display name
-- **THEN** it obtains the label from the scheduler catalog, and no user-facing component contains a hardcoded Plethora Classic/Plethora Adaptive/Plethora Precision/Classic 15/Classic 19 string
+- **THEN** it obtains the label from the scheduler catalog, and no user-facing component contains a hardcoded Plethora Classic/SM-18/SM-20/Classic 15/Classic 19 string
 
 #### Scenario: Persisted identifiers unchanged
 - **WHEN** a scheduler is selected, stored, synced, or serialized
 - **THEN** the persisted id values (`fsrs`, `classic`, `classic_5`, `classic_8`, `classic_15`, `adaptive`, `precision`), Rust enum serde ids and order, Tauri command names, and settings validation enums are exactly as before the rename
 
 ### Requirement: Plethora product names for Plethora-derived schedulers
-The system SHALL display Plethora-derived schedulers under Plethora product names: `classic` → "Plethora Classic", `adaptive` → "Plethora Adaptive", `precision` → "Plethora Precision", while FSRS SHALL remain labeled "FSRS-6" and MUST NOT be presented as Plethora-derived.
+The system SHALL display Plethora-derived schedulers under Plethora product names: `classic` → "Plethora Classic", `adaptive` → "SM-18", `precision` → "SM-20", while FSRS SHALL remain labeled "FSRS-6" and MUST NOT be presented as Plethora-derived.
 
 #### Scenario: Settings shows product names
 - **WHEN** the user opens the learning-algorithm setting
-- **THEN** options are labeled FSRS-6, Plethora Adaptive, Plethora Precision, and Plethora Classic with behavior-focused descriptions and no superiority claims
+- **THEN** options are labeled FSRS-6, SM-18, SM-20, and Plethora Classic with behavior-focused descriptions and no superiority claims
 
 #### Scenario: Localized names
 - **WHEN** a non-English locale is active

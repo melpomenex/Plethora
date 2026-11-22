@@ -19,7 +19,7 @@ The system SHALL implement a Bayesian prior interval formula (`interval_initial`
 The system SHALL maintain two 21×21×21 flat arrays (9261 elements each): an interval matrix (f64) and a count matrix (u32/i32). Both SHALL be initialized to zero. Index 20 in each dimension is a sentinel (always zero). Active range is indices 0..19. The flat index SHALL be computed as `R * 441 + S * 21 + D`.
 
 #### Scenario: Matrix initialized to zero
-- **WHEN** a new Plethora Precision instance is created
+- **WHEN** a new SM-20 instance is created
 - **THEN** all 9261 elements in both matrices SHALL be zero
 
 #### Scenario: Flat index computation

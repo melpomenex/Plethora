@@ -8,7 +8,7 @@ Incrementum has a legacy third-party collection .zip import feature with three i
 
 3. **Fragile XML parser**: The existing Rust code uses string-based `find()` calls for XML tag extraction. This breaks on CDATA sections, nested tags, namespaced elements, and encoding edge cases common in legacy third-party collection exports.
 
-The algorithm implementations (Plethora Classic, Plethora Adaptive, Plethora Precision) are all fully functional — this is purely about the import pipeline.
+The algorithm implementations (Plethora Classic, SM-18, SM-20) are all fully functional — this is purely about the import pipeline.
 
 ## Goals / Non-Goals
 

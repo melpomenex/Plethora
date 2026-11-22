@@ -1,4 +1,4 @@
-## 1. Plethora Adaptive Rust Implementation
+## 1. SM-18 Rust Implementation
 
 - [x] 1.1 Create `src-tauri/src/algorithms/adaptive.rs` with `AdaptiveState`, `AdaptiveConfig`, and core review function porting from `adaptive_exact_algorithm.py`.
 - [x] 1.2 Embed the default 21x21x21 SInc matrix constants (from the legacy stability-matrix data file) in Rust as a compile-time constant. Replaced with formula-based fallback for initial implementation.
@@ -28,7 +28,7 @@
 ## 5. Web App / PWA Server Dispatch
 
 - [x] 5.1 Update `browser-backend.ts` `submit_review` to dispatch based on `algorithm_type`. FSRS-6 and Plethora Classic supported natively in browser; other algorithms handled by Tauri backend.
-- [x] 5.1b Implement Plethora Adaptive algorithm in TypeScript (`src/lib/adaptiveScheduler.ts`) ported from the Python reference and matching the Rust implementation. Wire into `browser-backend.ts` dispatch and `preview_review_intervals`.
+- [x] 5.1b Implement SM-18 algorithm in TypeScript (`src/lib/adaptiveScheduler.ts`) ported from the Python reference and matching the Rust implementation. Wire into `browser-backend.ts` dispatch and `preview_review_intervals`.
 - [x] 5.2 Add `algorithm_type` and `algorithm_state` fields to browser DB `LearningItem` interface and `createLearningItem`.
 - [x] 5.3 Update PWA settings route with algorithm selector.
 

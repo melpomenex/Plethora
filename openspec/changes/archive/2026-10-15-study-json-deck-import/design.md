@@ -40,7 +40,7 @@ The Study JSON fields (`ease_factor`, `interval_days`, `repetitions`) map direct
 
 For algorithm-specific state seeding:
 - **Plethora Classic**: Direct mapping — `ease_factor`, `interval`, `review_count` = `repetitions`
-- **Plethora Precision**: Seed `PrecisionState` from JSON fields: `stability = interval_days`, `difficulty` rescaled from `difficulty_score` (map 1-10 range to 0.0-1.0), `repetition = repetitions`, `lapses = lapse_count`
+- **SM-20**: Seed `PrecisionState` from JSON fields: `stability = interval_days`, `difficulty` rescaled from `difficulty_score` (map 1-10 range to 0.0-1.0), `repetition = repetitions`, `lapses = lapse_count`
 - **FSRS-6**: Seed `MemoryState` from `difficulty_score` (rescaled 1-10 to 1-10) and `stability = interval_days`
 
 **Alternative considered**: Always import as FSRS. Rejected because the source data is Plethora Classic-shaped; importing as Plethora Classic preserves the scheduling fidelity.
@@ -75,6 +75,6 @@ The importer follows the existing two-path pattern used by Anki and Plethora:
 
 ## Risks / Trade-offs
 
-- **[Algorithm mismatch]** → Imported Plethora Classic intervals may not match optimal intervals for Plethora Precision/FSRS if the user switches algorithms. Mitigation: Document this in import UI. The user can re-review cards to calibrate.
+- **[Algorithm mismatch]** → Imported Plethora Classic intervals may not match optimal intervals for SM-20/FSRS if the user switches algorithms. Mitigation: Document this in import UI. The user can re-review cards to calibrate.
 - **[Duplicate imports]** → Re-importing the same file could create duplicate cards. Mitigation: Check for existing LearningItems with the same document_id and question text before creating.
 - **[Field loss]** → `correct_count`, `missed_count`, `retention_rate`, `manual_review`, `save_for_later` have no direct Incrementum fields. Mitigation: Store them in `interaction_metadata` JSON field for potential future use.

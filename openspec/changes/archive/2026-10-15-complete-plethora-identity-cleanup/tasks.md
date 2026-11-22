@@ -118,7 +118,7 @@ Implementation tasks are arranged in strict dependency order. Each phase must co
 ## 6. Product Documentation & Help RAG Regeneration
 
 - [x] 6.1 Create Plethora-native feature documentation in `docs/product/features/scheduling/`:
-  - Create `adaptive-scheduler.md` (id: `scheduler.adaptive`, title: `Plethora Adaptive Scheduler`)
+  - Create `adaptive-scheduler.md` (id: `scheduler.adaptive`, title: `SM-18 Scheduler`)
   - Create `precision-arena.md` (id: `scheduler.precision.arena`, title: `Algorithm Arena`)
   - Create `precision-postpone.md` (id: `scheduler.precision.postpone`, title: `Precision Postpone Engine`)
   - Delete `adaptive-algorithm.md`, `precision-arena.md`, and `precision-postpone.md`

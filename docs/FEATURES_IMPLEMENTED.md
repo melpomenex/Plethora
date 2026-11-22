@@ -46,8 +46,8 @@ Complete list of Incrementum features and their implementation status.
 | Feature | Status | Description |
 |---------|--------|-------------|
 | FSRS-6 Algorithm | ✅ Implemented | State-of-the-art spaced repetition scheduler |
-| Plethora Adaptive Algorithm | ✅ Implemented | Adaptive spaced repetition scheduler with 3D SInc matrix |
-| Plethora Precision Algorithm | ✅ Implemented | 5-model weighted ensemble scheduler with online learning |
+| SM-18 Algorithm | ✅ Implemented | Adaptive spaced repetition scheduler with 3D SInc matrix |
+| SM-20 Algorithm | ✅ Implemented | 5-model weighted ensemble scheduler with online learning |
 | Classic Scheduler | ✅ Implemented | Classic algorithm options (Classic 2, Classic 5, Classic 8, Classic 15) |
 | Flashcard Creation | ✅ Implemented | Basic front/back cards |
 | Cloze Deletion | ✅ Implemented | Fill-in-the-blank style cards |

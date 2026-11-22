@@ -1,7 +1,7 @@
 # ask-plethora-grounded-synthesis Specification
 
 ## Purpose
-Plethora is a sophisticated, multi-platform learning operating system combining incremental reading, multi-algorithm spaced repetition (FSRS-6, Plethora Adaptive, Plethora Precision), multi-engine neural TTS, OCR, AI learning tools, RSS, podcasts, e-ink optimization, and cross-device sync.
+Plethora is a sophisticated, multi-platform learning operating system combining incremental reading, multi-algorithm spaced repetition (FSRS-6, SM-18, SM-20), multi-engine neural TTS, OCR, AI learning tools, RSS, podcasts, e-ink optimization, and cross-device sync.
 
 ## Requirements
 

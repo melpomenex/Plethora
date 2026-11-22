@@ -11,7 +11,7 @@ The SQLite migration runner SHALL execute migration `086_complete_plethora_ident
 - **THEN** rows with `'adaptive'` are updated to `'adaptive'`, rows with `'precision'` are updated to `'precision'`, and card intervals, stabilities, and review counts are preserved without modification
 
 ### Requirement: Database startup migration renames ensemble and arena tables
-The SQLite migration runner SHALL rename legacy Plethora Precision collection tables (`arena_state`, `arena_m2_optimizer`, `arena_m3_matrices`, `arena_model_params`) to their canonical names (`arena_state`, `arena_m2_optimizer`, `arena_m3_matrices`, `arena_model_params`) and remove unused diagnostic tables.
+The SQLite migration runner SHALL rename legacy SM-20 collection tables (`arena_state`, `arena_m2_optimizer`, `arena_m3_matrices`, `arena_model_params`) to their canonical names (`arena_state`, `arena_m2_optimizer`, `arena_m3_matrices`, `arena_model_params`) and remove unused diagnostic tables.
 
 #### Scenario: Arena and optimizer state tables are preserved under canonical names
 - **GIVEN** an existing database with populated `arena_state` and `arena_m3_matrices` tables

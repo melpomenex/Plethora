@@ -154,8 +154,8 @@ This is the core of the product. The `AlgorithmType` enum supports **Fsrs, Adapt
 |-----------|--------|-------|
 | **FSRS-6** | Data model + schedulers | Default scheduler. `MemoryState { stability, difficulty }` on every learning item; preview intervals, optimization, and long-form duration safety caps. |
 | **Classic (2 / 5 / 8 / 15)** | `algorithms/classic.rs` (~800 lines) | Classic spaced repetition formulas, each with `next_interval()`. |
-| **Plethora Adaptive** | `algorithms/adaptive.rs` (~212 KB) + `adaptive_data.rs` | Complete implementation with continuous 3D SInc (Stability Increase) matrix, D-Factor, and Retrievability calculations. |
-| **Plethora Precision** | `algorithms/precision/` (~45 KB) | 5-model weighted ensemble scheduler with online learning, Bayesian smoothing, and kernel modeling. |
+| **SM-18** | `algorithms/adaptive.rs` (~212 KB) + `adaptive_data.rs` | Complete implementation with continuous 3D SInc (Stability Increase) matrix, D-Factor, and Retrievability calculations. |
+| **SM-20** | `algorithms/precision/` (~45 KB) | 5-model weighted ensemble scheduler with online learning, Bayesian smoothing, and kernel modeling. |
 
 Supporting scheduling layers: `engaging_scheduler.rs`, `incremental_scheduler.rs`, `document_scheduler.rs`, `queue_selector.rs` (weighted randomization), `relevance.rs`, `optimizer.rs`, and the Topic-Aware Scheduling system (`tas/` — circular queues, gating, jitter, maturity).
 

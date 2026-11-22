@@ -7,7 +7,7 @@ Covers **Requirement #2** (Sleep & Learning Insights on Dashboard), **Requiremen
 1. **Dashboard Sleep & Learning Insights (#2):** Plethora has a full wearable health & Learning Insights workspace (`LearningInsightsTab.tsx`, `healthApi`), but none of its key sleep/learning signals are surfaced on the main `DashboardTab.tsx` where users start their study sessions.
 2. **Native tray menu (#4):** `src-tauri/src/tray.rs` currently only exposes Show, Hide, and Quit, missing quick-access actions for Queue, Review, Continue Reading, Import Document, Learning Insights, and Settings.
 3. **Flashcard Studio icon (#5):** `DocumentViewer.tsx` uses `Brain` for both "View Learning Cards" (`L7993`, `L7705`) and "AI Flashcard Studio" (`L8144`, `L7604`).
-4. **Handbook terminology (#9):** `schedulerCatalog.ts` already maps `adaptive -> SM-18` and `precision -> SM-20`, but `docs/USER_HANDBOOK.md` (and translated handbooks + `docs/product/features/scheduling/`) still use "Plethora Adaptive" and "Plethora Precision".
+4. **Handbook terminology (#9):** `schedulerCatalog.ts` already maps `adaptive -> SM-18` and `precision -> SM-20`, but `docs/USER_HANDBOOK.md` (and translated handbooks + `docs/product/features/scheduling/`) still use "SM-18" and "SM-20".
 5. **Interactive due-date label (#12):** `DocumentViewer.tsx:7935-7946` renders the overdue / due-date badge as a static `<span>` instead of an interactive rescheduling control.
 
 ## What Changes

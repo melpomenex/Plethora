@@ -66,7 +66,7 @@ flowchart LR
 | Pillar | What It Means in Practice |
 | :--- | :--- |
 | 📖 **Incremental Reading** | Read massive books, papers, and feeds in interleaved priority chunks. Extract key passages inline without losing flow, and jump from any flashcard straight back to its exact source paragraph. |
-| 🧠 **FSRS-7 & DAQE Scheduling** | Powered by production **FSRS-7**, plus **Plethora Adaptive (3D SInc)**, **Plethora Precision (5-Model Ensemble)**, and **Classic SM-2**. The **Dynamic Adaptive Queue Engine (DAQE)** balances cognitive load, urgency, retention targets, and available timebox minutes. |
+| 🧠 **FSRS-7 & DAQE Scheduling** | Powered by production **FSRS-7**, plus **SM-18**, **SM-20**, and **Classic SM-2**. The **Dynamic Adaptive Queue Engine (DAQE)** balances cognitive load, urgency, retention targets, and available timebox minutes. |
 | 🎓 **Adaptive Study Plans & Trails** | Generate diagnostic-driven curricula with structured lessons, interactive dependency graphs, **Guided Reading Trails** with inline comprehension checks, and source-grounded remediation. |
 | 🤖 **On-Device & Cloud AI** | Run **100% offline** via Apple Intelligence, Android Gemini Nano (AICore), Windows Phi Silica, Ollama, EmbeddingGemma 2, and Cactus Mirage vision—or connect your own cloud keys with strict per-document consent gates. |
 | 🎧 **Unified Audio & Media Studio** | Global persistent mini-player, **Audio Editions** (turn any PDF/article into a narrated audiobook via local Chatterbox/Pocket-TTS or Fal.ai), and **local-first podcast sponsor skipping** with a 120ms lookahead guard. |
@@ -138,8 +138,8 @@ Plethora 3.x represents a massive leap forward across learning intelligence, med
 
 - **Multi-Algorithm Scheduling**:
   - **FSRS-7** (default production memory model with stability, difficulty, and desired-retention targeting)
-  - **Plethora Adaptive (3D SInc)** & **Plethora Precision (5-Model Ensemble)**
-  - **Classic (SM-2 / SM-18 / SM-20 compatible)**
+  - **SM-18** & **SM-20** (SuperMemo's next-generation scheduling algorithms)
+  - **Classic SM-2** (plus legacy SM-5 / SM-8 / SM-15 variants)
 - **Dynamic Adaptive Queue Engine (DAQE) & Saved Queues**:
   - Create and pin **Saved Queues** with custom filters, tags, sorting, and session targets (accessible via toolbar or `Ctrl+K` / `Cmd+K`).
   - **Timebox Session Launcher**: Enter how many minutes you have (e.g., 15 min) to build a balanced playlist of due reviews, extracts, and reading chapters.
@@ -418,7 +418,7 @@ Plethora/
 ├── src-tauri/                  # Rust Backend (Tauri 2.11)
 │   ├── src/
 │   │   ├── commands/           # 700+ Tauri command handlers (FSRS, DAQE, LLM, RAG, PDF reflow, health, podcast…)
-│   │   ├── algorithms/         # FSRS-7, 3D SInc, 5-Model Ensemble, SM-2/18/20 schedulers
+│   │   ├── algorithms/         # FSRS-7, SM-18/20, SM-2/5/8/15 schedulers
 │   │   ├── database/           # SQLite + SQLx migrations & isolated Health Vault (health.db)
 │   │   └── processor/          # PDF, EPUB, audio, video, OCR & transcript pipelines
 │   └── plugins/                # 14 in-repo native mobile/desktop plugins (HealthKit, HealthConnect, Apple/Windows/Android AI, TTS, STT, Haptics, StoreKit, PlayBilling, SAF Folder Import)

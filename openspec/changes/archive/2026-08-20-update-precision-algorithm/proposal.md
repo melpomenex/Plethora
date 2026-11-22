@@ -1,10 +1,10 @@
 ## Why
 
-Further Ghidra decompilation of precision-kernel-reference.exe (2026-04-12) uncovered a second, independent algorithm system within Plethora Precision: an FSRS-family 3-expert mixture model with 35 tunable parameters, gated by per-item flags. This branch is actively called from 6+ review pipeline locations and is NOT dead code. Our current Rust and TypeScript implementations only include the classic V2/V4/V6 dispatch — the FSRS-family branch is entirely missing.
+Further Ghidra decompilation of precision-kernel-reference.exe (2026-04-12) uncovered a second, independent algorithm system within SM-20: an FSRS-family 3-expert mixture model with 35 tunable parameters, gated by per-item flags. This branch is actively called from 6+ review pipeline locations and is NOT dead code. Our current Rust and TypeScript implementations only include the classic V2/V4/V6 dispatch — the FSRS-family branch is entirely missing.
 
 ## What Changes
 
-- Add the 3-expert mixture model (power-law, shifted power-decay, exponential forgetting) to both Rust and TypeScript Plethora Precision implementations
+- Add the 3-expert mixture model (power-law, shifted power-decay, exponential forgetting) to both Rust and TypeScript SM-20 implementations
 - Add 35 FSRS parameters from the runtime memory block (PTR_DAT_01125c00)
 - Add `fsrs_expert1`, `fsrs_expert2`, `fsrs_expert3` expert curve functions
 - Add `fsrs_expert_mixture` weighted average (retrievability-like proxy A)
@@ -20,7 +20,7 @@ Further Ghidra decompilation of precision-kernel-reference.exe (2026-04-12) unco
 ## Capabilities
 
 ### New Capabilities
-- `precision-fsrs-branch`: 3-expert mixture model for Plethora Precision FSRS-family algorithm branch — experts, mixture, difficulty/stability updates, review kernel, item init
+- `precision-fsrs-branch`: 3-expert mixture model for SM-20 FSRS-family algorithm branch — experts, mixture, difficulty/stability updates, review kernel, item init
 
 ### Modified Capabilities
 
@@ -28,6 +28,6 @@ Further Ghidra decompilation of precision-kernel-reference.exe (2026-04-12) unco
 
 - `src-tauri/src/algorithms/precision.rs` — add ~350 lines: FSRS constants, 8 new functions, extended state struct, review dispatch
 - `src/lib/precisionScheduler.ts` — mirror all Rust additions for PWA/browser parity
-- `src-tauri/src/commands/review.rs` — update Plethora Precision review dispatch to select classic vs FSRS-family path based on per-item flags
+- `src-tauri/src/commands/review.rs` — update SM-20 review dispatch to select classic vs FSRS-family path based on per-item flags
 - `src/lib/__tests__/precisionScheduler.test.ts` — new tests for FSRS-family functions
 - `src-tauri/src/algorithms/precision.rs` (tests) — new inline tests for FSRS-family functions

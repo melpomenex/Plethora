@@ -2800,7 +2800,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - **Minimap** — a 180×120px overview canvas in the bottom-left corner with a viewport rectangle and click-to-navigate. Toggleable via a toolbar button, visible by default when the graph has more than 50 nodes.
   - **Search-with-zoom** — typing in the search box auto-zooms the viewport to frame matching nodes after a 300ms debounce. A reset-view button appears during active search.
   - **Edge proximity blending** — overlapping edges render with reduced opacity to cut visual noise in dense regions.
-- **Precision algorithm scheduling** — added Plethora Precision as a first-class algorithm option across desktop and browser-backed review flows, with native Rust and TypeScript implementations based on a 5-model ensemble with online weight learning.
+- **Precision algorithm scheduling** — added SM-20 as a first-class algorithm option across desktop and browser-backed review flows, with native Rust and TypeScript implementations based on a 5-model ensemble with online weight learning.
 - **Precision transparency** — review transparency, inspector, preview-interval, item-detail, and zen-review surfaces now understand Precision state and display stability, difficulty, retrievability, repetitions, lapses, and forget-curve behavior when Precision is active.
 
 ### Changed

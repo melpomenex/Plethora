@@ -20,9 +20,9 @@ This document details the exact architectural refactoring, migration strategy, f
 ```
 src-tauri/src/algorithms/
 ├── mod.rs                        # Updated AlgorithmType enum & re-exports
-├── adaptive.rs                   # Plethora Adaptive scheduler (3D SInc matrix)
+├── adaptive.rs                   # SM-18 scheduler (3D SInc matrix)
 ├── adaptive_data.rs              # Static matrix constant tables for adaptive scheduler
-├── precision/                    # Plethora Precision scheduler kernel & arena
+├── precision/                    # SM-20 scheduler kernel & arena
 │   ├── mod.rs                    # Precision scheduler & Algorithm Arena entry point
 │   ├── arena.rs                  # Multi-model weight adaptation & candidate selection
 │   ├── ensemble.rs               # Ensemble interval computation
@@ -92,7 +92,7 @@ impl AlgorithmType {
 src/lib/
 ├── schedulerCatalog.ts           # Central metadata registry for UI
 ├── rating-grades.ts              # Renamed from rating-grades.ts (0-5 & 1-4 grade scales)
-├── adaptiveScheduler.ts          # TS mirror of Plethora Adaptive 3D SInc engine
+├── adaptiveScheduler.ts          # TS mirror of SM-18 3D SInc engine
 ├── precisionScheduler.ts         # TS mirror of precision kernel & arena
 ├── precisionCollection.ts        # Collection-wide precision matrix state
 ├── browser-backend.ts            # Web/mock backend implementation updated to new names
@@ -121,14 +121,14 @@ export const SCHEDULER_CATALOG: Record<SchedulerId, SchedulerInfo> = {
   },
   adaptive: {
     id: "adaptive",
-    label: "Plethora Adaptive",
+    label: "SM-18",
     shortLabel: "Adaptive",
     descriptionKey: "learningSettings.adaptiveDesc",
     thirdParty: false,
   },
   precision: {
     id: "precision",
-    label: "Plethora Precision",
+    label: "SM-20",
     shortLabel: "Precision",
     descriptionKey: "learningSettings.precisionDesc",
     thirdParty: false,
@@ -287,7 +287,7 @@ The legacy legacy third-party collection XML/ZIP import path is dedicated solely
 | Action | Path | New Path / Title | Description |
 | :--- | :--- | :--- | :--- |
 | **DELETE** | `docs/product/features/imports/legacy-third-party-zip.md` | *(Deleted)* | Dedicated third-party import document removed. |
-| **REPLACE** | `docs/product/features/scheduling/adaptive-algorithm.md` | `docs/product/features/scheduling/adaptive-scheduler.md` | **Plethora Adaptive Scheduler**: Explains 3D stability increase interpolation matrix across Difficulty, Stability, and Retrievability without third-party attribution. |
+| **REPLACE** | `docs/product/features/scheduling/adaptive-algorithm.md` | `docs/product/features/scheduling/adaptive-scheduler.md` | **SM-18 Scheduler**: Explains 3D stability increase interpolation matrix across Difficulty, Stability, and Retrievability without third-party attribution. |
 | **REPLACE** | `docs/product/features/scheduling/precision-arena.md` | `docs/product/features/scheduling/precision-arena.md` | **Algorithm Arena**: Explains parallel multi-model shadow evaluation and real-time accuracy scoring. |
 | **REPLACE** | `docs/product/features/scheduling/precision-postpone.md` | `docs/product/features/scheduling/precision-postpone.md` | **Precision Postpone Engine**: Explains priority-weighted backlog redistribution and retention protection. |
 | **UPDATE** | `docs/product/concepts/incremental-reading.md` | *(Updated in-place)* | Remove third-party pioneer attributions; describe Plethora's incremental reading pipeline directly. |

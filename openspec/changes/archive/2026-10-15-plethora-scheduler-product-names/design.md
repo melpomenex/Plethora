@@ -20,14 +20,14 @@ Display names for schedulers are hardcoded independently in ~10 TS locations, on
 ## Decisions
 
 1. **Catalog lives in `src/lib/schedulerCatalog.ts`** (next to `rating-grades.ts`, not reviving dead `utils/constants.ts` `ALGORITHM_NAMES`). Exports `SCHEDULER_CATALOG: Record<AlgorithmId, SchedulerInfo>` plus `schedulerLabel(id)`, `schedulerDescription(id)`, `arenaModelLabel(id)`. Descriptions are i18n-key *names* resolved via `t()` at call sites so locales translate them; catalog stores keys + English fallback.
-2. **Name mapping**: `classic→Plethora Classic`, `adaptive→Plethora Adaptive`, `precision→Plethora Precision`, `fsrs→FSRS-6`; legacy selector ids `classic_5/classic_8/classic_15 → Plethora Classic 5/8/15`; arena baselines `classic_15→Classic 15`, `classic_19→Classic 19` (honest historical-baseline framing without third-party SRS branding).
+2. **Name mapping**: `classic→Plethora Classic`, `adaptive→SM-18`, `precision→SM-20`, `fsrs→FSRS-6`; legacy selector ids `classic_5/classic_8/classic_15 → Plethora Classic 5/8/15`; arena baselines `classic_15→Classic 15`, `classic_19→Classic 19` (honest historical-baseline framing without third-party SRS branding).
 3. **Rust arena labels change** (`ArenaModelId::label()`, `ARENA_MODEL_NAMES`) because `ArenaModelCandidate.label` feeds UI directly; `model_id`, order, and serde ids untouched. TS `browser-backend.ts` mirror and `AlgorithmArenaDecision.test.tsx` fixtures updated in the same commit.
 4. **i18n values updated in all six locales** (`settingsLegacy.legacy-third-party*`, `learningSettings.*Desc`, `onboarding.tour.review.algorithm.body`, `handbook.understandingAdaptive/20` bodies); key names unchanged. LearningSettings switches from hardcoded JSX to these keys.
 5. **Dead code**: `pages/SettingsPage.tsx` select stays dead but gets catalog labels anyway (cheap, removes stale surface); `constants.ts ALGORITHM_NAMES` deleted.
 
 ## Risks / Trade-offs
 
-- [Missed hardcode] → grep gate in tests: brand-inventory-style test asserting no `Plethora Classic|Plethora Adaptive|Plethora Precision|Classic 15|Classic 19` strings outside an explicit allowlist (import-source labels, tests, internal identifiers).
+- [Missed hardcode] → grep gate in tests: brand-inventory-style test asserting no `Plethora Classic|SM-18|SM-20|Classic 15|Classic 19` strings outside an explicit allowlist (import-source labels, tests, internal identifiers).
 - [Rust/TS label drift] → single source per side + test asserting TS arena labels equal Rust `ARENA_MODEL_NAMES` expectations via fixture.
 - [Translation drift] → i18n completeness test already enforces key parity across locales.
 

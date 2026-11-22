@@ -51,7 +51,7 @@ export const CORE_FEATURE_INVENTORY = [
 
   // 4. Scheduling & Algorithms
   { id: "scheduler.fsrs", name: "FSRS-6 Spaced Repetition", domain: "scheduling", codeRefs: ["src/utils/fsrsParameters.ts", "src-tauri/src/commands/fsrs.rs"] },
-  { id: "scheduler.adaptive", name: "Plethora Adaptive Algorithm (3D SInc)", domain: "scheduling", codeRefs: ["src-tauri/src/algorithms/adaptive.rs", "src-tauri/src/algorithms/adaptive_data.rs"] },
+  { id: "scheduler.adaptive", name: "SM-18 Algorithm (3D SInc)", domain: "scheduling", codeRefs: ["src-tauri/src/algorithms/adaptive.rs", "src-tauri/src/algorithms/adaptive_data.rs"] },
   { id: "scheduler.precision.arena", name: "Algorithm Arena", domain: "scheduling", codeRefs: ["src/components/review/ArenaChoiceRail.tsx", "src-tauri/src/algorithms/precision/mod.rs"] },
   { id: "scheduler.postpone", name: "Postpone Engine", domain: "scheduling", codeRefs: ["src-tauri/src/commands/postpone.rs"] },
   { id: "scheduler.scoped_params", name: "Scoped Retention Overrides", domain: "scheduling", codeRefs: ["src/utils/fsrsScope.ts"] },

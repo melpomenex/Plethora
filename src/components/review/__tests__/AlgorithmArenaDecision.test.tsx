@@ -28,7 +28,7 @@ const arena = {
       { model_id: "m1" as const, label: "Plethora Classic", interval_days: 6, weight_percent: 6 },
       { model_id: "m2" as const, label: "Classic 15", interval_days: 11, weight_percent: 14 },
       { model_id: "m3" as const, label: "Classic 19", interval_days: 17, weight_percent: 45 },
-      { model_id: "m4" as const, label: "Plethora Precision", interval_days: 24, weight_percent: 25 },
+      { model_id: "m4" as const, label: "SM-20", interval_days: 24, weight_percent: 25 },
       { model_id: "m5" as const, label: "FSRS", interval_days: 31, weight_percent: 10 },
     ].map((candidate) => ({
       ...candidate,
@@ -131,7 +131,7 @@ describe("AlgorithmArenaDecision", () => {
     render(<AlgorithmArenaDecision />);
 
     expect(screen.getByText(/meet your arena pick/i)).toBeInTheDocument();
-    expect(screen.getByRole("radio", { name: /plethora precision/i })).toBeEnabled();
+    expect(screen.getByRole("radio", { name: /sm-20/i })).toBeEnabled();
     fireEvent.click(screen.getByRole("button", { name: /show me/i }));
     expect(screen.getByText(/every model stays within reach/i)).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /got it/i }));

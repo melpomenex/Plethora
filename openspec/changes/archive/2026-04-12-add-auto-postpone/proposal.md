@@ -4,7 +4,7 @@ Users with large backlogs of overdue items need a way to systematically reduce t
 
 ## What Changes
 
-- Add an **algorithm-aware postpone engine** (TypeScript, mirroring the Plethora Precision postpone algorithm) that computes interval increases based on priority, stability, difficulty, elapsed days, and repetition count
+- Add an **algorithm-aware postpone engine** (TypeScript, mirroring the SM-20 postpone algorithm) that computes interval increases based on priority, stability, difficulty, elapsed days, and repetition count
 - Replace the current naive `postponeItem` (just adds N days to due_date) with the new algorithm-aware version
 - Add **postpone-all / auto-postpone** capability — postpone all eligible items in the queue at once, with eligibility gates (priority threshold, stability threshold, min elapsed days, min repetitions)
 - Add **configurable postpone settings** in the learning settings panel (enable/disable auto-postpone, priority/stability thresholds, min/max interval increase, randomization toggle)

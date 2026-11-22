@@ -14,8 +14,8 @@ Architecture and technical details for Incrementum developers.
 6. [Database Schema](#database-schema)
 7. [Key Algorithms](#key-algorithms)
    - [FSRS-6 Algorithm](#fsrs-6-algorithm)
-   - [Plethora Adaptive Algorithm](#plethora-adaptive-algorithm)
-   - [Plethora Precision Algorithm](#plethora-precision-algorithm)
+   - [SM-18 Algorithm](#sm-18-algorithm)
+   - [SM-20 Algorithm](#sm-20-algorithm)
 8. [API Reference](#api-reference)
 9. [Development Workflow](#development-workflow)
 10. [Testing Strategy](#testing-strategy)
@@ -348,7 +348,7 @@ Key parameters:
 - **Stability**: How long a memory lasts (in days)
 - **Difficulty**: Item difficulty (1-10 scale)
 
-### Plethora Adaptive Algorithm
+### SM-18 Algorithm
 
 An adaptive spaced repetition algorithm using a continuous three-dimensional lookup table for stability increases rather than closed-form formulas.
 
@@ -397,9 +397,9 @@ The Stability Increase (SInc) matrix is the heart of the Adaptive scheduler. It'
 
 ---
 
-### Plethora Precision Algorithm
+### SM-20 Algorithm
 
-A native Rust implementation of the Plethora Precision algorithm: a 5-model weighted ensemble scheduler with online learning, Bayesian smoothing, and kernel modeling.
+A native Rust implementation of the SM-20 algorithm: a 5-model weighted ensemble scheduler with online learning, Bayesian smoothing, and kernel modeling.
 
 **Source**: `src-tauri/src/algorithms/precision/`
 

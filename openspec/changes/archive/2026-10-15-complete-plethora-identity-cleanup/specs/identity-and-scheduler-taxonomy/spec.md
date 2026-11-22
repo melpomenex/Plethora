@@ -7,11 +7,11 @@ The system SHALL maintain a central registry of spaced repetition schedulers (`S
 
 #### Scenario: Schedulers expose Plethora product labels
 - **WHEN** user-facing metadata is resolved for scheduler `"adaptive"`
-- **THEN** `label` is `"Plethora Adaptive"`, `shortLabel` is `"Adaptive"`, and `thirdParty` is `false`
+- **THEN** `label` is `"SM-18"`, `shortLabel` is `"Adaptive"`, and `thirdParty` is `false`
 
 #### Scenario: Precision scheduler exposes Algorithm Arena metadata
 - **WHEN** user-facing metadata is resolved for scheduler `"precision"`
-- **THEN** `label` is `"Plethora Precision"`, `shortLabel` is `"Precision"`, and `thirdParty` is `false`
+- **THEN** `label` is `"SM-20"`, `shortLabel` is `"Precision"`, and `thirdParty` is `false`
 
 #### Scenario: FSRS scheduler preserves third-party attribution
 - **WHEN** user-facing metadata is resolved for scheduler `"fsrs"`
@@ -22,7 +22,7 @@ The Algorithm Arena SHALL identify its candidate models via canonical IDs: `"cla
 
 #### Scenario: Arena candidate labels avoid third-party trademarks
 - **WHEN** the Algorithm Arena choices are rendered during card review
-- **THEN** candidate labels are `"Plethora Classic"`, `"Classic 15"`, `"Classic 19"`, `"Plethora Precision"`, and `"FSRS"`, and no candidate displays a third-party SRS trademark
+- **THEN** candidate labels are `"Plethora Classic"`, `"Classic 15"`, `"Classic 19"`, `"SM-20"`, and `"FSRS"`, and no candidate displays a third-party SRS trademark
 
 ### Requirement: Knowledge formulation rules are presented neutrally
 The knowledge formulation engine (`src/lib/ai/knowledgeFormulation.ts`) and associated UI modals SHALL present the formulation principles as "20 Rules of Knowledge Formulation" without personal pioneer branding in headers, command descriptions, or AI prompt personas.

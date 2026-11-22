@@ -2,7 +2,7 @@
 
 ## Context
 
-The Plethora repository contains a rich learning operating system built on Tauri 2.0 (Rust) and React 19 (TypeScript), supporting incremental reading, spaced repetition (FSRS-6, Plethora Adaptive, Plethora Precision, TAS), multi-engine neural TTS, OCR, AI learning tools, RSS, podcasts, e-ink optimization, and cross-device sync.
+The Plethora repository contains a rich learning operating system built on Tauri 2.0 (Rust) and React 19 (TypeScript), supporting incremental reading, spaced repetition (FSRS-6, SM-18, SM-20, TAS), multi-engine neural TTS, OCR, AI learning tools, RSS, podcasts, e-ink optimization, and cross-device sync.
 
 Currently, public documentation on `useplethora.com` is minimal:
 - `website/src/pages/docs/index.astro` and `website/src/pages/docs/[slug].astro` render a flat list of 6-7 placeholder stubs (`getting-started.md`, `incremental-reading.md`, etc.).

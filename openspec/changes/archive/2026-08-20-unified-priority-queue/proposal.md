@@ -136,7 +136,7 @@ The algorithm fully specified by `neural_queue_algorithm.md`:
 
 - The composition sliders from `add-queue-composition-sliders` **ship and stay**
   as a transitional manual override of how many of each type appear.
-- FSRS/Plethora Adaptive/Plethora Precision **scheduling** (stability/difficulty/due-date) is untouched.
+- FSRS/SM-18/SM-20 **scheduling** (stability/difficulty/due-date) is untouched.
 - Extracts and cards keep their existing creation commands, viewers, and stores.
 
 ## Capabilities

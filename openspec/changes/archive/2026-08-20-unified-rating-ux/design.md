@@ -2,7 +2,7 @@
 
 Investigation of the current codebase (paths under `src/` and `src-tauri/`):
 
-- **Queue rating UI**: `src/components/queue/ScrollOverlayControls.tsx` renders four rating orbs (Again/Hard/Good/Easy → `onRate(1..4)`, lines ~648–693) plus a mobile bottom-bar button (~944–977). `src/pages/QueueScrollPage.tsx` `handleRating(rating: number)` (~3184) submits ratings 1–4; keyboard 1–4 via `resolveScrollRatingKey` (~2992). Queue never surfaces or passes a Plethora `grade`, so under Plethora Adaptive/Plethora Precision the backend remaps via `rating_to_grade` — a silent 4→6 collapse.
+- **Queue rating UI**: `src/components/queue/ScrollOverlayControls.tsx` renders four rating orbs (Again/Hard/Good/Easy → `onRate(1..4)`, lines ~648–693) plus a mobile bottom-bar button (~944–977). `src/pages/QueueScrollPage.tsx` `handleRating(rating: number)` (~3184) submits ratings 1–4; keyboard 1–4 via `resolveScrollRatingKey` (~2992). Queue never surfaces or passes a Plethora `grade`, so under SM-18/SM-20 the backend remaps via `rating_to_grade` — a silent 4→6 collapse.
 - **Review rating UI**: desktop six-button UI is `src/components/review/RatingButtons.tsx` (`GRADE_BUTTONS` ~34–90; grade↔rating equivalence 0/1/2→1, 3→2, 4→3, 5→4; keys 0–5). Mobile joystick is `src/hooks/useRatingJoystick.ts` (H-grid, `JOYSTICK_GRADES` ~55–64, dead-zone 24px, haptic detents) + presentational `src/components/review/RatingJoystick.tsx`. Both are already shared between `ReviewSession.tsx` and `ZenReviewMode.tsx`.
 - **Algorithm detection**: `useNativeGrades` selector in `ReviewSession.tsx` (~194–198) hard-codes `precision || adaptive`. Settings store: `src/stores/settingsStore.ts` (`algorithm: "fsrs"|"m1"|"m2"|"m3"|"m4"|"adaptive"|"precision"`).
 - **Platform detection**: established abstractions — `isNativeMobile()`/`getFormFactor()` in `src/lib/tauri.ts`, `useFormFactor()`/`useIsNativeMobile()` in `src/hooks/useFormFactor.ts`. Review already uses `formFactor`/`isTouch`.
@@ -12,14 +12,14 @@ Investigation of the current codebase (paths under `src/` and `src-tauri/`):
 ## Goals / Non-Goals
 
 **Goals:**
-- Queue presents the algorithm's native rating schema: six Plethora grades (desktop buttons / mobile joystick) for Plethora Adaptive/Plethora Precision; four ratings otherwise.
+- Queue presents the algorithm's native rating schema: six Plethora grades (desktop buttons / mobile joystick) for SM-18/SM-20; four ratings otherwise.
 - Exact 0–5 grade reaches the scheduler from Queue, same as Review.
 - Single source of truth for rating schema, grade labels, colors, and grade↔rating mapping.
 - Zero user-visible regression in Review; no Queue workflow regression.
 - Future six-grade schedulers require only schema registration.
 
 **Non-Goals:**
-- Modifying Plethora Adaptive/Plethora Precision algorithms, interval math, or grade semantics.
+- Modifying SM-18/SM-20 algorithms, interval math, or grade semantics.
 - Redesigning Review's screens or replacing the joystick with buttons (or vice versa).
 - Changing DB/sync schemas or adding migrations.
 - Converting four-grade algorithms to six grades.
@@ -57,7 +57,7 @@ Extend `resolveScrollRatingKey` in `QueueScrollPage` to accept 0–5 (submitting
 
 ## Migration Plan
 
-Pure frontend change; no data migration, no settings change, deploy/rollback is a normal app release. Existing stored settings keep working: four-grade algorithms render exactly as before; Plethora Adaptive/Plethora Precision users see the new controls on next app start. Rollback = revert the release.
+Pure frontend change; no data migration, no settings change, deploy/rollback is a normal app release. Existing stored settings keep working: four-grade algorithms render exactly as before; SM-18/SM-20 users see the new controls on next app start. Rollback = revert the release.
 
 ## Open Questions
 

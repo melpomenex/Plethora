@@ -5,12 +5,12 @@
 ### Requirement: Canonical product documentation describes Plethora features directly
 The `docs/product/` directory SHALL contain canonical documentation explaining Plethora's features without third-party algorithm provenance or proprietary attribution.
 
-#### Scenario: Adaptive scheduler document teaches Plethora Adaptive
+#### Scenario: Adaptive scheduler document teaches SM-18
 - **GIVEN** `docs/product/features/scheduling/adaptive-scheduler.md`
 - **WHEN** the document is rendered or indexed
 - **THEN** it describes the 3D Stability Increase matrix, Forgetting Index configuration, and retrievability calculations under feature ID `scheduler.adaptive`, with zero third-party SRS branding or links
 
-#### Scenario: Algorithm Arena document teaches Plethora Precision Arena
+#### Scenario: Algorithm Arena document teaches SM-20 Arena
 - **GIVEN** `docs/product/features/scheduling/precision-arena.md`
 - **WHEN** the document is rendered or indexed
 - **THEN** it describes shadow evaluation, candidate comparison, and coach advice under feature ID `scheduler.precision.arena`

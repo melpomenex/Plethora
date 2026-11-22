@@ -5,7 +5,7 @@
 - [x] 1.3 Add `Repository::upsert_precision_matrices(&self, interval: &[f64;9261], count: &[u32;9261]) -> Result<()>` — packs both arrays to little-endian bytes and `INSERT ... ON CONFLICT(id) DO UPDATE` the `global` row with `date_modified = now`. Match the `upsert_embedding` pattern.
 - [x] 1.4 Add a unit test for the matrix round-trip (write known values, read back, assert equality of every cell). Two tests added: `precision_matrices_round_trip_preserves_every_cell` and `precision_matrices_upsert_replaces_existing`.
 
-## 2. Plethora Precision module core (Rust)
+## 2. SM-20 module core (Rust)
 
 - [x] 2.1 In `src-tauri/src/algorithms/precision.rs`, remove the `match version { 4 => ..., 6 => ..., _ => ... }` dispatch in `compute_next_interval` — hardcode the V4 call (`interval_v4(diff_frac, stab_xform, 0.8, 0.0, 0.9, stab_xform, repetition as f64)`). Remove the `version: u8` parameter from `compute_next_interval`.
 - [x] 2.2 Keep the `stability * sinc` final step (`clamp(stability * sinc, 1.0, STABILITY_MAX)`) unchanged — it is correct per the reference. Add a code comment citing `precision_reference.py:463-465`.
@@ -39,6 +39,6 @@
 ## 6. Verification & docs
 
 - [x] 6.1 Added `precision_state_backward_compat_deserialize` test — an `algorithm_state` JSON with `version: 2` and `algorithm_branch: 1` deserializes and schedules via V4 (interval 36.12 for the test inputs) with no FSRS dispatch.
-- [x] 6.2 Updated `docs/USER_HANDBOOK.md` "Understanding Plethora Precision" section and the algorithm-comparison bullets — V4-only language, removed V2/V4/V6 and FSRS-branch language, documents persisted matrices; Classic 19 available as `classic`.
+- [x] 6.2 Updated `docs/USER_HANDBOOK.md` "Understanding SM-20" section and the algorithm-comparison bullets — V4-only language, removed V2/V4/V6 and FSRS-branch language, documents persisted matrices; Classic 19 available as `classic`.
 - [x] 6.3 Mirrored the handbook update in `docs/USER_HANDBOOK.ja.md` and `docs/USER_HANDBOOK.fr.md` (both the main section and the comparison bullets).
-- [x] 6.4 Added a release-notes bullet to `CHANGELOG.md` under a new `[Unreleased]` section: existing `precision` users will see intervals shift from Classic 19 (V2) to Plethora Precision (V4) values on their next review — intended correction.
+- [x] 6.4 Added a release-notes bullet to `CHANGELOG.md` under a new `[Unreleased]` section: existing `precision` users will see intervals shift from Classic 19 (V2) to SM-20 (V4) values on their next review — intended correction.

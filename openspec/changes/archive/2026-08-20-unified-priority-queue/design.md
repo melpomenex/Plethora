@@ -239,7 +239,7 @@ Document (Topic, root)
 
 ## Non-goals
 
-- **No new scheduling algorithm.** FSRS/Plethora Adaptive/Plethora Precision stability/difficulty/
+- **No new scheduling algorithm.** FSRS/SM-18/SM-20 stability/difficulty/
   due-date computation is untouched.
 - **No full element unification.** The three tables stay.
 - **No manual drag-drop tree editing in v1.** The `sort_order` column reserves

@@ -1,6 +1,6 @@
 ## Context
 
-The Plethora Precision algorithm has two implementations: Rust (`src-tauri/src/algorithms/precision.rs`) for the Tauri desktop backend and TypeScript (`src/lib/precisionScheduler.ts`) for the browser/PWA backend. Both were written from an earlier reverse-engineering effort and contain several deviations from the now-complete reference (`precision_reference.py`), which was produced from a full 75-function Ghidra decompilation of `precision-kernel-reference.exe`.
+The SM-20 algorithm has two implementations: Rust (`src-tauri/src/algorithms/precision.rs`) for the Tauri desktop backend and TypeScript (`src/lib/precisionScheduler.ts`) for the browser/PWA backend. Both were written from an earlier reverse-engineering effort and contain several deviations from the now-complete reference (`precision_reference.py`), which was produced from a full 75-function Ghidra decompilation of `precision-kernel-reference.exe`.
 
 The three algorithm formula versions (V2, V4, V6) share the same DSR model (Difficulty, Stability, Retrievability) and the same index-conversion pipeline. The current code only implements V2 and gets the index conversions wrong.
 
@@ -13,7 +13,7 @@ The three algorithm formula versions (V2, V4, V6) share the same DSR model (Diff
 - Maintain backward compatibility: existing persisted `PrecisionState` values (stability, difficulty, repetition) must continue to work without migration
 
 **Non-Goals:**
-- Porting the full Plethora Precision optimizer or ML hyperparameter tuning pipeline
+- Porting the full SM-20 optimizer or ML hyperparameter tuning pipeline
 - Changing the app-level approximation layer (rating→quality mapping, success_multiplier, lapse logic, difficulty update formula) — these are reasonable design choices with no reference counterpart
 - Changing any frontend components, API layer, or data model
 - Implementing the matrix persistence layer (SQLite storage for the 21³ matrices) — that's a separate concern
@@ -34,7 +34,7 @@ The three algorithm formula versions (V2, V4, V6) share the same DSR model (Diff
 
 **Rationale**: This preserves backward compatibility while enabling the feature for users who accumulate review history. The reference's `compute_next_interval` already guards on `target_count > 0`.
 
-**Alternative considered**: Skip Bayesian smoothing entirely. Rejected because it's the core innovation of Plethora Precision over Plethora Adaptive, and the infrastructure cost is low (two 9261-element arrays).
+**Alternative considered**: Skip Bayesian smoothing entirely. Rejected because it's the core innovation of SM-20 over SM-18, and the infrastructure cost is low (two 9261-element arrays).
 
 ### 3. V4 and V6 formulas SHALL be added as selectable variants
 
@@ -42,7 +42,7 @@ The three algorithm formula versions (V2, V4, V6) share the same DSR model (Diff
 
 **Rationale**: The reference shows all three versions coexist in the same binary. The `compute_next_interval` function dispatches on the version byte. Not including them would leave the implementation incomplete.
 
-**Alternative considered**: Only fix V2 and skip V4/V6. Rejected because V4 is the "Plethora Precision proper" formula and V6 is the FSRS-style variant — both are trivially small functions.
+**Alternative considered**: Only fix V2 and skip V4/V6. Rejected because V4 is the "SM-20 proper" formula and V6 is the FSRS-style variant — both are trivially small functions.
 
 ### 4. Rust and TypeScript SHALL share the same constants and formulas
 
@@ -61,4 +61,4 @@ The three algorithm formula versions (V2, V4, V6) share the same DSR model (Diff
 - **Interval schedule change for existing users** → Existing items will get different (correct) intervals on their next review. This is a correctness fix, not a regression. No migration needed because the algorithm is stateless with respect to past reviews (it only uses the current DSR values).
 - **Quantized difficulty means fewer distinct difficulty levels** → Difficulty granularity drops from continuous [0,1] to 10 discrete levels. This matches the reference behavior and is intentional.
 - **Bayesian matrices in memory** → Two 9261-element arrays (~73KB for f64 + 37KB for u32) per algorithm instance. Negligible memory cost.
-- **V4/V6 formulas untested against real Plethora Precision data** → The formulas are structurally correct per the reference, but we have no real Plethora Precision review datasets to validate against. The risk is low since V2 remains the default.
+- **V4/V6 formulas untested against real SM-20 data** → The formulas are structurally correct per the reference, but we have no real SM-20 review datasets to validate against. The risk is low since V2 remains the default.

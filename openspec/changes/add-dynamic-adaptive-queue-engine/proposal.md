@@ -20,7 +20,7 @@ The `recommendation-engine` change already claimed to solve this with a `relevan
 ### Non-goals
 
 - Ranking does **not** pull documents into the flashcard review session — `flashcard-review-session` keeps the Review tab scoped to learning items.
-- DAQE does **not** change FSRS, SM-18 (Plethora Adaptive) or SM-20 (Plethora Precision) scheduling, stability, difficulty, or interval maths. It ranks *what to surface*; the schedulers still decide *when it comes back*.
+- DAQE does **not** change FSRS, SM-18 (SM-18) or SM-20 (SM-20) scheduling, stability, difficulty, or interval maths. It ranks *what to surface*; the schedulers still decide *when it comes back*.
 - DAQE does **not** change session **membership** (which items are eligible), only order — `add-queue-composition-sliders` owns composition.
 - No cloud text leaves the device unless the user opts in, and opt-in payloads are structural outlines only.
 

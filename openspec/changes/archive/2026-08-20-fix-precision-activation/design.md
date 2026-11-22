@@ -1,6 +1,6 @@
 ## Context
 
-The Plethora Precision module (`src-tauri/src/algorithms/precision.rs`, mirrored by `src/lib/precisionScheduler.ts`) was a faithful line-by-line translation of `precision_reference.py` — a decompilation of `precision-kernel-reference.exe`. The formula translation is correct (verified against the now-recovered `precision-kernel-re` reference repo). The problems are entirely in the **app-level wiring**: the version dispatcher defaults every item to V2 (Classic 19), the Bayesian matrices are never instantiated or persisted, and a full FSRS-family branch is gated behind a flag (`algorithm_branch == 1`) that is only ever set in test code.
+The SM-20 module (`src-tauri/src/algorithms/precision.rs`, mirrored by `src/lib/precisionScheduler.ts`) was a faithful line-by-line translation of `precision_reference.py` — a decompilation of `precision-kernel-reference.exe`. The formula translation is correct (verified against the now-recovered `precision-kernel-re` reference repo). The problems are entirely in the **app-level wiring**: the version dispatcher defaults every item to V2 (Classic 19), the Bayesian matrices are never instantiated or persisted, and a full FSRS-family branch is gated behind a flag (`algorithm_branch == 1`) that is only ever set in test code.
 
 The authoritative reference (`precision_reference.py:463-465`) confirms that the final `stability * sinc` multiply is **correct for all three versions** — V4's `interval_v4` output is a stability-increase multiplier (SInc), not an absolute interval. The bug report's "interval explosion" concern (Issue 2) is unfounded against the reference. This materially de-risks the change: activating V4 does not require touching the multiply.
 
@@ -14,32 +14,32 @@ Current storage state (from codebase research):
 ## Goals / Non-Goals
 
 **Goals:**
-- The `precision` algorithm runs the V4 (Plethora Precision proper) formula on every review. Users who select `precision` get Plethora Precision, not Classic 19.
-- The Bayesian smoothing matrices are persisted, loaded per review session, fed into `compute_next_interval`, and updated via `record_review` after each graded review — so Plethora Precision learns from the user's history as designed.
-- The dead FSRS-family branch is removed from the Plethora Precision module (the repo's separate `fsrs::FSRS` is the real FSRS offering).
+- The `precision` algorithm runs the V4 (SM-20 proper) formula on every review. Users who select `precision` get SM-20, not Classic 19.
+- The Bayesian smoothing matrices are persisted, loaded per review session, fed into `compute_next_interval`, and updated via `record_review` after each graded review — so SM-20 learns from the user's history as designed.
+- The dead FSRS-family branch is removed from the SM-20 module (the repo's separate `fsrs::FSRS` is the real FSRS offering).
 - The V2 (Classic 19) path remains reachable via the existing `classic` algorithm choice for users who want it.
 - No breaking changes to the public Tauri command surface or the `PrecisionState` JSON contract (existing rows deserialize).
 
 **Non-Goals:**
 - Not re-translating the core formulas from the reference — they are already correct; this change is about wiring, not math.
-- Not adding a UI setting for V2/V4/V6 selection. V4 is the Plethora Precision contract; V2 users pick `classic`.
+- Not adding a UI setting for V2/V4/V6 selection. V4 is the SM-20 contract; V2 users pick `classic`.
 - Not extracting FSRS into its own module or adopting the official FSRS library. The embedded FSRS-family code is simply deleted; the existing `fsrs::FSRS` (FSRS-6) is untouched and remains the default.
 - Not migrating existing `precision` items' computed intervals. Their next review will simply compute a V4 interval instead of a V2 interval. This is the intended correction.
 - Not introducing per-collection matrix scoping in v1. The matrices are a global singleton keyed by `DEFAULT_COLLECTION_ID` (the only collection today); the schema leaves room for future per-collection scoping without a second migration.
 
 ## Decisions
 
-### Decision 1: Hardcode V4 inside the Plethora Precision module; drop the version dispatcher
+### Decision 1: Hardcode V4 inside the SM-20 module; drop the version dispatcher
 
 **Choice:** Remove the `match version { 4 => ..., 6 => ..., _ => interval_v2(...) }` block. `compute_next_interval` always calls `interval_v4`. The `PrecisionState.version` field remains in the struct (for backward-compatible deserialization of existing rows) but is **never read** and is documented as deprecated.
 
-**Rationale:** The user decision was "hardcode V4." V6 (FSRS-style double-exponential) is not referenced in the Plethora Precision marketing/docs as a user-facing choice, and the version byte was never meaningfully user-settable. Keeping a dead dispatcher invites the exact misconfiguration that caused this bug.
+**Rationale:** The user decision was "hardcode V4." V6 (FSRS-style double-exponential) is not referenced in the SM-20 marketing/docs as a user-facing choice, and the version byte was never meaningfully user-settable. Keeping a dead dispatcher invites the exact misconfiguration that caused this bug.
 
 **Alternatives considered:**
 - *Default `version` to 4 instead of 2.* Rejected: leaves a latent footgun (any code path that resets state re-introduces the bug) and keeps V6/V2 code alive for no benefit.
-- *Add a version setting.* Rejected per user decision — adds UI surface for a distinction (Classic 19 vs Plethora Precision) that's already covered by the `classic` vs `precision` algorithm-type choice.
+- *Add a version setting.* Rejected per user decision — adds UI surface for a distinction (Classic 19 vs SM-20) that's already covered by the `classic` vs `precision` algorithm-type choice.
 
-**V2 retention:** The V2 formula (`interval_v2`) and its constants stay in the module because the `classic` algorithm (`src-tauri/src/algorithms/classic.rs::ClassicAlgorithm`) is a *different* implementation and the Plethora Precision module's `interval_v2` is not used by it. Actually — verify during implementation whether `precision::interval_v2` is imported anywhere outside tests; if not, it can be deleted along with V6. V4 is the only path that must remain.
+**V2 retention:** The V2 formula (`interval_v2`) and its constants stay in the module because the `classic` algorithm (`src-tauri/src/algorithms/classic.rs::ClassicAlgorithm`) is a *different* implementation and the SM-20 module's `interval_v2` is not used by it. Actually — verify during implementation whether `precision::interval_v2` is imported anywhere outside tests; if not, it can be deleted along with V6. V4 is the only path that must remain.
 
 ### Decision 2: Persist matrices in a dedicated global table with two BLOB columns
 
@@ -59,7 +59,7 @@ Single row, `id = 'global'`. `interval_matrix` and `count_matrix` are packed lit
 - *Why not the `learning_items.algorithm_state` JSON?* The matrices are learner-global (one learner), not per-card. Inlining ~111 KB of base64 into every review's JSON blob would bloat every `learning_items` row and every review IPC payload.
 - *Why not the `settings` KV table?* It stores TEXT only; you'd JSON-encode 18,522 numbers as text (~200 KB+ of ASCII), much larger and slower than a binary BLOB. The `settings` table is for small config values.
 - *Why BLOB over JSON-in-TEXT?* Matches the embeddings precedent (`queue_item_embeddings`, `document_chunk_embeddings`) and is ~3× smaller and faster to (de)serialize than JSON.
-- *Why global over per-collection?* The app is single-user and effectively single-collection today. Plethora Precision's learning is about the learner's memory, not the collection. Including `collection_id` in the schema (defaulted) leaves a no-migration upgrade path to per-collection scoping if multi-collection becomes meaningful.
+- *Why global over per-collection?* The app is single-user and effectively single-collection today. SM-20's learning is about the learner's memory, not the collection. Including `collection_id` in the schema (defaulted) leaves a no-migration upgrade path to per-collection scoping if multi-collection becomes meaningful.
 
 **Alternatives considered:**
 - *Per-collection matrices.* Rejected for v1 (no benefit today, more rows), but the schema accommodates it.
@@ -96,7 +96,7 @@ The TypeScript mirror (`src/lib/precisionScheduler.ts`) keeps the matrices as fu
 
 **Choice:** The migration only `CREATE TABLE IF NOT EXISTS precision_matrices`. Existing `learning_items` rows with `algorithm_type = 'precision'` keep their `algorithm_state` JSON (including `version: 2`, which is now ignored). On their next review, V4 computes a new interval. No row rewrite, no backfill.
 
-**Rationale:** The persisted scalars (stability, difficulty, repetition, lapses) are version-agnostic — they're DSR state, not formula outputs. Re-running V4 against the same DSR state produces a valid Plethora Precision interval. Forcing a rewrite would be riskier than letting the next review naturally transition.
+**Rationale:** The persisted scalars (stability, difficulty, repetition, lapses) are version-agnostic — they're DSR state, not formula outputs. Re-running V4 against the same DSR state produces a valid SM-20 interval. Forcing a rewrite would be riskier than letting the next review naturally transition.
 
 ## Risks / Trade-offs
 
@@ -118,5 +118,5 @@ The TypeScript mirror (`src/lib/precisionScheduler.ts`) keeps the matrices as fu
 
 ## Open Questions
 
-- **Should `interval_v2` / `interval_v6` and their constants be deleted too?** Decision 1 leans yes (V4 is the only path), but confirm during implementation that nothing outside the Plethora Precision module imports them. The `classic` algorithm uses `classic::ClassicAlgorithm`, not `precision::interval_v2`, so they're likely pure dead code after the change. (Resolve at task time; either way is safe.)
+- **Should `interval_v2` / `interval_v6` and their constants be deleted too?** Decision 1 leans yes (V4 is the only path), but confirm during implementation that nothing outside the SM-20 module imports them. The `classic` algorithm uses `classic::ClassicAlgorithm`, not `precision::interval_v2`, so they're likely pure dead code after the change. (Resolve at task time; either way is safe.)
 - **Browser-backend matrix persistence.** Decision 3 defers IndexedDB persistence for the PWA path. Confirm with the user whether the PWA learning-across-sessions gap is acceptable for v1 or blocks release. (Likely acceptable given desktop is primary.)

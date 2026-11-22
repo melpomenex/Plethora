@@ -1,7 +1,7 @@
 # tas-queue-ui Specification
 
 ## Purpose
-Review sessions suffer from two problems that reduce learning efficiency: semantically similar items appearing back-to-back cause interference (weakening recall), and advanced material becoming available before foundational prerequisites are stable leads to wasted effort. Tag-Aware Scheduling (TAS) addresses both by reordering and gating the review queue using existing tag embeddings and user-defined prerequisites — without modifying the proven Plethora Precision/FSRS interval algorithms.
+Review sessions suffer from two problems that reduce learning efficiency: semantically similar items appearing back-to-back cause interference (weakening recall), and advanced material becoming available before foundational prerequisites are stable leads to wasted effort. Tag-Aware Scheduling (TAS) addresses both by reordering and gating the review queue using existing tag embeddings and user-defined prerequisites — without modifying the proven SM-20/FSRS interval algorithms.
 
 ## Requirements
 

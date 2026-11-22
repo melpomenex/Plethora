@@ -2,17 +2,17 @@
 
 ## Why
 
-Plethora's spaced-repetition schedulers are user-visible under Plethora-derived names (Plethora Classic, Plethora Adaptive, Plethora Precision, plus arena baselines Classic 15/Classic 19). For commercial launch these must appear as Plethora product names, without renaming any persisted identifier, and scheduler-specific rating semantics (mobile joystick vs. desktop six-grade buttons) must not regress.
+Plethora's spaced-repetition schedulers are user-visible under Plethora-derived names (Plethora Classic, SM-18, SM-20, plus arena baselines Classic 15/Classic 19). For commercial launch these must appear as Plethora product names, without renaming any persisted identifier, and scheduler-specific rating semantics (mobile joystick vs. desktop six-grade buttons) must not regress.
 
 ## What Changes
 
 - Introduce a **frontend scheduler catalog** (`src/lib/schedulerCatalog.ts`) as the single source of user-facing scheduler metadata: `id → { label, shortLabel, description, ratingSchema, legacyAliases }`. Display names:
   - `classic` → **Plethora Classic**
-  - `adaptive` → **Plethora Adaptive**
-  - `precision` → **Plethora Precision**
+  - `adaptive` → **SM-18**
+  - `precision` → **SM-20**
   - `fsrs` → **FSRS-6** (unchanged — FSRS is a third-party scheduler and must not be presented as Plethora invention)
   - legacy ids `classic_5`/`classic_8`/`classic_15` → "Plethora Classic (Legacy *N*)" style labels in the legacy selector only
-- Replace **every hardcoded user-facing occurrence** of Plethora Classic/Plethora Adaptive/Plethora Precision/Classic15/Classic19 labels in:
+- Replace **every hardcoded user-facing occurrence** of Plethora Classic/SM-18/SM-20/Classic15/Classic19 labels in:
   - `LearningSettings.tsx`, `routes/settings.tsx`, dead `pages/SettingsPage.tsx`
   - `ItemDetailsPopover.tsx`, `DeckStatsPanel.tsx`, `ReviewTransparencyPanel.tsx`, `FSRSInspector.tsx`
   - i18n values (`settingsLegacy.legacy-third-party*`, `learningSettings.*Desc`, onboarding tour text, handbook `understandingAdaptive/20` values) in **all six locales** — key names unchanged

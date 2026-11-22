@@ -11,7 +11,7 @@ The `learning.algorithm` setting exists in the UI but is hardcoded to `"fsrs"` i
 
 ### Proposed Architecture
 
-#### 1. Plethora Adaptive Implementation (`algorithms/adaptive.rs`)
+#### 1. SM-18 Implementation (`algorithms/adaptive.rs`)
 
 Port the core formulas from `adaptive_exact_algorithm.py`:
 
@@ -59,7 +59,7 @@ Each algorithm has different state shape. We store algorithm-specific state in a
 - **Classic 5**: `{ ease_factor, interval, repetitions, modifier }`.
 - **Classic 8**: `{ ease_factor, interval, repetitions, lapses }`.
 - **Classic 15**: `{ stability, difficulty }` -- reuses existing columns directly.
-- **Plethora Adaptive**: `{ stability, difficulty, interval, repetition, lapses }`.
+- **SM-18**: `{ stability, difficulty, interval, repetition, lapses }`.
 
 **Approach**: Add an `algorithm_type` TEXT column to `learning_items` and a `algorithm_state` JSON column. For backward compatibility, items without `algorithm_type` are treated as FSRS. The `algorithm_state` JSON stores the full algorithm-specific state, while `memory_state_stability` and `memory_state_difficulty` continue to be populated for the priority scoring and queue selection logic (using stability/difficulty as common currency).
 
@@ -92,7 +92,7 @@ Replace the current `<select>` in `SettingsPage.tsx` with a richer selector show
 
 ### Trade-offs
 
-1. **No Plethora Adaptive optimization (adaptive_opt.dat)** initially -- the default SInc matrix works well enough for new users. Personalized optimization requires sufficient review history and can be added later.
+1. **No SM-18 optimization (adaptive_opt.dat)** initially -- the default SInc matrix works well enough for new users. Personalized optimization requires sufficient review history and can be added later.
 
 2. **No algorithm migration** -- switching algorithms does not retroactively recompute schedules. Existing items keep their current scheduling state. New reviews after the switch use the new algorithm. This avoids data loss and complexity.
 

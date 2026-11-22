@@ -1,6 +1,6 @@
 ## Why
 
-The Plethora Precision algorithm implementation (Rust + TypeScript) deviates from the reverse-engineered reference in several critical ways that produce materially different interval schedules. The quantized index-conversion steps for both difficulty and stability are missing, causing the penalty exponent to use raw [0,1] difficulty instead of the reference's [0.05, 0.5] range — making high-difficulty items far too punishing. The stability pre-transform is absent, allowing invalid stability values through the formula. These are correctness bugs, not style differences.
+The SM-20 algorithm implementation (Rust + TypeScript) deviates from the reverse-engineered reference in several critical ways that produce materially different interval schedules. The quantized index-conversion steps for both difficulty and stability are missing, causing the penalty exponent to use raw [0,1] difficulty instead of the reference's [0.05, 0.5] range — making high-difficulty items far too punishing. The stability pre-transform is absent, allowing invalid stability values through the formula. These are correctness bugs, not style differences.
 
 ## What Changes
 
@@ -23,7 +23,7 @@ The Plethora Precision algorithm implementation (Rust + TypeScript) deviates fro
 - `precision-multi-version`: V4 and V6 interval formula variants alongside existing V2
 
 ### Modified Capabilities
-<!-- No existing Plethora Precision spec to modify -->
+<!-- No existing SM-20 spec to modify -->
 
 ## Impact
 

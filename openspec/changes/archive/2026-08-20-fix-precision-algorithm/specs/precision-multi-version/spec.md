@@ -1,7 +1,7 @@
 ## ADDED Requirements
 
 ### Requirement: V4 interval formula
-The system SHALL implement the V4 interval formula (Plethora Precision proper) as: `result = (p3 * p5 + 1.0) * (p1 * p7 + p2) + p4`, where p1=difficulty_fraction, p2=stability_transformed, p3=0.8, p4=0.0, p5=0.9, p6=stability_transformed, p7=repetition (as float).
+The system SHALL implement the V4 interval formula (SM-20 proper) as: `result = (p3 * p5 + 1.0) * (p1 * p7 + p2) + p4`, where p1=difficulty_fraction, p2=stability_transformed, p3=0.8, p4=0.0, p5=0.9, p6=stability_transformed, p7=repetition (as float).
 
 #### Scenario: V4 produces non-zero interval
 - **WHEN** version=4, difficulty_fraction=0.25, stability_transformed=3.0, repetition=3

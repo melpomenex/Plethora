@@ -32,7 +32,7 @@ AI Flashcard Studio launchers in the document reader toolbars SHALL use `CardsTh
 
 ### Requirement: Handbook uses canonical SM-18 and SM-20 scheduler terminology
 
-User-facing Handbook documentation SHALL refer to `SM-18` and `SM-20` instead of `Plethora Adaptive` and `Plethora Precision`, accurately distinguishing the pure SM-20 kernel from the Algorithm Arena ensemble, without renaming internal serialized IDs.
+User-facing Handbook documentation SHALL refer to `SM-18` and `SM-20` instead of `SM-18` and `SM-20`, accurately distinguishing the pure SM-20 kernel from the Algorithm Arena ensemble, without renaming internal serialized IDs.
 
 #### Scenario: Handbook reflects SM-18 and SM-20 terminology
 

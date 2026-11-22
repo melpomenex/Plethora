@@ -1,6 +1,6 @@
 ## Context
 
-The Plethora Precision implementation currently includes only the "classic" algorithm path: V2/V4/V6 interval formulas with Bayesian smoothing, plus a simplified app-level review layer (rating_to_quality, success_multiplier, next_difficulty, lapse_interval). A second algorithm branch was discovered during continued Ghidra decompilation on 2026-04-12. This FSRS-family branch uses a 3-expert mixture model with 35 tunable parameters and is actively called from multiple review pipeline locations in the original precision-kernel-reference.exe.
+The SM-20 implementation currently includes only the "classic" algorithm path: V2/V4/V6 interval formulas with Bayesian smoothing, plus a simplified app-level review layer (rating_to_quality, success_multiplier, next_difficulty, lapse_interval). A second algorithm branch was discovered during continued Ghidra decompilation on 2026-04-12. This FSRS-family branch uses a 3-expert mixture model with 35 tunable parameters and is actively called from multiple review pipeline locations in the original precision-kernel-reference.exe.
 
 Both implementations (Rust `precision.rs` and TypeScript `precisionScheduler.ts`) are line-by-line translations of the Python reference and must remain in sync.
 
@@ -14,7 +14,7 @@ Both implementations (Rust `precision.rs` and TypeScript `precisionScheduler.ts`
 - Add comprehensive tests pinned against reference output
 
 **Non-Goals:**
-- Implementing the full Plethora Precision review pipeline (6+ entry points) — we add the core kernel only
+- Implementing the full SM-20 review pipeline (6+ entry points) — we add the core kernel only
 - ML-based hyperparameter optimization of the 35 FSRS parameters
 - Exposing FSRS-family parameters to user-facing settings UI
 - Changing the existing four-button review flow or UI

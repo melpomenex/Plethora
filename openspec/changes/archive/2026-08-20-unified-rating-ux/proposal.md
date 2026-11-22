@@ -1,6 +1,6 @@
 ## Why
 
-Incrementum supports six-grade Plethora schedulers (Plethora Adaptive, Plethora Precision), but the Queue always shows a four-rating interface (Again/Hard/Good/Easy) regardless of algorithm, while Review already has the correct UX: six explicit grade buttons on desktop and a gesture joystick on mobile. Queue therefore silently collapses the six-grade 0–5 grade space into four values via `rating_to_grade` before the scheduler ever runs, distorting scheduling semantics; the user is also shown an interface that misrepresents what the algorithm expects.
+Incrementum supports six-grade Plethora schedulers (SM-18, SM-20), but the Queue always shows a four-rating interface (Again/Hard/Good/Easy) regardless of algorithm, while Review already has the correct UX: six explicit grade buttons on desktop and a gesture joystick on mobile. Queue therefore silently collapses the six-grade 0–5 grade space into four values via `rating_to_grade` before the scheduler ever runs, distorting scheduling semantics; the user is also shown an interface that misrepresents what the algorithm expects.
 
 ## What Changes
 
@@ -8,9 +8,9 @@ Incrementum supports six-grade Plethora schedulers (Plethora Adaptive, Plethora 
 - **Queue (desktop)**: when the active schema is Plethora six-grade, show the same six explicit rating buttons (`RatingButtons` with `gradeScale`) already used by Review desktop; four-grade algorithms keep the existing four-button UI.
 - **Queue (mobile/touch)**: when the active schema is Plethora six-grade, use the existing Review mobile joystick (`useRatingJoystick` + `RatingJoystick`), refactored into a shared control rather than a Queue-specific copy. Four-grade algorithms keep the current four-orb / swipe interface.
 - **Review**: unchanged user-facing behavior; internal refactor only to consume the shared rating-schema abstraction and shared grade↔rating mapping (currently duplicated in `RatingButtons.GRADE_BUTTONS`, `useRatingJoystick.JOYSTICK_GRADES`, the `ReviewSession` keyboard handler, and twice in the backend).
-- **Scheduler correctness**: Queue submissions under Plethora Adaptive/Plethora Precision pass the exact selected grade (0–5) through `submitReview`/`submit_review`'s existing `grade` channel — no four-grade normalization. Queue and Review must produce identical scheduler inputs for the same grade.
+- **Scheduler correctness**: Queue submissions under SM-18/SM-20 pass the exact selected grade (0–5) through `submitReview`/`submit_review`'s existing `grade` channel — no four-grade normalization. Queue and Review must produce identical scheduler inputs for the same grade.
 - **Keyboard**: Queue gains grade shortcuts 0–5 under six-grade schemas (mirroring Review), keeping 1–4 for four-grade schemas.
-- No changes to the Plethora Adaptive/Plethora Precision algorithms themselves, interval math, DB schema, or sync format (`review_log` already stores `rating`; `grade` flows through the existing native-grade path).
+- No changes to the SM-18/SM-20 algorithms themselves, interval math, DB schema, or sync format (`review_log` already stores `rating`; `grade` flows through the existing native-grade path).
 
 ## Capabilities
 

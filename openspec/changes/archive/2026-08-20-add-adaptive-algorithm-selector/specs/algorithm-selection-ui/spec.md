@@ -17,38 +17,38 @@ The system SHALL present an algorithm selector in the Learning Settings that lis
   - Classic 5 -- Improved Plethora with modifier factor
   - Classic 8 -- Plethora with optimal intervals and lapse tracking
   - Classic 15 -- Modern Plethora with stability/difficulty model
-  - Plethora Adaptive -- Latest Plethora scheduler algorithm with SInc matrix
+  - SM-18 -- Latest Plethora scheduler algorithm with SInc matrix
 - **And** the currently selected algorithm SHALL be indicated
 
-#### Scenario: User selects Plethora Adaptive
+#### Scenario: User selects SM-18
 - **Given** the user has FSRS-6 selected
-- **When** the user selects Plethora Adaptive from the dropdown
+- **When** the user selects SM-18 from the dropdown
 - **Then** the system SHALL show a confirmation dialog warning that existing scheduling data will not be migrated
 - **And** upon confirmation, the system SHALL persist the selection to the settings store
-- **And** subsequent reviews SHALL use the Plethora Adaptive algorithm
+- **And** subsequent reviews SHALL use the SM-18 algorithm
 
 ### Requirement: Algorithm Selection Persistence
 The system SHALL persist the algorithm selection across sessions and platforms.
 
 #### Scenario: Algorithm selection persists after restart
-- **Given** the user has selected Plethora Adaptive
+- **Given** the user has selected SM-18
 - **When** the application is restarted
-- **Then** the algorithm SHALL remain Plethora Adaptive
+- **Then** the algorithm SHALL remain SM-18
 - **And** the settings UI SHALL reflect the saved selection
 
 #### Scenario: Algorithm selection works in Tauri desktop and Web App
-- **Given** the user selects Plethora Adaptive in the Tauri desktop app
+- **Given** the user selects SM-18 in the Tauri desktop app
 - **When** the user accesses the Web App / PWA
-- **Then** the Web App SHALL also reflect the Plethora Adaptive selection (if settings are synced)
-- **And** the Web App review endpoint SHALL dispatch to Plethora Adaptive
+- **Then** the Web App SHALL also reflect the SM-18 selection (if settings are synced)
+- **And** the Web App review endpoint SHALL dispatch to SM-18
 
 ### Requirement: Algorithm-Specific Settings Visibility
 The system SHALL show or hide algorithm-specific settings based on the selected algorithm.
 
-#### Scenario: FSRS retention slider hidden for Plethora Adaptive
-- **Given** the user has selected Plethora Adaptive
+#### Scenario: FSRS retention slider hidden for SM-18
+- **Given** the user has selected SM-18
 - **When** the Learning Settings are displayed
-- **Then** the FSRS "Desired Retention" slider SHALL be hidden (Plethora Adaptive uses its own forgetting index)
+- **Then** the FSRS "Desired Retention" slider SHALL be hidden (SM-18 uses its own forgetting index)
 - **And** the FSRS "Personal FSRS Optimizer" button SHALL be hidden
 - **And** the FSRS scoped overrides section SHALL be hidden
 
@@ -62,11 +62,11 @@ The system SHALL show or hide algorithm-specific settings based on the selected 
 ### Requirement: Backend Algorithm Dispatch
 The backend SHALL route review commands to the selected algorithm implementation.
 
-#### Scenario: Review dispatched to Plethora Adaptive
-- **Given** the user has selected Plethora Adaptive as their algorithm
+#### Scenario: Review dispatched to SM-18
+- **Given** the user has selected SM-18 as their algorithm
 - **When** a review is submitted for a learning item
-- **Then** the backend SHALL use the Plethora Adaptive algorithm to compute the next schedule
-- **And** the result SHALL be persisted with `algorithm_type = "adaptive"` and `algorithm_state` containing the Plethora Adaptive state JSON
+- **Then** the backend SHALL use the SM-18 algorithm to compute the next schedule
+- **And** the result SHALL be persisted with `algorithm_type = "adaptive"` and `algorithm_state` containing the SM-18 state JSON
 
 #### Scenario: Review dispatched to Plethora Classic
 - **Given** the user has selected Plethora Classic as their algorithm

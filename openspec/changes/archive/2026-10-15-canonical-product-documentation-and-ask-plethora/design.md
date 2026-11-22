@@ -4,7 +4,7 @@
 
 Plethora is a cross-platform learning operating system built on Tauri 2.0 (Rust) and React 19 (TypeScript), operating on macOS, Windows, Linux, Android, and iOS (simulator). The application integrates complex domains:
 - **Multi-format document processing & incremental reading** (PDF with reflow, EPUB with CFI tracking, HTML with readability snapshots, Markdown, TXT, video transcripts, audiobooks, Kindle clippings, Arxiv, Anki `.apkg`, legacy third-party collection ZIPs).
-- **Spaced repetition learning engines** (FSRS-6, Plethora Adaptive with 3D SInc matrix, Plethora Precision with Arena and Postpone engine, classic Plethora Classic/5/8/15).
+- **Spaced repetition learning engines** (FSRS-6, SM-18 with 3D SInc matrix, SM-20 with Arena and Postpone engine, classic Plethora Classic/5/8/15).
 - **Review & study surfaces** (Flashcard Studio, Cloze, Q&A, Image Occlusion with OCR, Language Learning dictation/shadowing/sentence mining, Hands-Free Audio Review).
 - **Media & Neural TTS** (Pocket TTS in Rust desktop, Sherpa-ONNX / KittenTTS / Kokoro-82M on Android, Fal.ai voice cloning, Souvlaki OS media keys / SMTC / MPRIS, YouTube playback with transcript sync, Podcast Whisper transcription).
 - **AI Learning System** (on-device Gemini Nano via ML Kit, LiteRT / EmbeddingGemma semantic memory, cloud LLM providers via OpenRouter/OpenAI/Anthropic/Ollama, Socratic tutor, Active Recall interruptions, answer assessment, NotebookLM Py AppImage integration).
@@ -50,7 +50,7 @@ Plethora Product Domains
 ├── 1. Reading & Document Viewers (PDF, EPUB, HTML, Markdown, TXT, Video Transcripts, Audiobooks)
 ├── 2. Document Management & Ingestion (Local import, URL scraping, Arxiv, Anna's Archive, Anki, Plethora, Kindle clippings)
 ├── 3. Queue & Incremental Reading (Reading Queue, Priority scoring, Inheritance, Reappearance intervals, Neural queue)
-├── 4. Scheduling & Algorithms (FSRS-6, Plethora Adaptive, Plethora Precision Arena & Postpone, Plethora Classic/5/8/15, Topic-Aware Scheduling TAS)
+├── 4. Scheduling & Algorithms (FSRS-6, SM-18, SM-20 Arena & Postpone, Plethora Classic/5/8/15, Topic-Aware Scheduling TAS)
 ├── 5. Review & Learning Items (Flashcard Studio, Cloze, Q&A, Image Occlusion OCR, Audio Review Mode, Zen Mode)
 ├── 6. Language Learning System (Profiles, Lexicon & Coverage, Dictation, Shadowing, Sentence Mining, Dictionary Peek)
 ├── 7. Media, Audio & TTS (Pocket TTS, Sherpa-ONNX, Fal.ai cloning, Souvlaki OS media keys, Hands-Free Study)
@@ -105,8 +105,8 @@ Plethora Product Domains
 | :--- | :--- | :--- | :--- | :--- |
 | `scheduler.fsrs` | FSRS-6 Modern Spaced Repetition| Implemented | `fsrs = "5.2"`, `ts-fsrs`, `fsrsParameters.ts` | 19-parameter Free Spaced Repetition Scheduler with desired retention target (default 90%). |
 | `scheduler.adaptive` | Plethora 18 Algorithm | Implemented | `adaptive.rs` (212KB), `adaptive_data.rs` | Full Plethora 18 engine: 3D Stability Increase (SInc) matrix, D-Factor, Retrievability calculation. |
-| `scheduler.precision.arena` | Plethora Precision Algorithm Arena | Implemented | `precision/`, `ArenaChoiceRail.tsx` | Head-to-head algorithm comparisons, coach advice, and post-grade algorithm selection. |
-| `scheduler.precision.postpone`| Plethora Precision Postpone Engine | Implemented | `postpone.rs`, `postpone_engine` | Algorithmic workload management postponing low-priority items while preserving stability. |
+| `scheduler.precision.arena` | SM-20 Algorithm Arena | Implemented | `precision/`, `ArenaChoiceRail.tsx` | Head-to-head algorithm comparisons, coach advice, and post-grade algorithm selection. |
+| `scheduler.precision.postpone`| SM-20 Postpone Engine | Implemented | `postpone.rs`, `postpone_engine` | Algorithmic workload management postponing low-priority items while preserving stability. |
 | `scheduler.scoped_params`| Scoped FSRS Overrides | Implemented | `settingsStore.ts` (`scopedFsrsOverrides`) | Per-deck and per-tag retention targets and custom FSRS weight overrides. |
 | `scheduler.load_balancing`| Queue Load Management | Implemented | `queue_load_management` | Easy Days scheduling, load smoothing across weeks, and advance review batching. |
 
@@ -661,6 +661,6 @@ A dedicated regression test suite (`src/features/help/__tests__/retrievalQuality
 1. **Exact Feature Lookups**: "Where is TTS speed?", "How to turn on E-ink mode?" (Must resolve zero-LLM with action button).
 2. **Colloquial Synonyms**: "AirPods buttons", "read aloud follow along", "reappearing articles" (Must retrieve correct feature IDs).
 3. **Contextual Vague Questions**: "Why isn't this scrolling?" (With `ttsActive=true`, must rank `tts.auto_scroll` #1).
-4. **"Why" Inquiries**: "Why did my queue item come back?", "Why is Plethora Adaptive interval shorter?" (Must cite `## Rationale`).
+4. **"Why" Inquiries**: "Why did my queue item come back?", "Why is SM-18 interval shorter?" (Must cite `## Rationale`).
 5. **Non-Existent Features**: "Can Plethora sync via Bluetooth with Plethora 19?" (Must return `evidenceLevel: "none"` without hallucination).
 6. **Multi-Feature Interaction**: "How does E-ink mode affect TTS auto-scrolling?" (Must retrieve both `platform.eink` and `tts.auto_scroll`).

@@ -10,7 +10,7 @@ The system SHALL provide a centralized hook (`useHelpAppContext`) that extracts 
 ### Requirement: Contextual "Why?" explainability actions
 The application SHALL surface contextual "Why?" / "Explain this" trigger actions in key UI locations:
 1. **Reading Queue items**: "Why is this item due today?" / "Why did this item return?"
-2. **Review Arena / Grading**: "Why is this interval 21 days?" / "Why did Plethora Precision select this priority?"
+2. **Review Arena / Grading**: "Why is this interval 21 days?" / "Why did SM-20 select this priority?"
 3. **Reader & TTS**: "Why did TTS pause?" / "Why isn't auto-scroll moving?"
 4. **Settings panels**: "Why is this setting recommended?"
 
