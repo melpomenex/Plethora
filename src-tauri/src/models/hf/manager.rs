@@ -1167,18 +1167,28 @@ async fn download_artifact_files(
 /// native runtimes as untrusted input). Whisper ggml models are not gated this
 /// hard (they are not parsed by onnxruntime).
 fn ensure_sherpa_hash_pinned(runtime: HfRuntime, specs: &[DownloadSpec]) -> Result<()> {
-    if matches!(
+    let requires_hash = matches!(
         runtime,
         HfRuntime::SherpaOnnxStt
             | HfRuntime::SherpaOnnxTts
             | HfRuntime::NemotronAsr
             | HfRuntime::LayaDecision
-    ) && specs.iter().any(|s| s.expected_sha.is_none())
-    {
+    );
+    if !requires_hash {
+        return Ok(());
+    }
+
+    let missing: Vec<&str> = specs
+        .iter()
+        .filter(|spec| spec.expected_sha.is_none())
+        .map(|spec| spec.rel.as_str())
+        .collect();
+    if !missing.is_empty() {
         return Err(anyhow!(
             "Refusing to install: the repository does not publish a SHA-256 for \
-             every artifact, so the download cannot be integrity-verified. Only \
-             hash-pinned models are installable for this runtime."
+             every artifact (missing: {}). The download cannot be integrity-verified. \
+             Only hash-pinned models are installable for this runtime.",
+            missing.join(", ")
         ));
     }
     Ok(())

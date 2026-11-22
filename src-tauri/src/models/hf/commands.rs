@@ -372,11 +372,12 @@ pub async fn hf_install_model(
     runtime: String,
     artifact_kind: String,
     expected_sha256: Option<String>,
+    expected_tokenizer_sha256: Option<String>,
 ) -> Result<InstalledHfModel> {
     let parsed: RepoInput = parse_repo_input(&repo_input)?;
     let runtime = parse_runtime_arg(&runtime)?;
 
-    let target: InstallTarget =
+    let mut target: InstallTarget =
         if is_pinned_nemotron_repo(&parsed.repo_id) && runtime == HfRuntime::NemotronAsr {
             resolve_pinned_nemotron_install_target(&app_handle)
                 .await
@@ -391,37 +392,73 @@ pub async fn hf_install_model(
                 .map_err(|e| PlethoraError::Internal(e.to_string()))?
         };
 
-    // Catalog downloads can pin the expected weight digest in addition to the
-    // immutable Hub revision. Compare it with the LFS digest before any bytes
-    // are downloaded; the downloader then verifies the same digest on disk.
-    if let Some(expected_sha256) = expected_sha256.as_deref() {
+    // Catalog downloads pin both the weights and tokenizer to the immutable
+    // Hub revision. Some tokenizer files are ordinary Git blobs, so the Hub
+    // does not publish an LFS SHA for them; in that case the catalog's digest
+    // becomes the downloader's expected hash. When Hub metadata does publish a
+    // digest, it must agree with the catalog before any bytes are downloaded.
+    let expected_digests = [
+        ("model.safetensors", expected_sha256.as_deref()),
+        (
+            "tokenizer/tokenizer.json",
+            expected_tokenizer_sha256.as_deref(),
+        ),
+    ];
+    if expected_digests.iter().any(|(_, expected)| expected.is_some()) {
         if runtime != HfRuntime::LayaDecision {
             return Err(PlethoraError::Validation(
                 "An expected model digest is only supported for Laya downloads.".into(),
             ));
         }
-        let actual_sha256 = target
-            .artifact
-            .files
-            .iter()
-            .find(|file| file.path.ends_with(".safetensors"))
-            .and_then(|file| {
-                file.sha256.as_deref().or_else(|| {
-                    target
-                        .file_metadata
-                        .get(&file.path)
-                        .and_then(|metadata| metadata.sha256.as_deref())
-                })
-            });
-        if !actual_sha256
-            .map(|actual| actual.eq_ignore_ascii_case(expected_sha256))
-            .unwrap_or(false)
-        {
-            return Err(PlethoraError::Validation(format!(
-                "Laya checkpoint integrity check failed: expected SHA-256 {}, but the Hugging Face revision reports {}.",
-                expected_sha256,
-                actual_sha256.unwrap_or("no SHA-256")
-            )));
+        if expected_digests.iter().any(|(_, expected)| expected.is_none()) {
+            return Err(PlethoraError::Validation(
+                "Pinned Laya downloads require hashes for both weights and tokenizer.".into(),
+            ));
+        }
+
+        for (path, expected_sha256) in expected_digests {
+            let Some(expected_sha256) = expected_sha256 else {
+                continue;
+            };
+            if expected_sha256.len() != 64
+                || !expected_sha256.bytes().all(|byte| byte.is_ascii_hexdigit())
+            {
+                return Err(PlethoraError::Validation(format!(
+                    "Pinned Laya digest for {path} is not a SHA-256."
+                )));
+            }
+            let actual_sha256 = target
+                .artifact
+                .files
+                .iter()
+                .find(|file| file.path == path)
+                .and_then(|file| {
+                    file.sha256.as_deref().or_else(|| {
+                        target
+                            .file_metadata
+                            .get(path)
+                            .and_then(|metadata| metadata.sha256.as_deref())
+                    })
+                });
+            if let Some(actual_sha256) = actual_sha256 {
+                if !actual_sha256.eq_ignore_ascii_case(expected_sha256) {
+                    return Err(PlethoraError::Validation(format!(
+                        "Laya checkpoint integrity check failed for {path}: expected SHA-256 {}, but the Hugging Face revision reports {}.",
+                        expected_sha256, actual_sha256
+                    )));
+                }
+            }
+            let Some(file) = target
+                .artifact
+                .files
+                .iter_mut()
+                .find(|file| file.path == path)
+            else {
+                return Err(PlethoraError::Validation(format!(
+                    "Pinned Laya artifact is missing {path}."
+                )));
+            };
+            file.sha256 = Some(expected_sha256.to_string());
         }
     }
 

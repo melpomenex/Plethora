@@ -298,6 +298,11 @@ async fn fetch_repo_info_from_base(
     if let Some(rev) = revision.filter(|r| !r.is_empty() && *r != "main") {
         url.push_str(&format!("/revision/{}", url_encode(rev)));
     }
+    // Ask the Hub for sibling sizes and LFS SHA-256 metadata up front. The
+    // default response only lists paths; probing `/raw` for a large Xet-backed
+    // JSON file can otherwise fetch its entire contents without revealing a
+    // digest.
+    url.push_str("?blobs=true");
     let response = client.get(&url).send().await?;
     if response.status() == reqwest::StatusCode::NOT_FOUND {
         return Err(anyhow!(
@@ -568,7 +573,6 @@ pub async fn build_file_index(
                 || lower.ends_with(".gguf")
                 || lower.ends_with(".safetensors")
                 || lower.ends_with(".bin")
-                || lower.ends_with(".json")
                 || lower == "tokens.txt"
                 || lower == "lexicon.txt"
                 || lower == "voices.bin"

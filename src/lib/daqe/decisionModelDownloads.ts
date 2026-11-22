@@ -12,8 +12,9 @@
  *
  * `src-tauri/src/models/hf/security.md` fails closed on artifacts whose integrity
  * is not pinned. A free-text Hugging Face id would let a user route around that
- * gate by typing any repository. The list below pins each Hugging Face commit
- * and weight digest; the installer re-verifies the digest before installing.
+ * gate by typing any repository. The list below pins each Hugging Face commit,
+ * weight digest, and tokenizer digest; the installer re-verifies them before
+ * installing.
  *
  * The install path is the repository's existing one — the same
  * `useHfModelStore.install` that installs speech models, with the same resume,
@@ -32,6 +33,8 @@ export interface LayaCheckpoint {
   revision: string;
   /** Published SHA-256 of the primary model.safetensors weight file. */
   safetensorsSha256: string;
+  /** SHA-256 of tokenizer/tokenizer.json at the pinned revision. */
+  tokenizerSha256: string;
   /** What this checkpoint is for, for the picker. */
   noteKey?: string;
   /** Only a hint for the size line; the installer's real total wins. */
@@ -51,6 +54,7 @@ export const LAYA_CHECKPOINTS: readonly LayaCheckpoint[] = [
     repoId: "convaiinnovations/laya-typed-decisions",
     revision: "3903ff997712bd73ccb2dc879262dac8f0d443bb",
     safetensorsSha256: "4fa56de72383a9d3efa9cfa78955733c81b9fc8067a587ca4beb82c78107a24e",
+    tokenizerSha256: "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30",
     noteKey: "daqeDownload.typedDecision",
     approxBytes: 842_609_220,
   },
@@ -59,6 +63,7 @@ export const LAYA_CHECKPOINTS: readonly LayaCheckpoint[] = [
     repoId: "convaiinnovations/laya-multilingual",
     revision: "7888aeecb5e80bfde9952292c18de28e974eabc4",
     safetensorsSha256: "9d628fd971b700382ac6f65920a86f149777b2e748e0c955fb3b19695aa8f204",
+    tokenizerSha256: "609d8f4c067cd3950f88594c5a802616cea245823836ef5848ee4fc40aab5b6f",
     noteKey: "daqeDownload.multilingual",
     approxBytes: 643_835_514,
   },
@@ -67,6 +72,7 @@ export const LAYA_CHECKPOINTS: readonly LayaCheckpoint[] = [
     repoId: "convaiinnovations/laya",
     revision: "fd4f9dbcf4fde222fd43174bdd4c3b08b789e4e1",
     safetensorsSha256: "891102d372688fc2a094dac56a384bc537b87c63f21f9f3dac0be2b7cbc8d86c",
+    tokenizerSha256: "6c8aaa9a542084f2457eab775d4eeb51f92a70c0fd9de28d5edb0ddec3c08d30",
     noteKey: "daqeDownload.english",
     approxBytes: 842_609_210,
   },
@@ -101,6 +107,7 @@ export async function installLayaCheckpoint(input: {
     runtime: HfRuntime,
     artifactKind: string,
     expectedSha256?: string,
+    expectedTokenizerSha256?: string,
   ) => Promise<InstalledHfModel>;
 }): Promise<InstalledHfModel | null> {
   const { checkpoint, install } = input;
@@ -110,6 +117,7 @@ export async function installLayaCheckpoint(input: {
       checkpoint.runtime,
       "laya-decision",
       checkpoint.safetensorsSha256,
+      checkpoint.tokenizerSha256,
     );
   } catch {
     // A failed install must not take the settings panel down with it. The store
