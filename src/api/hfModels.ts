@@ -15,8 +15,8 @@ export type HfRuntime =
   | "whistle-stt"
   /**
    * Laya typed-decision checkpoint. Fetched and verified by Plethora, then served
-   * by a `laya-serve` the user runs — DAQE reaches it over the System One HTTP
-   * endpoint rather than loading it in a bundled engine.
+   * by Plethora's managed `laya-serve` or a configured local endpoint — DAQE
+   * reaches it over System One HTTP rather than loading it in a bundled engine.
    */
   | "laya-decision";
 export type SherpaSttFamily = "nemo-ctc" | "sense-voice" | "zipformer" | "paraformer";

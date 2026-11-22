@@ -13,8 +13,9 @@
  * `src-tauri/src/models/hf/security.md` fails closed on artifacts whose integrity
  * is not pinned. A free-text Hugging Face id would let a user route around that
  * gate by typing any repository. The list below pins each Hugging Face commit,
- * weight digest, and tokenizer digest; the installer re-verifies them before
- * installing.
+ * weight digest, and tokenizer digest; the installer re-verifies those files.
+ * The DAQE checkpoint also has fixed hashes for the config files its local
+ * server needs.
  *
  * The install path is the repository's existing one — the same
  * `useHfModelStore.install` that installs speech models, with the same resume,

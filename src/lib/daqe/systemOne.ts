@@ -9,7 +9,7 @@
  * | Product | Base URL | Auth |
  * | --- | --- | --- |
  * | Jev (TypeSafe, hosted) | `https://jevmodel.org` | `Authorization: Bearer sk-…` |
- * | Laya (Convai, Apache 2.0) | your `laya-serve`, default `:8000` | bearer, optional |
+ * | Laya (Convai, Apache 2.0) | local `laya-serve`, default `:8000` | bearer, optional |
  * | Clef (Cloudflare, Apache 2.0) | Workers AI, provider-specific | provider-specific |
  * | OpenRouter `decisions` | `https://openrouter.ai/api/v1` | `Authorization: Bearer …` |
  *

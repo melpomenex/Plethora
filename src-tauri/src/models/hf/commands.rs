@@ -6,6 +6,7 @@ use super::hf_client::{
     build_file_index, clean_revision, fetch_repo_info, hf_metadata_client, params_millions,
     parse_repo_input, repo_display_name, HfFile, RepoInput,
 };
+use super::laya_catalog::{TYPED_DECISIONS_FILES, TYPED_DECISIONS_REPO, TYPED_DECISIONS_REVISION};
 use super::manager::{
     app_data_dir, install, install_dir_for, is_pinned_nemotron_repo, is_pinned_whistle_repo,
     model_id_for, nemotron_asr_catalog_entry, registry_list, resolve_install_target,
@@ -404,13 +405,19 @@ pub async fn hf_install_model(
             expected_tokenizer_sha256.as_deref(),
         ),
     ];
-    if expected_digests.iter().any(|(_, expected)| expected.is_some()) {
+    if expected_digests
+        .iter()
+        .any(|(_, expected)| expected.is_some())
+    {
         if runtime != HfRuntime::LayaDecision {
             return Err(PlethoraError::Validation(
                 "An expected model digest is only supported for Laya downloads.".into(),
             ));
         }
-        if expected_digests.iter().any(|(_, expected)| expected.is_none()) {
+        if expected_digests
+            .iter()
+            .any(|(_, expected)| expected.is_none())
+        {
             return Err(PlethoraError::Validation(
                 "Pinned Laya downloads require hashes for both weights and tokenizer.".into(),
             ));
@@ -459,6 +466,39 @@ pub async fn hf_install_model(
                 )));
             };
             file.sha256 = Some(expected_sha256.to_string());
+        }
+    }
+
+    // A complete typed-decisions checkpoint includes several small Git blobs
+    // for which the Hub API does not publish SHA-256 metadata. The reviewed
+    // commit has local pins for those files, so verify any Hub-provided digest
+    // and carry the catalog digest into the ordinary installer integrity gate.
+    if target.repo_id.eq_ignore_ascii_case(TYPED_DECISIONS_REPO)
+        && target.revision == TYPED_DECISIONS_REVISION
+    {
+        for (path, expected_sha256) in TYPED_DECISIONS_FILES {
+            let Some(file) = target
+                .artifact
+                .files
+                .iter_mut()
+                .find(|file| file.path == *path)
+            else {
+                return Err(PlethoraError::Validation(format!(
+                    "Pinned Laya checkpoint is missing {path}."
+                )));
+            };
+            let published = file.sha256.as_deref().or_else(|| {
+                target
+                    .file_metadata
+                    .get(*path)
+                    .and_then(|metadata| metadata.sha256.as_deref())
+            });
+            if published.is_some_and(|digest| !digest.eq_ignore_ascii_case(expected_sha256)) {
+                return Err(PlethoraError::Validation(format!(
+                    "Laya checkpoint integrity metadata changed for {path}."
+                )));
+            }
+            file.sha256 = Some((*expected_sha256).to_string());
         }
     }
 

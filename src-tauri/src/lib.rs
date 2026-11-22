@@ -30,6 +30,7 @@ mod audio_lifecycle;
 mod integrations;
 mod ipc_compat;
 mod kindle_clippings;
+mod laya_runtime;
 mod legacy_data;
 pub mod linux_runtime;
 mod mcp;
@@ -2564,6 +2565,9 @@ pub fn run() {
             commands::update_ocr_config,
             commands::nougat_runtime_status,
             commands::nougat_install_managed_runtime,
+            laya_runtime::laya_server_status,
+            laya_runtime::laya_server_start,
+            laya_runtime::laya_server_stop,
             commands::glm_runtime_status,
             commands::glm_download_ollama_installer,
             commands::glm_open_installer,
@@ -2894,6 +2898,9 @@ pub fn run() {
         .run(|app_handle, event| {
             external_open::on_run_event(&app_handle, &event);
             sync::scheduler::on_run_event(&event);
+            if matches!(&event, tauri::RunEvent::Exit) {
+                laya_runtime::stop_on_exit();
+            }
             audio_lifecycle::on_run_event(&app_handle, &event);
         });
 }

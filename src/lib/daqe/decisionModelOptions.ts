@@ -18,7 +18,7 @@
  *   API key; without one it is unreachable, so the option reports that.
  * - **Laya** — Convai Innovations, Apache 2.0, ~0.4B params. The only one that can
  *   run on your own machine, either from downloaded weights or from a
- *   `laya-serve` instance you start.
+ *   local `laya-serve` instance managed by Plethora or started separately.
  * - **Clef** — Cloudflare, Apache 2.0, open weights, served on Workers AI. Needs a
  *   Cloudflare API token and account id.
  * - **OpenRouter decisions** — `liquid/d1`, `upstage/solar-decide`,

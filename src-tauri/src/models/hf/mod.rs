@@ -11,6 +11,7 @@ pub mod adapters;
 pub mod commands;
 pub mod downloader;
 pub mod hf_client;
+pub mod laya_catalog;
 pub mod manager;
 pub mod suitability;
 pub mod system_info;

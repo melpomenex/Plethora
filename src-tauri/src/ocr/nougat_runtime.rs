@@ -156,13 +156,19 @@ async fn run_checked(command: &mut Command, label: &str) -> Result<()> {
     )))
 }
 
-async fn download_verified_installer(app_handle: &AppHandle, root: &Path) -> Result<PathBuf> {
-    emit_progress(
-        app_handle,
-        "downloading-installer",
-        5,
-        "Downloading the managed runtime installer…",
-    );
+async fn download_verified_installer(
+    app_handle: &AppHandle,
+    root: &Path,
+    report_nougat_progress: bool,
+) -> Result<PathBuf> {
+    if report_nougat_progress {
+        emit_progress(
+            app_handle,
+            "downloading-installer",
+            5,
+            "Downloading the managed runtime installer…",
+        );
+    }
 
     let installer_dir = root.join("installers");
     tokio::fs::create_dir_all(&installer_dir)
@@ -268,13 +274,20 @@ async fn download_verified_installer(app_handle: &AppHandle, root: &Path) -> Res
     Ok(installer_path)
 }
 
-async fn install_uv(app_handle: &AppHandle, root: &Path, installer_path: &Path) -> Result<PathBuf> {
-    emit_progress(
-        app_handle,
-        "installing-manager",
-        15,
-        "Installing the isolated runtime manager…",
-    );
+async fn install_uv(
+    app_handle: &AppHandle,
+    root: &Path,
+    installer_path: &Path,
+    report_nougat_progress: bool,
+) -> Result<PathBuf> {
+    if report_nougat_progress {
+        emit_progress(
+            app_handle,
+            "installing-manager",
+            15,
+            "Installing the isolated runtime manager…",
+        );
+    }
     let uv_dir = root.join("uv");
     tokio::fs::create_dir_all(&uv_dir).await.map_err(|error| {
         PlethoraError::Internal(format!(
@@ -312,6 +325,48 @@ async fn install_uv(app_handle: &AppHandle, root: &Path, installer_path: &Path) 
     Ok(uv_binary)
 }
 
+/// Reuse the checksum-pinned uv bootstrap for another managed Python runtime.
+///
+/// `root` owns the uv executable, installer cache and Python cache for the
+/// caller. Keeping this bootstrap here avoids introducing a second trust path
+/// for installing Python into Plethora's app-data directory.
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+pub async fn ensure_managed_uv(app_handle: &AppHandle, root: &Path) -> Result<PathBuf> {
+    tokio::fs::create_dir_all(root).await.map_err(|error| {
+        PlethoraError::Internal(format!(
+            "Failed to create the managed Python runtime directory: {error}"
+        ))
+    })?;
+    let uv_binary = managed_uv_binary(root);
+    if tokio::fs::try_exists(&uv_binary).await.unwrap_or(false)
+        && Command::new(&uv_binary)
+            .arg("--version")
+            .output()
+            .await
+            .is_ok_and(|output| output.status.success())
+    {
+        return Ok(uv_binary);
+    }
+
+    let installer_path = download_verified_installer(app_handle, root, false)
+        .await
+        .map_err(|error| {
+            PlethoraError::Internal(error.to_string().replace("Nougat", "managed runtime"))
+        })?;
+    install_uv(app_handle, root, &installer_path, false)
+        .await
+        .map_err(|error| {
+            PlethoraError::Internal(error.to_string().replace("Nougat", "managed runtime"))
+        })
+}
+
+#[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+pub async fn ensure_managed_uv(_app_handle: &AppHandle, _root: &Path) -> Result<PathBuf> {
+    Err(PlethoraError::Internal(
+        "Managed Python runtimes are available on desktop only".to_string(),
+    ))
+}
+
 fn configure_uv_command(command: &mut Command, root: &Path) {
     command
         .env("UV_CACHE_DIR", root.join("cache"))
@@ -332,8 +387,8 @@ pub async fn install_managed_nougat(app_handle: AppHandle) -> Result<NougatRunti
         ))
     })?;
 
-    let installer_path = download_verified_installer(&app_handle, &root).await?;
-    let uv_binary = install_uv(&app_handle, &root, &installer_path).await?;
+    let installer_path = download_verified_installer(&app_handle, &root, true).await?;
+    let uv_binary = install_uv(&app_handle, &root, &installer_path, true).await?;
 
     emit_progress(
         &app_handle,

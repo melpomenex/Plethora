@@ -15,6 +15,7 @@
 //! estimate.
 
 use super::hf_client::{file_name, FileIndex, HfRepoInfo};
+use super::laya_catalog::{TYPED_DECISIONS_FILES, TYPED_DECISIONS_REPO, TYPED_DECISIONS_REVISION};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -33,8 +34,8 @@ pub enum HfRuntime {
     /// online (streaming) sidecar as a split transducer (ONNX artifact).
     NemotronAsr,
     /// Laya typed-decision checkpoint (safetensors). Not executed in-process:
-    /// DAQE drives it through its System One HTTP endpoint, so the only job here
-    /// is to fetch and verify the weights a `laya-serve` will load.
+    /// DAQE drives it through its System One HTTP endpoint, so this adapter
+    /// fetches and verifies the complete checkpoint a `laya-serve` will load.
     LayaDecision,
     /// Cactus Whistle STT model (needle engine, .cact format).
     WhistleStt,
@@ -131,9 +132,9 @@ pub enum RunContract {
     /// Weights served by an out-of-process endpoint rather than a bundled engine.
     ///
     /// Added for Laya: the checkpoint is fetched and verified by Plethora, then
-    /// served by a `laya-serve` the user runs. Carrying no engine-relative paths
-    /// is deliberate — `paths_contained()` has nothing to check, which is the
-    /// safe outcome rather than an unchecked one.
+    /// served by Plethora's managed `laya-serve` or a user-configured endpoint.
+    /// Carrying no engine-relative paths is deliberate — `paths_contained()`
+    /// has nothing to check, which is the safe outcome rather than an unchecked one.
     ExternalEndpoint {
         endpoint_kind: String,
     },
@@ -1149,8 +1150,37 @@ impl RuntimeAdapter for LayaDecisionAdapter {
         // accidentally pair its English weights with a multilingual tokenizer.
         let tokenizer = laya_checkpoint_file(index, weights, "tokenizer.json")?;
         files.push(artifact_file(index, tokenizer));
+
+        // The DAQE-compatible checkpoint needs its config and encoder files as
+        // well as the weights/tokenizer. Pin every byte to the reviewed Hub
+        // revision so `laya-serve` can load the installed directory offline.
+        if info.id.eq_ignore_ascii_case(TYPED_DECISIONS_REPO)
+            && info.sha.as_deref() == Some(TYPED_DECISIONS_REVISION)
+        {
+            for (path, digest) in TYPED_DECISIONS_FILES {
+                if files.iter().any(|file| file.path == *path) {
+                    continue;
+                }
+                if !index_contains(index, path) {
+                    return None;
+                }
+                let mut file = artifact_file(index, (*path).to_string());
+                if file
+                    .sha256
+                    .as_deref()
+                    .is_some_and(|published| !published.eq_ignore_ascii_case(digest))
+                {
+                    return None;
+                }
+                file.sha256 = Some((*digest).to_string());
+                files.push(file);
+            }
+        }
         for optional in ["tokenizer_config.json", "special_tokens_map.json"] {
             if let Some(path) = laya_checkpoint_file(index, weights, optional) {
+                if files.iter().any(|file| file.path == path) {
+                    continue;
+                }
                 // Laya uses the same fail-closed SHA gate as ONNX downloads.
                 // Keep optional metadata only when the Hub publishes a SHA for
                 // it; ordinary small Git files have no LFS digest to verify.
@@ -1189,10 +1219,13 @@ impl RuntimeAdapter for LayaDecisionAdapter {
 /// in its directory or in that directory's `tokenizer/` child.
 fn laya_checkpoint_file(index: &FileIndex, weights: &str, name: &str) -> Option<String> {
     let checkpoint_dir = Path::new(weights).parent().unwrap_or_else(|| Path::new(""));
-    [checkpoint_dir.join(name), checkpoint_dir.join("tokenizer").join(name)]
-        .into_iter()
-        .map(|path| path.to_string_lossy().into_owned())
-        .find(|path| index_contains(index, path))
+    [
+        checkpoint_dir.join(name),
+        checkpoint_dir.join("tokenizer").join(name),
+    ]
+    .into_iter()
+    .map(|path| path.to_string_lossy().into_owned())
+    .find(|path| index_contains(index, path))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
