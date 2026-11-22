@@ -436,8 +436,10 @@ async fn ensure_laya_package(app: &AppHandle, root: &Path) -> Result<PathBuf> {
     };
     if !python_ok {
         let mut command = Command::new(&uv);
+        // `configure_uv` sets `UV_PYTHON_PREFERENCE=only-managed`; passing
+        // `--managed-python` as well makes uv reject the duplicate preference.
         command
-            .args(["venv", "--python", "3.11", "--managed-python"])
+            .args(["venv", "--python", "3.11"])
             .arg(root.join("venv"));
         configure_uv(&mut command, root);
         run_checked(&mut command, "Python 3.11 setup").await?;
