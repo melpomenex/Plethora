@@ -424,7 +424,7 @@ function refreshContextMenus() {
 chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   switch (info.menuItemId) {
     case 'save-page':
-      await saveCurrentTab();
+      await saveCurrentTab(tab);
       break;
 
     case 'save-link':
@@ -1294,6 +1294,7 @@ async function saveCurrentTab(passedTab) {
 
     if (!tab || isInternalUrl(tab.url)) {
       console.error('[DEBUG] Cannot save - internal URL or no tab');
+      await sendInPageToast(tab?.id, false, 'Cannot save internal browser pages');
       return { success: false, error: 'Cannot save internal browser pages' };
     }
 
@@ -1303,7 +1304,13 @@ async function saveCurrentTab(passedTab) {
       await sendInPageToast(
         tab.id,
         true,
-        result.degraded ? result.message : 'Page saved to Plethora!'
+        (result.degraded || result.queued) ? result.message : 'Page saved to Plethora!'
+      );
+    } else {
+      await sendInPageToast(
+        tab.id,
+        false,
+        result.error ? `Failed to save page: ${result.error}` : 'Failed to save page'
       );
     }
 
@@ -1545,7 +1552,46 @@ async function capturePageContentFallback(tabId) {
   }
 }
 
+async function fetchLinkHtmlFallback(url) {
+  if (!url || (!url.startsWith('http://') && !url.startsWith('https://'))) {
+    return null;
+  }
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 5000);
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      credentials: 'include',
+      signal: controller.signal
+    });
+    if (!response.ok) return null;
+    const contentType = (response.headers.get('content-type') || '').toLowerCase();
+    if (!contentType.includes('text/html') && !contentType.includes('application/xhtml+xml')) {
+      return null;
+    }
+    const html = await response.text();
+    if (!html || html.length > 2 * 1024 * 1024) {
+      return null;
+    }
+    const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
+    const extractedTitle = titleMatch ? titleMatch[1].replace(/\s+/g, ' ').trim() : '';
+    return {
+      html_content: html,
+      title: extractedTitle
+    };
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function saveLink(url, sourceTabId, linkText) {
+  if (!url || isInternalUrl(url)) {
+    await sendInPageToast(sourceTabId, false, 'Cannot save internal browser link');
+    return { success: false, error: 'Cannot save internal browser link' };
+  }
+
   // Resolve a title without opening a tab — use link text or hostname
   let fallbackTitle = '';
   try {
@@ -1555,22 +1601,63 @@ async function saveLink(url, sourceTabId, linkText) {
   }
 
   const resolvedLinkText = typeof linkText === 'string' ? linkText.trim() : '';
-  const title = resolvedLinkText || fallbackTitle;
+  let title = resolvedLinkText || fallbackTitle;
+
+  if (globalThis.IncrementumExtensionShared?.isXStatusURL?.(url)) {
+    const result = await saveXThreadCapture(url, title, sourceTabId);
+    if (result.success) {
+      await sendInPageToast(
+        sourceTabId,
+        true,
+        result.queued ? result.message : 'Thread sent to Plethora!'
+      );
+    }
+    return result;
+  }
+
+  const fetched = await fetchLinkHtmlFallback(url);
+  if (fetched?.title && !resolvedLinkText) {
+    title = fetched.title;
+  }
+
+  const payload = {
+    url,
+    title,
+    text: '',
+    html_content: fetched?.html_content,
+    type: 'page'
+  };
 
   try {
-    const result = await sendToIncrementum({
-      url,
-      title,
-      text: '',
-      type: 'page'
-    });
-    const msg = result.success ? 'Link sent to Plethora!' : 'Failed to save link';
+    const result = await sendToIncrementum(payload);
+    if (!result.success && isRetryableConnectionError(result)) {
+      const queuedItem = await queueExtractForSync(payload);
+      const queuedMsg = 'Link cached and will sync when Plethora is available.';
+      await sendInPageToast(sourceTabId, true, queuedMsg);
+      return {
+        success: true,
+        queued: true,
+        queueId: queuedItem.queueId,
+        message: queuedMsg
+      };
+    }
+
+    const msg = result.success
+      ? (result.degraded ? result.message : 'Link sent to Plethora!')
+      : (result.error ? `Failed to save link: ${result.error}` : 'Failed to save link');
     await sendInPageToast(sourceTabId, result.success, msg);
     return result;
   } catch (error) {
     console.error('[DEBUG] Error in saveLink:', error);
-    await sendInPageToast(sourceTabId, false, 'Failed to save link — server unreachable');
-    return { success: false, error: error.message };
+    const queuedItem = await queueExtractForSync(payload);
+    const queuedMsg = 'Link cached and will sync when Plethora is available.';
+    await sendInPageToast(sourceTabId, true, queuedMsg);
+    return {
+      success: true,
+      queued: true,
+      queueId: queuedItem.queueId,
+      message: queuedMsg
+    };
   }
 }
 
@@ -1846,8 +1933,19 @@ async function sendInPageToast(tabId, success, message, options = {}) {
   if (!ENABLE_NOTIFICATIONS) {
     return;
   }
+  const showNativeNotification = () => {
+    if (chrome.notifications) {
+      chrome.notifications.create({
+        type: 'basic',
+        iconUrl: 'icons/icon48.png',
+        title: 'Plethora',
+        message: message
+      });
+    }
+  };
+
   try {
-    if (tabId) {
+    if (tabId && tabId > 0) {
       await safeSendTabMessage(tabId, {
         action: 'showSaveIndicator',
         text: message,
@@ -1857,18 +1955,11 @@ async function sendInPageToast(tabId, success, message, options = {}) {
         actionUrl: options.actionUrl
       });
     } else {
-      // Fallback to native notification when no tab context is available
-      if (chrome.notifications) {
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/icon48.png',
-          title: 'Plethora',
-          message: message
-        });
-      }
+      showNativeNotification();
     }
   } catch (error) {
     console.error('[DEBUG] Could not send in-page toast:', error.message);
+    showNativeNotification();
   }
 }
 
