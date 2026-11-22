@@ -930,8 +930,9 @@ pub async fn run_palette_search(
         }
     }
 
-    // 4. Extracts FTS
+    // 4. Extracts FTS (+ page_title match fallback)
     if include_extracts {
+        let mut seen_extract_ids: HashSet<String> = HashSet::new();
         let mut ext_qb: QueryBuilder<'_, Sqlite> = QueryBuilder::new(
             "SELECT e.id, e.document_id, e.page_title, e.page_number, e.category, e.tags,
                     e.date_created, e.date_modified, d.title AS doc_title,
@@ -950,6 +951,9 @@ pub async fn run_palette_search(
         if let Ok(rows) = ext_qb.build().fetch_all(repo.pool()).await {
             for row in rows {
                 let ext_id: String = row.try_get("id").unwrap_or_default();
+                if ext_id.is_empty() || !seen_extract_ids.insert(ext_id.clone()) {
+                    continue;
+                }
                 let doc_id: String = row.try_get("document_id").unwrap_or_default();
                 let page_title: Option<String> = row.try_get("page_title").ok().flatten();
                 let page_number: Option<i32> = row.try_get("page_number").ok().flatten();
@@ -963,8 +967,30 @@ pub async fn run_palette_search(
 
                 let clean_snip = clean_fts_snippet(&snip_raw);
                 let title = page_title
+                    .clone()
                     .filter(|s| !s.trim().is_empty())
                     .unwrap_or(doc_title);
+                let mut score = 65.0 + (-rank).max(0.0);
+                if title.to_lowercase().contains(&query_lower) {
+                    score += 17.0;
+                }
+                let quote = if clean_snip.is_empty() {
+                    None
+                } else {
+                    plain_quote_from_snippet(&clean_snip)
+                };
+                let primary_hit = page_number.filter(|&p| p > 0).map(|p| {
+                    json!({
+                        "id": format!("extract-hit-{ext_id}"),
+                        "location": {
+                            "kind": "pdf",
+                            "pageNumber": p,
+                            "textQuote": quote,
+                        },
+                        "label": format!("Page {p}"),
+                        "excerptHtml": clean_snip,
+                    })
+                });
                 let tags: Vec<String> = serde_json::from_str(&tags_raw).unwrap_or_default();
 
                 standalone_items.push(PaletteSearchItem {
@@ -977,7 +1003,7 @@ pub async fn run_palette_search(
                     } else {
                         Some(clean_snip)
                     },
-                    score: 52.0 + (-rank).max(0.0),
+                    score,
                     document_id: Some(doc_id),
                     article_id: None,
                     feed_id: None,
@@ -991,10 +1017,120 @@ pub async fn run_palette_search(
                     transcript_match: false,
                     page_number,
                     timestamp_ms: None,
-                    primary_hit: None,
+                    primary_hit,
                     secondary_hits: Vec::new(),
                     scopes: vec!["documents".to_string()],
                 });
+            }
+        }
+
+        // Fallback LIKE search over page_title, content, and notes for substrings,
+        // underscore tokens, HTML-split text, or unindexed extracts.
+        let like_terms: Vec<String> = query_lower
+            .split_whitespace()
+            .filter(|t| !t.is_empty())
+            .take(8)
+            .map(|t| format!("%{t}%"))
+            .collect();
+        if !like_terms.is_empty() {
+            let mut ext_like_qb: QueryBuilder<'_, Sqlite> = QueryBuilder::new(
+                "SELECT e.id, e.document_id, e.page_title, e.page_number, e.category, e.tags,
+                        e.content, e.notes, e.date_created, e.date_modified, d.title AS doc_title
+                 FROM extracts e
+                 INNER JOIN documents d ON d.id = e.document_id
+                 WHERE 1=1",
+            );
+            for pat in &like_terms {
+                ext_like_qb.push(
+                    " AND (lower(COALESCE(e.page_title, '')) LIKE ",
+                );
+                ext_like_qb.push_bind(pat.clone());
+                ext_like_qb.push(" OR lower(COALESCE(e.content, '')) LIKE ");
+                ext_like_qb.push_bind(pat.clone());
+                ext_like_qb.push(" OR lower(COALESCE(e.notes, '')) LIKE ");
+                ext_like_qb.push_bind(pat.clone());
+                ext_like_qb.push(")");
+            }
+            push_document_filters(&mut ext_like_qb, "d", &query);
+            ext_like_qb.push(" LIMIT ");
+            ext_like_qb.push_bind(branch_limit);
+
+            if let Ok(rows) = ext_like_qb.build().fetch_all(repo.pool()).await {
+                for row in rows {
+                    let ext_id: String = row.try_get("id").unwrap_or_default();
+                    if ext_id.is_empty() || !seen_extract_ids.insert(ext_id.clone()) {
+                        continue;
+                    }
+                    let doc_id: String = row.try_get("document_id").unwrap_or_default();
+                    let page_title: Option<String> = row.try_get("page_title").ok().flatten();
+                    let page_number: Option<i32> = row.try_get("page_number").ok().flatten();
+                    let category: Option<String> = row.try_get("category").ok().flatten();
+                    let tags_raw: String = row.try_get("tags").unwrap_or_else(|_| "[]".to_string());
+                    let content: String = row.try_get("content").unwrap_or_default();
+                    let notes: String = row.try_get("notes").unwrap_or_default();
+                    let doc_title: String = row.try_get("doc_title").unwrap_or_default();
+                    let date_created: Option<String> = row.try_get("date_created").ok().flatten();
+                    let date_modified: Option<String> = row.try_get("date_modified").ok().flatten();
+
+                    let title = page_title
+                        .filter(|s| !s.trim().is_empty())
+                        .unwrap_or(doc_title);
+                    let plain_content = strip_html_blocks_and_tags(&content);
+                    let raw_excerpt = if !plain_content.trim().is_empty() {
+                        plain_content
+                    } else {
+                        notes
+                    };
+                    let excerpt_text: String =
+                        raw_excerpt.split_whitespace().collect::<Vec<_>>().join(" ");
+                    let excerpt = if excerpt_text.is_empty() {
+                        None
+                    } else {
+                        Some(excerpt_text.chars().take(180).collect::<String>())
+                    };
+                    let primary_hit = page_number.filter(|&p| p > 0).map(|p| {
+                        json!({
+                            "id": format!("extract-hit-{ext_id}"),
+                            "location": {
+                                "kind": "pdf",
+                                "pageNumber": p,
+                            },
+                            "label": format!("Page {p}"),
+                            "excerptHtml": excerpt,
+                        })
+                    });
+                    let tags: Vec<String> = serde_json::from_str(&tags_raw).unwrap_or_default();
+                    let score = if title.to_lowercase().contains(&query_lower) {
+                        80.0
+                    } else {
+                        65.0
+                    };
+
+                    standalone_items.push(PaletteSearchItem {
+                        id: ext_id,
+                        result_type: "extract".to_string(),
+                        result_kind: Some("extract".to_string()),
+                        title,
+                        excerpt,
+                        score,
+                        document_id: Some(doc_id),
+                        article_id: None,
+                        feed_id: None,
+                        episode_id: None,
+                        card_id: None,
+                        category,
+                        tags,
+                        file_type: None,
+                        date_added: date_created,
+                        date_modified,
+                        transcript_match: false,
+                        page_number,
+                        timestamp_ms: None,
+                        primary_hit,
+                        secondary_hits: Vec::new(),
+                        scopes: vec!["documents".to_string()],
+                    });
+                }
             }
         }
     }
@@ -1581,5 +1717,47 @@ mod tests {
             .items
             .iter()
             .any(|i| i.id == "card-1" && i.result_type == "flashcard"));
+
+        // Extracts search parity: content, notes, and page_title appear among other results
+        sqlx::query(
+            "INSERT INTO extracts (id, document_id, content, notes, page_title, page_number, date_created, date_modified)
+             VALUES ('ext-1', 'doc-yt-srch', '<p>Backpropagation through time unrolls recurrent layers.</p>', 'Key gradient note', 'BPTT Summary', 7, '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z')",
+        )
+        .execute(pool)
+        .await
+        .unwrap();
+
+        let ext_res = run_palette_search(
+            &repo,
+            PaletteSearchQuery {
+                query: "backpropagation".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("extract search among other results");
+        let ext_item = ext_res
+            .items
+            .iter()
+            .find(|i| i.id == "ext-1" && i.result_type == "extract")
+            .expect("extract ext-1 must be among palette search results");
+        assert_eq!(ext_item.title, "BPTT Summary");
+        assert_eq!(ext_item.page_number, Some(7));
+        assert!(ext_item.primary_hit.is_some());
+        assert!(ext_res.items.iter().any(|i| i.id == "card-1"));
+
+        let title_ext_res = run_palette_search(
+            &repo,
+            PaletteSearchQuery {
+                query: "BPTT Summary".to_string(),
+                ..Default::default()
+            },
+        )
+        .await
+        .expect("extract page_title search");
+        assert!(title_ext_res
+            .items
+            .iter()
+            .any(|i| i.id == "ext-1" && i.result_type == "extract"));
     }
 }
