@@ -257,10 +257,15 @@ fn push_document_filters<'a>(
     }
     if let Some(ref cid) = query.collection_id {
         if !cid.trim().is_empty() {
-            qb.push(" AND ");
+            qb.push(" AND (");
             qb.push(alias);
             qb.push(".collection_id = ");
             qb.push_bind(cid.trim().to_string());
+            qb.push(" OR ");
+            qb.push(alias);
+            qb.push(".collection_id IS NULL OR ");
+            qb.push(alias);
+            qb.push(".collection_id = '')");
         }
     }
     if let Some(ref cats) = query.categories {
