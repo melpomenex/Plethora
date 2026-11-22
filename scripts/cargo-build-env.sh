@@ -99,3 +99,36 @@ fi
 if [[ "${CARGO_PROFILE_RELEASE_CODEGEN_UNITS:-}" == "1" ]]; then
   export CARGO_PROFILE_RELEASE_CODEGEN_UNITS=4
 fi
+
+# rustc writes large temporary artifacts (e.g. lib.rmeta) to TMPDIR. On hosts
+# where /tmp is a small or nearly-full tmpfs, redirect TMPDIR to the Cargo
+# target filesystem when it has more free space.
+plethora_configure_cargo_tmpdir() {
+  if [[ -n "${TMPDIR:-}" ]]; then
+    return
+  fi
+
+  local repo_root target_dir probe_dir tmp_avail target_avail min_kb
+  repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+  target_dir="${CARGO_TARGET_DIR:-$repo_root/src-tauri/target}"
+  probe_dir="$target_dir"
+  if [[ ! -d "$probe_dir" ]]; then
+    probe_dir="$(dirname "$target_dir")"
+  fi
+  if [[ ! -d "$probe_dir" || ! -d /tmp ]]; then
+    return
+  fi
+
+  tmp_avail="$(df -Pk /tmp 2>/dev/null | awk 'NR==2 { print $4 }')"
+  target_avail="$(df -Pk "$probe_dir" 2>/dev/null | awk 'NR==2 { print $4 }')"
+  min_kb=$(( 6 * 1024 * 1024 ))
+
+  if [[ "$tmp_avail" =~ ^[0-9]+$ && "$target_avail" =~ ^[0-9]+$ ]]; then
+    if (( tmp_avail < min_kb && target_avail > tmp_avail )); then
+      mkdir -p "$target_dir/.tmp"
+      export TMPDIR="$target_dir/.tmp"
+    fi
+  fi
+}
+
+plethora_configure_cargo_tmpdir

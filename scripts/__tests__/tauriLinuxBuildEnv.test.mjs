@@ -98,3 +98,17 @@ test("tauri-native-package.sh supports multi-platform bundle staging", () => {
   assert.match(source, /stage_profile_binary_for_bundle/);
   assert.match(source, /PLETHORA_ANDROID_BUILD/);
 });
+
+test("cargo build environment respects explicit TMPDIR", () => {
+  const output = execFileSync(
+    "bash",
+    [
+      "-c",
+      'export TMPDIR=/custom/tmp; source "$1"; printf "%s" "$TMPDIR"',
+      "cargo-build-env-test",
+      cargoBuildEnv,
+    ],
+    { cwd: repoRoot, encoding: "utf8" },
+  );
+  assert.equal(output, "/custom/tmp");
+});
