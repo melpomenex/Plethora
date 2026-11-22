@@ -76,7 +76,8 @@ interface ToolbarButton {
   label: string;
   shortcut: string;
   action: () => void;
-  backgroundAction?: () => void; // Action for middle-click (open in background)
+  splitAction?: () => void; // Action for middle-click (open in split screen)
+  backgroundAction?: () => void; // Action for context menu (open in background)
   disabled?: boolean;
   group: number;
 }
@@ -123,11 +124,11 @@ function ToolbarButtonItem({ button, orientation = "horizontal", expanded = fals
     useAudioEditionGenerationStore((state) => state.activeJobs.length > 0);
 
   const handleAuxClick = (e: React.MouseEvent) => {
-    // Middle-click (button 1)
-    if (e.button === 1 && button.backgroundAction) {
+    // Middle-click (button 1) opens the item in split screen
+    if (e.button === 1 && button.splitAction) {
       e.preventDefault();
       e.stopPropagation();
-      button.backgroundAction();
+      button.splitAction();
       (e.currentTarget as HTMLElement)?.blur?.();
     }
   };
@@ -187,6 +188,7 @@ interface ToolbarProps {
 export function Toolbar({ position = "top" }: ToolbarProps) {
   const addTab = useTabsStore((state) => state.addTab);
   const addTabInBackground = useTabsStore((state) => state.addTabInBackground);
+  const openTabInSplit = useTabsStore((state) => state.openTabInSplit);
   const openFilePickerAndImport = useDocumentStore((state) => state.openFilePickerAndImport);
   const loadDocuments = useDocumentStore((state) => state.loadDocuments);
   const setCommandPaletteOpen = useUIStore((state) => state.setCommandPaletteOpen);
@@ -196,6 +198,12 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
 
   const isVertical = position === "left" || position === "right";
   const [showUrlImportDialog, setShowUrlImportDialog] = useState(false);
+  const urlImportSplitRef = useRef(false);
+  const openTab = useCallback(
+    (tab: Parameters<typeof addTab>[0], inSplit = false) =>
+      inSplit ? openTabInSplit(tab) : addTab(tab),
+    [addTab, openTabInSplit],
+  );
   // User-configurable expanded rail width (Settings → Appearance → Display).
   // Only the expanded width is user-controlled; the collapsed rail stays at the
   // CSS default `--toolbar-rail-w` (3rem) so icons never shrink. Mobile shells
@@ -338,26 +346,27 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     }
   };
 
-  const handleImportFile = async () => {
+  const handleImportFile = async (inSplit = false) => {
     const imported = await openFilePickerAndImport();
     if (imported.length > 0) {
-      addTab({
+      openTab({
         title: imported[0].title,
         icon: <TextT className="w-4 h-4 text-muted-foreground" />,
         type: "document-viewer",
         content: DocumentViewer,
         closable: true,
         data: { documentId: imported[0].id },
-      });
+      }, inSplit);
     }
   };
 
-  const handleImportUrl = () => {
+  const handleImportUrl = (inSplit = false) => {
+    urlImportSplitRef.current = inSplit;
     setShowUrlImportDialog(true);
   };
 
   // Read Next button
-  const handleReadNext = async () => {
+  const handleReadNext = async (inSplit = false) => {
     try {
       const { loadQueue, loadDueDocumentsOnly, loadDueQueueItems } = useQueueStore.getState();
       switch (queueFilterMode) {
@@ -380,14 +389,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
         toast.info(t("toolbar.noItemsReady"), t("toolbar.noItemAvailable"));
         return;
       }
-      await openQueueItem(nextItem);
+      await openQueueItem(nextItem, inSplit);
     } catch (error) {
       toast.error(t("toolbar.readNextFailed"), error instanceof Error ? error.message : t("toolbar.couldNotOpenNext"));
     }
   };
 
   // Random Item button
-  const handleRandomItem = async () => {
+  const handleRandomItem = async (inSplit = false) => {
     try {
       const { loadQueue, loadDueDocumentsOnly, loadDueQueueItems } = useQueueStore.getState();
       switch (queueFilterMode) {
@@ -410,20 +419,20 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
         return;
       }
       const randomItem = queueItems[Math.floor(Math.random() * queueItems.length)];
-      await openQueueItem(randomItem);
+      await openQueueItem(randomItem, inSplit);
     } catch (error) {
       toast.error(t("toolbar.randomItemFailed"), error instanceof Error ? error.message : t("toolbar.couldNotOpenRandom"));
     }
   };
 
-  const handleStartReview = () => {
-    addTab({
+  const handleStartReview = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("tabs.review"),
       icon: <Brain className="w-4 h-4" />,
       type: "review",
       content: ReviewTab,
       closable: true,
-    });
+    }, inSplit);
   };
 
   const handleStartReviewBackground = () => {
@@ -437,83 +446,89 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   };
 
   // RSS button
-  const handleRss = () => {
-    addTab({
+  const handleRss = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.rss-feeds.b2e0b3bb"),
       icon: <Newspaper className="w-4 h-4" />,
       type: "rss",
       content: RSSReader,
       closable: true,
-    });
+    }, inSplit);
   };
 
-  const handlePodcast = () => {
-    addTab({
+  const handlePodcast = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.podcasts.8a64829c"),
       icon: <Headphones className="w-4 h-4" />,
       type: "podcast",
       content: PodcastTab,
       closable: true,
-    });
+    }, inSplit);
   };
 
-  const handleAudiobooks = () => {
-    addTab({
+  const handleAudiobooks = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.audiobooks.0104e6dd"),
       icon: <Headphones className="w-4 h-4" />,
       type: "audiobook",
       content: AudiobooksTab,
       closable: true,
-    });
+    }, inSplit);
   };
 
   // Dashboard button
-  const handleDashboard = () => {
-    addTab(createCanonicalTab("dashboard"));
+  const handleDashboard = (inSplit = false) => {
+    openTab(createCanonicalTab("dashboard"), inSplit);
   };
 
   const healthInsightsAvailable = usePlatformCapability("tab_learning_insights").available;
-  const handleStudyPlans = () => {
-    addTab(createCanonicalTab("study-plans"));
+  const handleStudyPlans = (inSplit = false) => {
+    openTab(createCanonicalTab("study-plans"), inSplit);
   };
 
-  const handleContinueReading = () => {
-    addTab({
+  const handleLearningInsights = (inSplit = false) => {
+    openTab(createCanonicalTab("learning-insights"), inSplit);
+  };
+
+  const handleContinueReading = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.continue-reading.25d33750"),
       icon: <Bookmarks className="w-4 h-4" />,
       type: "continue-reading",
       content: ContinueReadingTab,
       closable: true,
-    });
+    }, inSplit);
   };
 
-  const handleQueue = () => {
-    addTab({
+  const handleQueue = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.queue.cbc295a6"),
       icon: <Stack className="w-4 h-4" />,
       type: "queue",
       content: QueueTab,
       closable: true,
-    });
+    }, inSplit);
   };
 
-  const handleSavedQueues = () => {
+  const handleSavedQueues = (inSplit = false) => {
+    if (inSplit) {
+      handleQueue(true);
+      void requestDestinationAction({ destination: "queue", action: "manage" });
+      return;
+    }
     void executeCommand({ id: "manage-saved-queues", label: t("savedQueues.manageQueues"),
       action: () => requestDestinationAction({ destination: "queue", action: "manage" }) });
   };
 
-  // Dashboard is already the default tab, so middle-click doesn't make much sense
-  // But we'll still add the handler for consistency
-
   // Knowledge Graph button
-  const handleKnowledgeGraph = () => {
-    addTab({
+  const handleKnowledgeGraph = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.knowledge-graph.94c23b23"),
       icon: <Graph className="w-4 h-4" />,
       type: "knowledge-network",
       content: KnowledgeGraphPage,
       closable: true,
-    });
+    }, inSplit);
   };
 
   const handleKnowledgeGraphBackground = () => {
@@ -527,14 +542,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   };
 
   // Knowledge Sphere button (3D)
-  const handleKnowledgeSphere = () => {
-    addTab({
+  const handleKnowledgeSphere = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.knowledge-sphere.77a508a6"),
       icon: <Planet className="w-4 h-4" />,
       type: "knowledge-sphere",
       content: KnowledgeSpherePage,
       closable: true,
-    });
+    }, inSplit);
   };
 
   const handleKnowledgeSphereBackground = () => {
@@ -548,14 +563,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   };
 
   // Web Browser button
-  const handleWebBrowser = () => {
-    addTab({
+  const handleWebBrowser = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.web-browser.e6cc7829"),
       icon: <Desktop className="w-4 h-4" />,
       type: "web-browser",
       content: WebBrowserTab,
       closable: true,
-    });
+    }, inSplit);
   };
 
   const handleWebBrowserBackground = () => {
@@ -569,14 +584,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   };
 
   // Doc Q&A button
-  const handleDocQA = () => {
-    addTab({
+  const handleDocQA = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.document-q-a.1e7a5150"),
       icon: <ChatCircle className="w-4 h-4" />,
       type: "doc-qa",
       content: DocumentQATab,
       closable: true,
-    });
+    }, inSplit);
   };
 
   const handleDocQABackground = () => {
@@ -590,14 +605,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   };
 
   // NotebookLM button
-  const handleNotebookLM = () => {
-    addTab({
+  const handleNotebookLM = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.notebooklm.32ae2995"),
       icon: <Sparkle className="w-4 h-4" />,
       type: "notebooklm",
       content: NotebookLMTab,
       closable: true,
-    });
+    }, inSplit);
   };
 
   const handleNotebookLMBackground = () => {
@@ -611,14 +626,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
   };
 
   // Extracts button (library-wide extracts tab)
-  const handleExtracts = () => {
-    addTab({
+  const handleExtracts = (inSplit = false) => {
+    openTab({
       title: t("extractsTab.title"),
       icon: <Scissors className="w-4 h-4 text-muted-foreground" />,
       type: "extracts",
       content: ExtractsTab,
       closable: true,
-    });
+    }, inSplit);
   };
 
   const handleExtractsBackground = () => {
@@ -651,14 +666,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       });
   };
 
-  const handleSettings = () => {
-    addTab({
+  const handleSettings = (inSplit = false) => {
+    openTab({
       title: translateRecentFeature("i18nAudit.ui.settings.f49d4b34"),
       icon: <Gear className="w-4 h-4" />,
       type: "settings",
       content: SettingsTab,
       closable: true,
-    });
+    }, inSplit);
   };
 
   const handleSettingsBackground = () => {
@@ -676,39 +691,39 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     setCommandPaletteOpen(true);
   };
 
-  const openQueueItem = async (item: QueueItem) => {
+  const openQueueItem = async (item: QueueItem, inSplit = false) => {
     if (item.itemType === "document") {
-      addTab({
+      openTab({
         title: item.documentTitle,
         icon: <TextT className="w-4 h-4 text-muted-foreground" />,
         type: "document-viewer",
         content: DocumentViewer,
         closable: true,
         data: { documentId: item.documentId },
-      });
+      }, inSplit);
       return;
     }
 
     if (item.itemType === "extract") {
-      addTab({
+      openTab({
         title: item.documentTitle,
         icon: <TextT className="w-4 h-4 text-muted-foreground" />,
         type: "document-viewer",
         content: DocumentViewer,
         closable: true,
         data: { documentId: item.documentId, initialViewMode: "extracts" },
-      });
+      }, inSplit);
       return;
     }
 
     if (item.itemType === "learning-item") {
-      addTab({
+      openTab({
         title: translateRecentFeature("tabs.review"),
         icon: <Brain className="w-4 h-4" />,
         type: "review",
         content: ReviewTab,
         closable: true,
-      });
+      }, inSplit);
       const { startReviewAtItem } = useReviewStore.getState();
       if (item.learningItemId || item.id) {
         await startReviewAtItem(item.learningItemId || item.id);
@@ -717,14 +732,14 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     }
 
     if (item.documentId) {
-      addTab({
+      openTab({
         title: item.documentTitle,
         icon: <TextT className="w-4 h-4 text-muted-foreground" />,
         type: "document-viewer",
         content: DocumentViewer,
         closable: true,
         data: { documentId: item.documentId },
-      });
+      }, inSplit);
       return;
     }
 
@@ -741,7 +756,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: FileArrowUp,
       label: t("toolbar.importFile"),
       shortcut: "Ctrl+O",
-      action: handleImportFile,
+      action: () => handleImportFile(),
+      splitAction: () => handleImportFile(true),
       group: 1,
     },
     {
@@ -749,7 +765,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Link,
       label: t("toolbar.importUrl"),
       shortcut: "Ctrl+Shift+O",
-      action: handleImportUrl,
+      action: () => handleImportUrl(),
+      splitAction: () => handleImportUrl(true),
       group: 1,
     },
     {
@@ -757,7 +774,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Bookmarks,
       label: t("toolbar.readNext"),
       shortcut: "",
-      action: handleReadNext,
+      action: () => handleReadNext(),
+      splitAction: () => handleReadNext(true),
       group: 1,
     },
     {
@@ -765,7 +783,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: DiceFive,
       label: t("toolbar.randomItem"),
       shortcut: "",
-      action: handleRandomItem,
+      action: () => handleRandomItem(),
+      splitAction: () => handleRandomItem(true),
       group: 1,
     },
     {
@@ -773,7 +792,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Brain,
       label: t("toolbar.startReview"),
       shortcut: "",
-      action: handleStartReview,
+      action: () => handleStartReview(),
+      splitAction: () => handleStartReview(true),
       backgroundAction: handleStartReviewBackground,
       group: 1,
     },
@@ -782,7 +802,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: GraduationCap,
       label: t("studyPlans.title"),
       shortcut: "",
-      action: handleStudyPlans,
+      action: () => handleStudyPlans(),
+      splitAction: () => handleStudyPlans(true),
       group: 1,
     },
     ...(healthInsightsAvailable ? [{
@@ -790,7 +811,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: MoonStars,
       label: t("health.learningInsights"),
       shortcut: "",
-      action: () => addTab(createCanonicalTab("learning-insights")),
+      action: () => handleLearningInsights(),
+      splitAction: () => handleLearningInsights(true),
       group: 1,
     }] : []),
     // Group 2: RSS
@@ -799,7 +821,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Rss,
       label: t("toolbar.rssFeeds"),
       shortcut: "",
-      action: handleRss,
+      action: () => handleRss(),
+      splitAction: () => handleRss(true),
       group: 2,
     },
     {
@@ -807,7 +830,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Microphone,
       label: t("toolbar.podcasts"),
       shortcut: "",
-      action: handlePodcast,
+      action: () => handlePodcast(),
+      splitAction: () => handlePodcast(true),
       group: 2,
     },
     {
@@ -815,7 +839,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Headphones,
       label: t("toolbar.audiobooks"),
       shortcut: "",
-      action: handleAudiobooks,
+      action: () => handleAudiobooks(),
+      splitAction: () => handleAudiobooks(true),
       group: 2,
     },
     // Group 3: Navigation
@@ -824,7 +849,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: SquaresFour,
       label: t("toolbar.dashboard"),
       shortcut: "Ctrl+D",
-      action: handleDashboard,
+      action: () => handleDashboard(),
+      splitAction: () => handleDashboard(true),
       group: 3,
     },
     {
@@ -832,7 +858,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: BookOpen,
       label: t("toolbar.continueReading"),
       shortcut: "Ctrl+2",
-      action: handleContinueReading,
+      action: () => handleContinueReading(),
+      splitAction: () => handleContinueReading(true),
       group: 3,
     },
     {
@@ -840,7 +867,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Stack,
       label: t("toolbar.goToQueue") || "Queue",
       shortcut: "Ctrl+3",
-      action: handleQueue,
+      action: () => handleQueue(),
+      splitAction: () => handleQueue(true),
       group: 3,
     },
     {
@@ -848,7 +876,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Bookmarks,
       label: t("savedQueues.title") || "Saved Queues",
       shortcut: "",
-      action: handleSavedQueues,
+      action: () => handleSavedQueues(),
+      splitAction: () => handleSavedQueues(true),
       group: 3,
     },
     {
@@ -856,7 +885,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Graph,
       label: t("toolbar.knowledgeGraph"),
       shortcut: "Ctrl+4",
-      action: handleKnowledgeGraph,
+      action: () => handleKnowledgeGraph(),
+      splitAction: () => handleKnowledgeGraph(true),
       backgroundAction: handleKnowledgeGraphBackground,
       group: 3,
     },
@@ -865,7 +895,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Planet,
       label: t("toolbar.knowledgeSphere"),
       shortcut: "Ctrl+5",
-      action: handleKnowledgeSphere,
+      action: () => handleKnowledgeSphere(),
+      splitAction: () => handleKnowledgeSphere(true),
       backgroundAction: handleKnowledgeSphereBackground,
       group: 3,
     },
@@ -874,7 +905,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Compass,
       label: t("toolbar.webBrowser"),
       shortcut: "Ctrl+6",
-      action: handleWebBrowser,
+      action: () => handleWebBrowser(),
+      splitAction: () => handleWebBrowser(true),
       backgroundAction: handleWebBrowserBackground,
       group: 3,
     },
@@ -883,7 +915,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: ChatDots,
       label: t("toolbar.documentQA"),
       shortcut: "",
-      action: handleDocQA,
+      action: () => handleDocQA(),
+      splitAction: () => handleDocQA(true),
       backgroundAction: handleDocQABackground,
       group: 3,
     },
@@ -894,7 +927,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
             icon: Sparkle,
             label: t("toolbar.notebooklm"),
             shortcut: "",
-            action: handleNotebookLM,
+            action: () => handleNotebookLM(),
+            splitAction: () => handleNotebookLM(true),
             backgroundAction: handleNotebookLMBackground,
             group: 3,
           },
@@ -905,7 +939,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Scissors,
       label: t("toolbar.extracts"),
       shortcut: "",
-      action: handleExtracts,
+      action: () => handleExtracts(),
+      splitAction: () => handleExtracts(true),
       backgroundAction: handleExtractsBackground,
       group: 3,
     },
@@ -923,7 +958,8 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       icon: Gear,
       label: t("toolbar.settings"),
       shortcut: "Ctrl+,",
-      action: handleSettings,
+      action: () => handleSettings(),
+      splitAction: () => handleSettings(true),
       backgroundAction: handleSettingsBackground,
       group: 4,
     },
@@ -1067,16 +1103,21 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       />
       <WebArticleImportDialog
         isOpen={showUrlImportDialog}
-        onClose={() => setShowUrlImportDialog(false)}
+        onClose={() => {
+          urlImportSplitRef.current = false;
+          setShowUrlImportDialog(false);
+        }}
         onOpenDocument={(doc) => {
-          addTab({
+          const inSplit = urlImportSplitRef.current;
+          urlImportSplitRef.current = false;
+          openTab({
             title: doc.title,
             icon: <TextT className="w-4 h-4 text-muted-foreground" />,
             type: "document-viewer",
             content: DocumentViewer,
             closable: true,
             data: { documentId: doc.id },
-          });
+          }, inSplit);
         }}
       />
     </>

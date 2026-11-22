@@ -107,9 +107,18 @@ describe("Toolbar", () => {
     expect(tabs.filter((tab) => tab.type === "extracts")).toHaveLength(1);
   });
 
-  it("middle-clicking the Extracts button adds the tab in the background", () => {
-    render(<Toolbar position="top" />);
+  it("middle-clicking a toolbar button opens that item in split screen when a tab is already open", () => {
+    render(<Toolbar position="left" />);
 
+    // Open Dashboard first so there is an active pane to split against
+    const dashboardButton = screen.getByRole("button", { name: "Dashboard" });
+    act(() => {
+      dashboardButton.click();
+    });
+    expect(useTabsStore.getState().rootPane.type).toBe("tabs");
+    expect(useTabsStore.getState().getTabPaneIds()).toHaveLength(1);
+
+    // Middle-click Extracts -> should split horizontally and open Extracts in the new pane
     const extractsButton = screen.getByRole("button", { name: "Extracts" });
     act(() => {
       extractsButton.dispatchEvent(
@@ -117,12 +126,81 @@ describe("Toolbar", () => {
       );
     });
 
-    const tabs = useTabsStore.getState().tabs;
-    expect(tabs.filter((tab) => tab.type === "extracts")).toHaveLength(1);
-    // Background open must not activate the tab (active history stays empty).
-    expect(useTabsStore.getState().activeTabHistory).not.toContain(
-      tabs.find((tab) => tab.type === "extracts")?.id,
-    );
+    const state = useTabsStore.getState();
+    expect(state.rootPane.type).toBe("split");
+    if (state.rootPane.type === "split") {
+      expect(state.rootPane.direction).toBe("horizontal");
+    }
+    const paneIds = state.getTabPaneIds();
+    expect(paneIds).toHaveLength(2);
+
+    const extractsTab = state.tabs.find((tab) => tab.type === "extracts");
+    expect(extractsTab).toBeDefined();
+    const extractsPane = state.findPaneContainingTab(extractsTab!.id);
+    expect(extractsPane?.id).toBe(paneIds[1]);
+    expect(extractsPane?.activeTabId).toBe(extractsTab!.id);
+
+    // Middle-clicking another button (e.g. Settings) when already in split view opens it in the other pane
+    const leftPaneId = paneIds[0];
+    const dashboardTab = state.tabs.find((tab) => tab.type === "dashboard")!;
+    act(() => {
+      state.setActiveTab(leftPaneId, dashboardTab.id);
+    });
+
+    const settingsButton = screen.getByRole("button", { name: "Settings" });
+    act(() => {
+      settingsButton.dispatchEvent(
+        new MouseEvent("auxclick", { button: 1, bubbles: true, cancelable: true }),
+      );
+    });
+
+    const nextState = useTabsStore.getState();
+    expect(nextState.getTabPaneIds()).toHaveLength(2);
+    const settingsTab = nextState.tabs.find((tab) => tab.type === "settings");
+    expect(settingsTab).toBeDefined();
+    const settingsPane = nextState.findPaneContainingTab(settingsTab!.id);
+    expect(settingsPane?.id).toBe(paneIds[1]);
+    expect(settingsPane?.activeTabId).toBe(settingsTab!.id);
+  });
+
+  it("middle-clicking a toolbar button whose tab is already open in the same pane splits it into its own pane", () => {
+    render(<Toolbar position="left" />);
+
+    act(() => {
+      screen.getByRole("button", { name: "Dashboard" }).click();
+      screen.getByRole("button", { name: "Go to Queue" }).click();
+      screen.getByRole("button", { name: "Dashboard" }).click();
+    });
+    expect(useTabsStore.getState().getTabPaneIds()).toHaveLength(1);
+
+    // Middle-click Queue -> moves Queue into a new split pane on the right
+    act(() => {
+      screen.getByRole("button", { name: "Go to Queue" }).dispatchEvent(
+        new MouseEvent("auxclick", { button: 1, bubbles: true, cancelable: true }),
+      );
+    });
+
+    const state = useTabsStore.getState();
+    const paneIds = state.getTabPaneIds();
+    expect(paneIds).toHaveLength(2);
+    const queueTab = state.tabs.find((tab) => tab.type === "queue")!;
+    expect(state.findPaneContainingTab(queueTab.id)?.id).toBe(paneIds[1]);
+    expect(state.tabs.filter((tab) => tab.type === "queue")).toHaveLength(1);
+  });
+
+  it("middle-clicking a toolbar button in an empty workspace opens it normally without creating an empty split pane", () => {
+    render(<Toolbar position="left" />);
+
+    const rssButton = screen.getByRole("button", { name: "RSS Feeds" });
+    act(() => {
+      rssButton.dispatchEvent(
+        new MouseEvent("auxclick", { button: 1, bubbles: true, cancelable: true }),
+      );
+    });
+
+    const state = useTabsStore.getState();
+    expect(state.getTabPaneIds()).toHaveLength(1);
+    expect(state.tabs.filter((tab) => tab.type === "rss")).toHaveLength(1);
   });
 
   it("expands after the open delay on hover and collapses after the close delay on leave", () => {

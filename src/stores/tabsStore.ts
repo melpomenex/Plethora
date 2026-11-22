@@ -288,6 +288,7 @@ export interface TabsState {
   // Actions
   addTab: (tab: Omit<Tab, "id">, targetPaneId?: string, mode?: "visit" | "bootstrap") => string;
   addTabInBackground: (tab: Omit<Tab, "id">, targetPaneId?: string) => string;
+  openTabInSplit: (tab: Omit<Tab, "id">, direction?: SplitDirection, side?: "before" | "after") => string;
   closeTab: (tabId: string) => void;
   setActiveTab: (paneId: string, tabId: string) => void;
   setNavigationPane: (paneId: string) => void;
@@ -1051,6 +1052,138 @@ export const useTabsStore = create<TabsState>((set, get) => ({
           tabIds: [...(p as TabPane).tabIds, id],
           activeTabId: targetPane.activeTabId,
         })),
+      };
+    });
+
+    get().saveTabs();
+    return id;
+  },
+
+  // Open a tab in split screen (horizontal by default, after the current pane)
+  openTabInSplit: (tab, direction = "horizontal", side = "after") => {
+    if (isNavigationRootReserved()) {
+      const id = get().addTabInBackground(tab);
+      deferNavigationMutation(() => {
+        get().openTabInSplit(tab, direction, side);
+      });
+      return id;
+    }
+
+    const state = get();
+    const paneIds = state.getTabPaneIds();
+    const currentPaneId =
+      state.navigationPaneId && paneIds.includes(state.navigationPaneId)
+        ? state.navigationPaneId
+        : paneIds[0];
+
+    const currentPane = currentPaneId
+      ? (findPaneByIdRecursive(state.rootPane, currentPaneId) as TabPane | null)
+      : null;
+
+    if (!currentPane || (paneIds.length === 1 && currentPane.tabIds.length === 0)) {
+      return get().addTab(tab);
+    }
+
+    const existingTab = findReusableTab(state, tab);
+
+    if (existingTab) {
+      const existingPane = findPaneContainingTabRecursive(state.rootPane, existingTab.id);
+      if (!existingPane) {
+        if (paneIds.length > 1) {
+          const otherPaneId = paneIds.find((id) => id !== currentPaneId) ?? paneIds[0];
+          return get().addTab(tab, otherPaneId);
+        }
+        set((s) => {
+          const target = findPaneByIdRecursive(s.rootPane, currentPane.id) as TabPane | null;
+          if (!target) return s;
+          const newPane = createTabPane([existingTab.id], existingTab.id);
+          const children = side === "before" ? [newPane, target] : [target, newPane];
+          const newRootPane = createSplitPane(direction, children, [50, 50]);
+          const activeTabHistory = [...s.activeTabHistory.filter((x) => x !== existingTab.id), existingTab.id];
+          const evictedTabIds = clearEvicted(s.evictedTabIds, [existingTab.id]);
+          return {
+            rootPane: newRootPane,
+            navigationByPane: normalizeNavigationByPane(newRootPane, { version: 1, byPane: s.navigationByPane }),
+            navigationPaneId: newPane.id,
+            activeTabHistory,
+            evictedTabIds: applyResidentCap({ tabs: s.tabs, rootPane: newRootPane, activeTabHistory, evictedTabIds }, residentTabCap(), readerTabCap()),
+          };
+        });
+        get().saveTabs();
+        return existingTab.id;
+      }
+
+      if (paneIds.length === 1) {
+        if (existingPane.tabIds.length <= 1) {
+          get().setActiveTab(existingPane.id, existingTab.id);
+        } else {
+          get().splitPane(existingPane.id, existingTab.id, direction, side);
+          get().setActiveTab(
+            get().findPaneContainingTab(existingTab.id)?.id ?? existingPane.id,
+            existingTab.id,
+          );
+        }
+        return existingTab.id;
+      }
+
+      if (existingPane.id !== currentPaneId) {
+        get().setActiveTab(existingPane.id, existingTab.id);
+      } else if (existingPane.tabIds.length > 1) {
+        const otherPaneId = paneIds.find((id) => id !== currentPaneId);
+        if (otherPaneId) {
+          get().moveTabToPane(existingTab.id, existingPane.id, otherPaneId);
+          get().setActiveTab(otherPaneId, existingTab.id);
+        }
+      } else {
+        get().setActiveTab(existingPane.id, existingTab.id);
+      }
+      return existingTab.id;
+    }
+
+    if (paneIds.length > 1) {
+      const otherPaneId = paneIds.find((id) => id !== currentPaneId);
+      if (otherPaneId) {
+        return get().addTab(tab, otherPaneId);
+      }
+    }
+
+    const id = generateId();
+    const newTab: Tab = { ...tab, id };
+
+    set((s) => {
+      const pane = findPaneByIdRecursive(s.rootPane, currentPane.id) as TabPane | null;
+      if (!pane || pane.type !== "tabs") return s;
+
+      const newPane = createTabPane([id], id);
+      const children = side === "before" ? [newPane, pane] : [pane, newPane];
+      const splitPane = createSplitPane(direction, children, [50, 50]);
+
+      const parent = findParentPane(s.rootPane, currentPane.id);
+      const newRootPane = parent
+        ? updatePaneInTree(s.rootPane, parent.id, (p) => {
+            const splitParent = p as SplitPane;
+            return {
+              ...splitParent,
+              children: splitParent.children.map((child) =>
+                child.id === currentPane.id ? splitPane : child
+              ),
+            };
+          })
+        : splitPane;
+
+      const tabs = [...s.tabs, newTab];
+      const activeTabHistory = [...s.activeTabHistory.filter((x) => x !== id), id];
+      const evictedTabIds = clearEvicted(s.evictedTabIds, [id]);
+      return {
+        tabs,
+        rootPane: newRootPane,
+        navigationByPane: {
+          ...normalizeNavigationByPane(newRootPane, { version: 1, byPane: s.navigationByPane }),
+          [newPane.id]: { back: [], current: id, forward: [] },
+        },
+        navigationPaneId: newPane.id,
+        activeTabHistory,
+        evictedTabIds: applyResidentCap({ tabs, rootPane: newRootPane, activeTabHistory, evictedTabIds }, residentTabCap(), readerTabCap()),
       };
     });
 
