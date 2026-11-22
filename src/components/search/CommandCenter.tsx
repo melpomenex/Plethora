@@ -873,16 +873,23 @@ export function CommandCenter() {
       .filter(Boolean);
     const meaningfulTerms = queryTerms.filter(isMeaningfulTerm);
     const isWeb = !isTauri();
-    if (isWeb && meaningfulTerms.length > 0 && !extractsLoadedRef.current) {
+    let loadedExtracts: Extract[] | null = null;
+    const extractState = useExtractStore.getState();
+    if (
+      isWeb &&
+      term.length > 0 &&
+      (!extractsLoadedRef.current || extractState.loadedDocumentId !== null)
+    ) {
       extractsLoadedRef.current = true;
-      void loadExtracts();
+      await loadExtracts();
+      loadedExtracts = useExtractStore.getState().extracts;
     }
     const searchTerms = meaningfulTerms.length > 0 ? meaningfulTerms : [term];
     const allowContentSearch = meaningfulTerms.length > 0;
 
     // Read from refs for stable closure
     const docs = documentsRef.current;
-    const exts = extractsRef.current;
+    const exts = loadedExtracts ?? extractsRef.current;
 
     const matchesTerms = (text: string, terms: string[]): boolean =>
       terms.some((value) => text.includes(value));
@@ -1368,15 +1375,23 @@ export function CommandCenter() {
         console.warn("[CommandCenter] Cards search failed", error);
       }
 
-      const fallbackExtracts = await searchInMemoryFallback({
-        documents: [],
-        extracts: exts,
-        query: { ...query, types: [SearchResultType.Extract] },
-        activeCollectionId,
-        limit: maxResults,
-        allowContentSearch,
-        isWeb,
-      });
+      const fallbackExtracts = (
+        await searchInMemoryFallback({
+          documents: docs.length > 0 ? docs : documentsSnapshotRef.current,
+          extracts: exts,
+          query: { ...query, types: [SearchResultType.Extract] },
+          activeCollectionId,
+          limit: maxResults,
+          allowContentSearch,
+          isWeb,
+        })
+      ).map((item) => ({
+        ...item,
+        metadata: {
+          ...item.metadata,
+          scopes: ["documents" as const, "cards" as const],
+        },
+      }));
       return [...cardMatches, ...fallbackExtracts]
         .sort((a, b) => b.score - a.score)
         .slice(0, maxResults);

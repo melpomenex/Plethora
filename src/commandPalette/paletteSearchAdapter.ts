@@ -293,109 +293,181 @@ export async function searchInMemoryFallback(params: {
   const terms = extractSearchTerms(raw);
   const searchTerms = terms.length > 0 ? terms : [term];
 
-  const grouped = new Map<
-    string,
-    { doc: Document; score: number; excerpt?: string; hits: SearchHit[] }
-  >();
+  const results: SearchResult[] = [];
   const docById = new Map<string, Document>();
+  const eligibleDocIds = new Set<string>();
 
-  if (!query.types || query.types.includes(SearchResultType.Document)) {
-    for (let i = 0; i < documents.length; i++) {
-      const doc = documents[i];
-      if (!isDocumentSearchEligible(doc, activeCollectionId)) continue;
-      if (query.categories && query.categories.length > 0) {
-        if (!doc.category || !query.categories.includes(doc.category)) continue;
-      }
-      if (query.tags && query.tags.length > 0) {
-        if (!doc.tags || !query.tags.some((t) => doc.tags!.includes(t))) continue;
-      }
-      docById.set(doc.id, doc);
+  for (let i = 0; i < documents.length; i++) {
+    const doc = documents[i];
+    docById.set(doc.id, doc);
+    if (!isDocumentSearchEligible(doc, activeCollectionId)) continue;
+    eligibleDocIds.add(doc.id);
 
-      const meta = prepareDocumentMeta(doc);
-      const titleMatch =
-        matchesAllTerms(meta.titleLower, searchTerms) ||
-        meta.titleLower.includes(term) ||
-        (term.length >= 3 && fuzzyMatch(meta.titleLower, term, 2).match);
-
-      let plainContent = "";
-      let contentMatch = false;
-      if (!isWeb && allowContentSearch && doc.content) {
-        plainContent =
-          doc.fileType === "html" ? stripHtmlLight(doc.content) : doc.content;
-        contentMatch = matchesAllTerms(plainContent.toLowerCase(), searchTerms);
-      }
-
-      if (!titleMatch && !contentMatch) continue;
-
-      const score =
-        calculateRelevanceScore(
-          { title: doc.title, content: plainContent },
-          query.query,
-          SearchResultType.Document
-        ) / 100;
-
-      const excerpt = contentMatch
-        ? highlightSearchTerms(plainContent, query.query, 200).excerpt
-        : undefined;
-
-      grouped.set(doc.id, { doc, score, excerpt, hits: [] });
+    if (query.types && !query.types.includes(SearchResultType.Document)) continue;
+    if (query.categories && query.categories.length > 0) {
+      if (!doc.category || !query.categories.includes(doc.category)) continue;
     }
+    if (query.tags && query.tags.length > 0) {
+      if (!doc.tags || !query.tags.some((t) => doc.tags!.includes(t))) continue;
+    }
+
+    const meta = prepareDocumentMeta(doc);
+    const titleMatch =
+      matchesAllTerms(meta.titleLower, searchTerms) ||
+      meta.titleLower.includes(term) ||
+      (term.length >= 3 && fuzzyMatch(meta.titleLower, term, 2).match);
+
+    let plainContent = "";
+    let contentMatch = false;
+    if (!isWeb && allowContentSearch && doc.content) {
+      plainContent =
+        doc.fileType === "html" ? stripHtmlLight(doc.content) : doc.content;
+      contentMatch = matchesAllTerms(plainContent.toLowerCase(), searchTerms);
+    }
+
+    if (!titleMatch && !contentMatch) continue;
+
+    const score = Math.min(
+      0.95,
+      calculateRelevanceScore(
+        { title: doc.title, content: plainContent },
+        query.query,
+        SearchResultType.Document
+      ) / 100
+    );
+
+    const excerpt = contentMatch
+      ? highlightSearchTerms(plainContent, query.query, 200).excerpt
+      : undefined;
+
+    results.push({
+      id: doc.id,
+      type: SearchResultType.Document,
+      title: doc.title,
+      excerpt,
+      highlights: [],
+      score,
+      metadata: {
+        documentId: doc.id,
+        fileType: doc.fileType,
+        category: doc.category,
+        tags: doc.tags ?? [],
+        highlightQuery: query.query,
+        scopes: ["documents"],
+      },
+    });
   }
 
-  if (
-    allowContentSearch &&
-    (!query.types || query.types.includes(SearchResultType.Extract))
-  ) {
+  if (!query.types || query.types.includes(SearchResultType.Extract)) {
     for (let i = 0; i < extracts.length; i++) {
       const ext = extracts[i];
-      const content = ext.content ?? "";
-      if (!content) continue;
-      if (!matchesAllTerms(content.toLowerCase(), searchTerms)) continue;
-      const parentDoc = docById.get(ext.documentId) ?? documents.find((d) => d.id === ext.documentId);
-      if (!parentDoc || !isDocumentSearchEligible(parentDoc, activeCollectionId)) continue;
+      const parentDoc = docById.get(ext.documentId);
+      if (parentDoc && !eligibleDocIds.has(parentDoc.id)) continue;
 
-      if (!grouped.has(parentDoc.id)) {
-        grouped.set(parentDoc.id, { doc: parentDoc, score: 0.5, hits: [] });
+      if (query.categories && query.categories.length > 0) {
+        const matchesCat =
+          (ext.category && query.categories.includes(ext.category)) ||
+          (parentDoc?.category && query.categories.includes(parentDoc.category));
+        if (!matchesCat) continue;
       }
-      const entry = grouped.get(parentDoc.id)!;
+      if (query.tags && query.tags.length > 0) {
+        const extTags = ext.tags ?? [];
+        const docTags = parentDoc?.tags ?? [];
+        const matchesTag = query.tags.some(
+          (t) => extTags.includes(t) || docTags.includes(t)
+        );
+        if (!matchesTag) continue;
+      }
+
+      const pageTitle = ext.pageTitle?.trim() ?? "";
+      const pageTitleLower = pageTitle.toLowerCase();
+      const plainContent = ext.content ? stripHtmlLight(ext.content) : "";
+      const plainContentLower = plainContent.toLowerCase();
+      const notes = ext.notes ?? "";
+      const notesLower = notes.toLowerCase();
+      const categoryLower = (ext.category ?? "").toLowerCase();
+      const tagsLower = (ext.tags ?? []).map((t) => t.toLowerCase());
+
+      const titleMatch =
+        pageTitleLower.length > 0 &&
+        (pageTitleLower.includes(term) ||
+          matchesAllTerms(pageTitleLower, searchTerms));
+      const contentMatch =
+        allowContentSearch &&
+        plainContentLower.length > 0 &&
+        matchesAllTerms(plainContentLower, searchTerms);
+      const notesMatch =
+        allowContentSearch &&
+        notesLower.length > 0 &&
+        matchesAllTerms(notesLower, searchTerms);
+      const metaMatch =
+        categoryLower.includes(term) ||
+        (tagsLower.length > 0 && tagsLower.some((t) => t.includes(term)));
+
+      if (!titleMatch && !contentMatch && !notesMatch && !metaMatch) continue;
+
+      const combinedText = [plainContent, notes].filter(Boolean).join(" ");
+      const rawScore =
+        calculateRelevanceScore(
+          {
+            title: pageTitle || parentDoc?.title || "",
+            content: combinedText,
+          },
+          query.query,
+          SearchResultType.Extract
+        ) / 100;
+      const score = Math.min(0.95, Math.max(0.42, rawScore));
+
+      let excerpt: string | undefined;
+      if (contentMatch) {
+        excerpt = highlightSearchTerms(plainContent, query.query, 200).excerpt;
+      } else if (notesMatch) {
+        excerpt = highlightSearchTerms(notes, query.query, 200).excerpt;
+      } else if (plainContent) {
+        excerpt = plainContent.slice(0, 200);
+      }
+
       const pageNum = ext.pageNumber && ext.pageNumber > 0 ? ext.pageNumber : 1;
-      const { excerpt } = highlightSearchTerms(content, query.query, 200);
-      entry.hits.push({
-        id: `extract-hit-${ext.id}`,
-        location: {
-          kind: "pdf",
-          pageNumber: pageNum,
-          textQuote: raw || undefined,
+      const primaryHit: SearchHit | undefined =
+        ext.pageNumber && ext.pageNumber > 0
+          ? {
+              id: `extract-hit-${ext.id}`,
+              location: {
+                kind: "pdf",
+                pageNumber: pageNum,
+                textQuote: raw || undefined,
+              },
+              label: `Page ${pageNum}`,
+              excerptHtml: excerpt,
+            }
+          : undefined;
+
+      results.push({
+        id: ext.id,
+        type: SearchResultType.Extract,
+        title:
+          pageTitle ||
+          parentDoc?.title ||
+          plainContent.slice(0, 80) ||
+          "Extract",
+        excerpt,
+        highlights: [],
+        score,
+        metadata: {
+          resultKind: "extract",
+          documentId: ext.documentId,
+          category: ext.category ?? parentDoc?.category,
+          tags: ext.tags ?? [],
+          pageNumber: ext.pageNumber,
+          highlightQuery: query.query,
+          primaryHit,
+          scopes: ["documents"],
         },
-        label: `Page ${pageNum}`,
-        excerptHtml: excerpt,
       });
     }
   }
 
-  const results: SearchResult[] = [];
-  grouped.forEach((entry) => {
-    const primaryHit = entry.hits[0];
-    const secondaryHits = entry.hits.slice(1, 6);
-    results.push({
-      id: entry.doc.id,
-      type: SearchResultType.Document,
-      title: entry.doc.title,
-      excerpt: primaryHit?.excerptHtml ?? entry.excerpt,
-      highlights: [],
-      score: entry.score,
-      metadata: {
-        documentId: entry.doc.id,
-        fileType: entry.doc.fileType,
-        category: entry.doc.category,
-        tags: entry.doc.tags ?? [],
-        highlightQuery: query.query,
-        primaryHit,
-        secondaryHits: secondaryHits.length > 0 ? secondaryHits : undefined,
-        scopes: ["documents"],
-      },
-    });
-  });
-
-  return results.sort((a, b) => b.score - a.score).slice(0, limit);
+  return results
+    .sort((a, b) => b.score - a.score || a.id.localeCompare(b.id))
+    .slice(0, limit);
 }
