@@ -325,6 +325,38 @@ export function playNotificationGatedFeedback(type: FeedbackType): void {
 }
 
 /**
+ * Play a satisfying confirmation sound when rating a document or marking an
+ * item as read. Respects `notifications.soundEnabled` (default true) and
+ * `notifications.soundVolume` (default 0.5).
+ */
+export function playDocumentRatedSound(rating?: number): void {
+  void rating;
+  try {
+    let soundEnabled = true;
+    let volume = 0.5;
+    const raw = migratedGetItem('plethora-settings');
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const { notifications } = parsed.state?.settings || {};
+      if (notifications?.soundEnabled === false) {
+        soundEnabled = false;
+      }
+      if (typeof notifications?.soundVolume === 'number') {
+        volume = notifications.soundVolume;
+      }
+    }
+    if (!soundEnabled || volume <= 0) return;
+
+    const url = FEEDBACK_SOUND_FILES.success;
+    if (url) {
+      void playFile(url, volume);
+    }
+  } catch {
+    /* Audio playback may be unavailable */
+  }
+}
+
+/**
  * Play a short ascending two-note chime for a positive training signal
  * ("show more like this"). Respects the feedbackSoundsEnabled and
  * feedbackVolume settings, mirroring playFeedback.

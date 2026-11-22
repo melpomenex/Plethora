@@ -15,6 +15,7 @@ import { AnnotationRemovalMenu } from "./AnnotationRemovalMenu";
 import { PdfAnnotationsPanel, type PdfAnnotationDraft, type PdfAnnotationsRequest } from "./PdfAnnotationsPanel";
 import { pdfAnnotationFromExtract, type PdfAnnotation } from "../../lib/pdf/annotationModel";
 import { emitUserInteraction, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
+import { playDocumentRatedSound } from "../../utils/soundService";
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import {
@@ -6010,6 +6011,7 @@ export function DocumentViewer({
       const timeTaken = Math.round((Date.now() - startTimeRef.current) / 1000);
 
       await rateDocumentEngaging(documentId, rating, timeTaken);
+      playDocumentRatedSound(rating);
       emitInteractionFeedback("queue.document-rated", { rating, documentId }, {
         interactionId: `queue:rate:${documentId}:${rating}:${Date.now()}`,
         origin: "user",

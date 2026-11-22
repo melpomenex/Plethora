@@ -6,6 +6,7 @@ import { useRegisterMobileAssistant, useMobileAssistantController } from "../com
 import type { VideoViewerContext } from "../lib/ai/assistant/scopes";
 import { SELECTION_ASK_EVENT, type SelectionAskEventDetail } from "../utils/selectionAskHandoff";
 import { emitInteractionFeedback, createFeedbackInteractionId } from "../lib/feedback/orchestrator";
+import { playDocumentRatedSound } from "../utils/soundService";
 import { useContext, useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { QueryClientContext } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
@@ -4045,6 +4046,7 @@ export function QueueScrollPage() {
 
         // Use the engaging FSRS-6 scheduler!
         const result = await rateDocumentEngaging(currentItem.documentId, rating, timeTaken);
+        playDocumentRatedSound(rating);
         emitInteractionFeedback("queue.document-rated", {
           rating,
           grade,
@@ -4117,6 +4119,7 @@ export function QueueScrollPage() {
       } else if (currentItem.type === "rss" && currentItem.rssItem && currentItem.rssFeed) {
         // Mark RSS item as read
         await markItemReadAuto(currentItem.rssFeed.id, currentItem.rssItem.id, true);
+        playDocumentRatedSound(3);
 
         // Track read RSS item to prevent re-appearance in custom subset rebuilds
         setReadRssItemIds(prev => {

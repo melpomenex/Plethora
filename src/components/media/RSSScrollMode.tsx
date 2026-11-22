@@ -96,6 +96,7 @@ import {
 import { TrainingMenu } from "./TrainingMenu";
 import { useClassifiersStore, getTrainedSentiment } from "../../stores/classifiersStore";
 import { handleVolumeRockerNavigation } from "../../utils/volumeRockerNavigation";
+import { playDocumentRatedSound } from "../../utils/soundService";
 
 interface RSSScrollItem {
   feed: Feed;
@@ -1008,6 +1009,7 @@ export function RSSScrollMode({
       // Mark as read (but don't remove favorites from scroll list)
       try {
         await markItemReadAuto(feedId, itemId, true);
+        playDocumentRatedSound(3);
       } catch (error) {
         console.warn("Failed to mark as read:", error);
       }
@@ -1975,7 +1977,10 @@ export function RSSScrollMode({
               </button>
               {/* Mark as read / Auto-read toggle */}
               <button
-                onClick={() => handleMarkRead(currentItem.feed.id, currentItem.item.id, true)}
+                onClick={() => {
+                  playDocumentRatedSound(3);
+                  void handleMarkRead(currentItem.feed.id, currentItem.item.id, true);
+                }}
                 className={cn(
                   "p-1.5 md:p-2 rounded-lg transition-all duration-200 relative",
                   autoReadMode
