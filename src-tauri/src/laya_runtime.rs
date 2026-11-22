@@ -168,11 +168,12 @@ fn expected_digest(path: &str) -> Option<&'static str> {
         .map(|(_, digest)| *digest)
 }
 
-async fn file_has_digest(path: &Path, expected: &'static str) -> bool {
+async fn file_has_digest(path: &Path, expected: &str) -> bool {
     let path = path.to_path_buf();
+    let expected = expected.to_owned();
     tokio::task::spawn_blocking(move || {
         crate::models::hf::downloader::sha256_of_file(&path)
-            .is_ok_and(|digest| digest.eq_ignore_ascii_case(expected))
+            .is_ok_and(|digest| digest.eq_ignore_ascii_case(&expected))
     })
     .await
     .unwrap_or(false)
