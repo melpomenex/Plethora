@@ -22,7 +22,7 @@ use tokio::sync::Mutex as TokioMutex;
 use tokio::time::{sleep, Duration, Instant};
 
 const LAYA_VERSION: &str = "0.5.2";
-const LAYA_ENDPOINT: &str = "http://127.0.0.1:8000";
+pub const LAYA_ENDPOINT: &str = "http://127.0.0.1:8000";
 const LAYA_STATUS_EVENT: &str = "laya://server-status";
 const LAYA_MODEL_PORT: u16 = 8000;
 const LAYA_SUPPORT_FILE_LIMIT: u64 = 8 * 1024 * 1024;
@@ -407,6 +407,38 @@ async fn endpoint_is_healthy(client: &reqwest::Client) -> bool {
     client
         .get(format!("{LAYA_ENDPOINT}/health"))
         .timeout(Duration::from_secs(3))
+        .send()
+        .await
+        .is_ok_and(|response| response.status().is_success())
+}
+
+/// Returns true when Plethora's managed `laya-serve` child process is alive.
+pub fn is_managed_running() -> bool {
+    let Ok(mut current) = state().lock() else {
+        return false;
+    };
+    if current
+        .child
+        .as_mut()
+        .is_some_and(|child| child.try_wait().ok().flatten().is_some())
+    {
+        current.child = None;
+        current.status = LayaServerStatus::default();
+        return false;
+    }
+    current.child.is_some()
+}
+
+/// Fast health check for a local `laya-serve` endpoint.
+pub async fn is_laya_endpoint_healthy(base_url: &str) -> bool {
+    let trimmed = base_url.trim().trim_end_matches('/');
+    if trimmed.is_empty() {
+        return false;
+    }
+    let client = reqwest::Client::new();
+    client
+        .get(format!("{trimmed}/health"))
+        .timeout(Duration::from_millis(400))
         .send()
         .await
         .is_ok_and(|response| response.status().is_success())

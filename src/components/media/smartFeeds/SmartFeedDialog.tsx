@@ -705,6 +705,13 @@ export function SmartFeedDialog({
                         className="accent-primary"
                       />
                       <span>{title}</span>
+                      {value === "intelligent_local" &&
+                        !disabled &&
+                        capabilities?.local_llm_model && (
+                          <span className="ml-auto rounded bg-muted px-1.5 py-0.5 text-[10px] font-normal text-muted-foreground">
+                            {capabilities.local_llm_model}
+                          </span>
+                        )}
                     </div>
                     <span className="text-[11px] leading-snug text-muted-foreground pl-5">
                       {blockedReason ?? desc}

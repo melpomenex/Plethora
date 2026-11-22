@@ -304,6 +304,312 @@ pub trait SmartFeedDecisionLlm: Send + Sync {
         request: LlmDecisionRequest,
     ) -> Result<LlmRawResponse, LlmAdjudicationError>;
     fn provider_label(&self) -> String;
+
+    /// Optional direct adjudication path for structured decision endpoints (such
+    /// as Laya's System One protocol) that natively return typed choices/scores
+    /// rather than free-form chat completions.
+    async fn adjudicate_article(
+        &self,
+        _feed: &SmartFeed,
+        _snapshot: &ArticleSnapshot,
+        _source_kind: DecisionSource,
+    ) -> Option<Result<DecisionOutput, LlmAdjudicationError>> {
+        None
+    }
+}
+
+pub struct LayaSystemOneLlm {
+    base_url: String,
+    timeout: Duration,
+    client: reqwest::Client,
+}
+
+impl LayaSystemOneLlm {
+    pub fn new(base_url: String, timeout_ms: Option<u64>) -> Self {
+        let timeout = Duration::from_millis(timeout_ms.unwrap_or(20_000).clamp(1_000, 120_000));
+        let client = reqwest::Client::builder()
+            .timeout(timeout)
+            .user_agent("Plethora/3 (smart-feeds-laya)")
+            .build()
+            .unwrap_or_else(|_| reqwest::Client::new());
+        Self {
+            base_url: base_url.trim().trim_end_matches('/').to_string(),
+            timeout,
+            client,
+        }
+    }
+
+    pub fn build_request_body(feed: &SmartFeed, snapshot: &ArticleSnapshot) -> serde_json::Value {
+        let feed_name = sanitize_untrusted_for_prompt(&feed.name, 120);
+        let feed_desc = sanitize_untrusted_for_prompt(&feed.description, 450);
+        let feed_incl = sanitize_untrusted_for_prompt(&feed.inclusion_criteria, 350);
+        let feed_excl = sanitize_untrusted_for_prompt(&feed.exclusion_criteria, 350);
+
+        let title = sanitize_untrusted_for_prompt(&snapshot.title, 260);
+        let source = sanitize_untrusted_for_prompt(&snapshot.feed_title, 100);
+        let cats = sanitize_untrusted_for_prompt(&snapshot.categories.join(", "), 180);
+        let body = sanitize_untrusted_for_prompt(
+            if !snapshot.summary_text.is_empty() {
+                &snapshot.summary_text
+            } else {
+                &snapshot.best_text
+            },
+            1400,
+        );
+
+        let state = serde_json::json!({
+            "source": source,
+            "categories": cats,
+            "title": title,
+            "content": body,
+        });
+
+        let mut criteria_parts = vec![format!("Smart Feed: {feed_name}"), format!("Strictness: {}", feed.curation_strictness.as_str())];
+        if !feed_desc.is_empty() {
+            criteria_parts.push(format!("Description: {feed_desc}"));
+        }
+        if !feed_incl.is_empty() {
+            criteria_parts.push(format!("Include if: {feed_incl}"));
+        }
+        if !feed_excl.is_empty() {
+            criteria_parts.push(format!("Exclude if: {feed_excl}"));
+        }
+        let feed_context: String = criteria_parts.join(". ").chars().take(1_600).collect();
+
+        let decision_instructions: String = format!(
+            "Classify whether this RSS article belongs in the Smart Feed. {feed_context}"
+        )
+        .chars()
+        .take(1_800)
+        .collect();
+        let relevance_instructions: String = format!(
+            "How topically relevant is this article to '{feed_name}'? {feed_context}"
+        )
+        .chars()
+        .take(1_800)
+        .collect();
+        let noul_instructions: String = format!(
+            "Should this article be included in '{feed_name}'? {feed_context}"
+        )
+        .chars()
+        .take(1_800)
+        .collect();
+
+        serde_json::json!({
+            "state": state,
+            "questions": {
+                "decision": {
+                    "type": "choice",
+                    "instructions": decision_instructions,
+                    "criteria": {
+                        "INCLUDE": "Clearly matches the Smart Feed topic and inclusion criteria without matching exclusion criteria.",
+                        "UNCERTAIN": "Borderline, ambiguous, or only tangentially related to the Smart Feed topic.",
+                        "EXCLUDE": "Off-topic for the Smart Feed or matches its exclusion criteria."
+                    }
+                },
+                "relevance": {
+                    "type": "score",
+                    "instructions": relevance_instructions,
+                    "criteria": [
+                        "irrelevant to the feed",
+                        "tangential",
+                        "related",
+                        "on topic",
+                        "direct match"
+                    ]
+                },
+                "matches_criteria": {
+                    "type": "noul",
+                    "instructions": noul_instructions,
+                    "criteria": {
+                        "true": "Matches topic and inclusion criteria without hitting exclusion criteria.",
+                        "false": "Off-topic or matches exclusion criteria."
+                    }
+                }
+            }
+        })
+    }
+
+    pub fn parse_response(
+        feed: &SmartFeed,
+        raw_body: &serde_json::Value,
+        source_kind: DecisionSource,
+    ) -> Result<DecisionOutput, LlmAdjudicationError> {
+        let unwrapped = crate::commands::daqe_probe::unwrap_envelope(raw_body.clone());
+        let answers = unwrapped
+            .get("answers")
+            .and_then(|v| v.as_object())
+            .ok_or_else(|| {
+                LlmAdjudicationError::InvalidOutput("Laya response missing 'answers'".to_string())
+            })?;
+
+        let decision_ans = answers.get("decision").ok_or_else(|| {
+            LlmAdjudicationError::InvalidOutput("Laya response missing 'decision' answer".to_string())
+        })?;
+        let choice_str = decision_ans
+            .get("choice")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| {
+                LlmAdjudicationError::InvalidOutput("Laya 'decision' answer missing 'choice'".to_string())
+            })?;
+
+        let decision = match choice_str.trim().to_uppercase().as_str() {
+            "INCLUDE" => MatchDecision::INCLUDE,
+            "EXCLUDE" => MatchDecision::EXCLUDE,
+            "UNCERTAIN" => MatchDecision::UNCERTAIN,
+            other => {
+                return Err(LlmAdjudicationError::InvalidOutput(format!(
+                    "Unsupported Laya decision choice '{other}'"
+                )))
+            }
+        };
+
+        let norm_score = answers
+            .get("relevance")
+            .and_then(|v| v.get("score"))
+            .and_then(|v| v.as_f64())
+            .filter(|v| v.is_finite())
+            .map(|s| (s / 4.0).clamp(0.0, 1.0));
+
+        let noul_prob = answers
+            .get("matches_criteria")
+            .and_then(|v| v.get("noul"))
+            .and_then(|v| v.as_f64())
+            .filter(|v| v.is_finite())
+            .map(|p| p.clamp(0.0, 1.0));
+
+        let include_prob = decision_ans
+            .get("probabilities")
+            .and_then(|v| v.get("INCLUDE"))
+            .and_then(|v| v.as_f64())
+            .filter(|v| v.is_finite())
+            .map(|p| p.clamp(0.0, 1.0));
+
+        let relevance_score = match (norm_score, noul_prob) {
+            (Some(s), Some(p)) => (0.6 * s + 0.4 * p).clamp(0.0, 1.0),
+            (Some(s), None) => s,
+            (None, Some(p)) => p,
+            (None, None) => include_prob.unwrap_or(match decision {
+                MatchDecision::INCLUDE => 0.85,
+                MatchDecision::UNCERTAIN => 0.50,
+                MatchDecision::EXCLUDE | MatchDecision::PENDING => 0.15,
+            }),
+        };
+
+        let mut evidence = vec![format!("laya: {}", decision.as_str())];
+        if let Some(s) = norm_score {
+            evidence.push(format!("relevance: {:.2}", s));
+        }
+        if let Some(p) = noul_prob {
+            evidence.push(format!("match probability: {:.0}%", p * 100.0));
+        }
+
+        let decision_reason = match (norm_score, noul_prob) {
+            (Some(s), Some(p)) => format!(
+                "Laya classified this article as {} for {} (relevance {:.2}, match probability {:.0}%).",
+                decision.as_str(),
+                feed.name,
+                s,
+                p * 100.0
+            ),
+            _ => format!(
+                "Laya classified this article as {} for {} (score {:.2}).",
+                decision.as_str(),
+                feed.name,
+                relevance_score
+            ),
+        };
+
+        let estimated_tokens = unwrapped
+            .get("usage")
+            .map(|u| {
+                let inp = u.get("input_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                let out = u.get("output_tokens").and_then(|v| v.as_u64()).unwrap_or(0);
+                (inp + out) as usize
+            })
+            .unwrap_or(0);
+
+        Ok(DecisionOutput {
+            decision,
+            relevance_score,
+            decision_reason,
+            matched_evidence: evidence,
+            decision_source: source_kind,
+            evaluation_status: EvaluationStatus::Completed,
+            error_message: None,
+            estimated_tokens,
+        })
+    }
+}
+
+#[async_trait]
+impl SmartFeedDecisionLlm for LayaSystemOneLlm {
+    async fn decide(
+        &self,
+        _request: LlmDecisionRequest,
+    ) -> Result<LlmRawResponse, LlmAdjudicationError> {
+        Err(LlmAdjudicationError::Unavailable(
+            "Laya uses structured System One adjudication rather than chat completions".to_string(),
+        ))
+    }
+
+    fn provider_label(&self) -> String {
+        format!("laya:{}", self.base_url)
+    }
+
+    async fn adjudicate_article(
+        &self,
+        feed: &SmartFeed,
+        snapshot: &ArticleSnapshot,
+        source_kind: DecisionSource,
+    ) -> Option<Result<DecisionOutput, LlmAdjudicationError>> {
+        let url = format!("{}/v1/systemone", self.base_url);
+        let body = Self::build_request_body(feed, snapshot);
+        let send_fut = self.client.post(&url).json(&body).send();
+        let resp = match tokio::time::timeout(self.timeout, send_fut).await {
+            Ok(Ok(r)) => r,
+            Ok(Err(err)) => {
+                return Some(Err(if err.is_timeout() {
+                    LlmAdjudicationError::Timeout(format!("Laya request timed out: {err}"))
+                } else {
+                    LlmAdjudicationError::Unavailable(format!(
+                        "Laya endpoint unavailable at {}: {err}",
+                        self.base_url
+                    ))
+                }));
+            }
+            Err(_) => {
+                return Some(Err(LlmAdjudicationError::Timeout(
+                    "Laya adjudication timed out".to_string(),
+                )));
+            }
+        };
+
+        let status = resp.status();
+        if status.as_u16() == 429 {
+            return Some(Err(LlmAdjudicationError::RateLimited(
+                "Laya returned 429 Too Many Requests".to_string(),
+            )));
+        }
+        if !status.is_success() {
+            let text = resp.text().await.unwrap_or_default();
+            let snippet: String = text.chars().take(200).collect();
+            return Some(Err(LlmAdjudicationError::Unavailable(format!(
+                "Laya returned HTTP {status}: {snippet}"
+            ))));
+        }
+
+        let json_body: serde_json::Value = match resp.json().await {
+            Ok(v) => v,
+            Err(err) => {
+                return Some(Err(LlmAdjudicationError::InvalidOutput(format!(
+                    "Invalid JSON from Laya: {err}"
+                ))));
+            }
+        };
+
+        Some(Self::parse_response(feed, &json_body, source_kind))
+    }
 }
 
 pub struct AiProviderDecisionLlm {
@@ -528,6 +834,9 @@ pub async fn adjudicate_with_llm(
     snapshot: &ArticleSnapshot,
     source_kind: DecisionSource,
 ) -> Result<DecisionOutput, LlmAdjudicationError> {
+    if let Some(res) = llm.adjudicate_article(feed, snapshot, source_kind).await {
+        return res;
+    }
     let mut messages = build_single_feed_messages(feed, snapshot);
     let mut total_tokens = 0usize;
 

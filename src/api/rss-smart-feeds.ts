@@ -6,6 +6,11 @@
  */
 
 import { invokeCommand } from "../lib/tauri";
+import {
+  LAYA_DEFAULT_BASE_URL,
+  LAYA_PROVIDER_ID,
+  LOCAL_DECISION_ENGINE_PROVIDER_ID,
+} from "../lib/daqe/decisionModelOptions";
 import { useLLMProvidersStore } from "../stores/llmProvidersStore";
 import { useSettingsStore } from "../stores/settingsStore";
 import { buildEmbeddingConfig, paidEmbeddingsConsentFlag, type EmbeddingConfig } from "./ai-learning";
@@ -268,17 +273,38 @@ function keyForProviderType(
   return match?.apiKey;
 }
 
+export interface SmartFeedLayaConfig {
+  enabled: boolean;
+  providerId?: string | null;
+  baseUrl?: string | null;
+  model?: string | null;
+  timeoutMs?: number | null;
+}
+
 function resolveRuntimeFlags(): {
   embeddingConfig: EmbeddingConfig | null;
   paidEmbeddingsEnabled: boolean;
   strictLocalOnly: boolean;
+  layaConfig: SmartFeedLayaConfig | null;
 } {
   const settings = useSettingsStore.getState().settings;
   const paidEmbeddingsEnabled = paidEmbeddingsConsentFlag();
   const strictLocalOnly = settings.ai?.strictLocalOnly === true;
+  const daqe = settings.daqe;
+  const daqeProvider = daqe?.decisionModelProviderId;
+  const layaConfig: SmartFeedLayaConfig | null =
+    daqeProvider === LAYA_PROVIDER_ID || daqeProvider === LOCAL_DECISION_ENGINE_PROVIDER_ID
+      ? {
+          enabled: true,
+          providerId: daqeProvider,
+          baseUrl: daqe.decisionEngine?.baseUrl?.trim() || LAYA_DEFAULT_BASE_URL,
+          model: daqe.decisionEngine?.model?.trim() || null,
+          timeoutMs: daqe.decisionEngine?.timeoutMs ?? null,
+        }
+      : null;
   const emb = settings.embedding;
   if (!emb) {
-    return { embeddingConfig: null, paidEmbeddingsEnabled, strictLocalOnly };
+    return { embeddingConfig: null, paidEmbeddingsEnabled, strictLocalOnly, layaConfig };
   }
   const keys = {
     openai: keyForProviderType("openai") ?? (settings.ai?.provider === "openai" ? settings.ai.apiKey : undefined),
@@ -290,22 +316,23 @@ function resolveRuntimeFlags(): {
   const cfg = buildEmbeddingConfig(emb, keys);
   // Only pass cloud embedding config if consent is explicitly enabled; Ollama passes freely.
   if (cfg.provider !== "Ollama" && (!paidEmbeddingsEnabled || strictLocalOnly)) {
-    return { embeddingConfig: null, paidEmbeddingsEnabled, strictLocalOnly };
+    return { embeddingConfig: null, paidEmbeddingsEnabled, strictLocalOnly, layaConfig };
   }
-  return { embeddingConfig: cfg, paidEmbeddingsEnabled, strictLocalOnly };
+  return { embeddingConfig: cfg, paidEmbeddingsEnabled, strictLocalOnly, layaConfig };
 }
 
 export async function createSmartFeed(
   input: CreateSmartFeedInput,
   evaluateNow = true,
 ): Promise<SmartFeedWithStats> {
-  const { embeddingConfig, paidEmbeddingsEnabled, strictLocalOnly } = resolveRuntimeFlags();
+  const { embeddingConfig, paidEmbeddingsEnabled, strictLocalOnly, layaConfig } = resolveRuntimeFlags();
   return invokeCommand<SmartFeedWithStats>("create_rss_smart_feed", {
     input,
     evaluateNow,
     embeddingConfig,
     paidEmbeddingsEnabled,
     strictLocalOnly,
+    layaConfig,
   });
 }
 
@@ -322,7 +349,7 @@ export async function updateSmartFeed(
   input: UpdateSmartFeedInput,
   reevaluateNow?: boolean,
 ): Promise<SmartFeedWithStats> {
-  const { embeddingConfig, paidEmbeddingsEnabled, strictLocalOnly } = resolveRuntimeFlags();
+  const { embeddingConfig, paidEmbeddingsEnabled, strictLocalOnly, layaConfig } = resolveRuntimeFlags();
   return invokeCommand<SmartFeedWithStats>("update_rss_smart_feed", {
     id,
     input,
@@ -330,6 +357,7 @@ export async function updateSmartFeed(
     embeddingConfig,
     paidEmbeddingsEnabled,
     strictLocalOnly,
+    layaConfig,
   });
 }
 
@@ -351,7 +379,7 @@ export async function evaluateSmartFeed(
   smartFeedId: string,
   options: { forceReevaluate?: boolean; waitForCompletion?: boolean } = {},
 ): Promise<SmartFeedRunMetrics> {
-  const { embeddingConfig, paidEmbeddingsEnabled, strictLocalOnly } = resolveRuntimeFlags();
+  const { embeddingConfig, paidEmbeddingsEnabled, strictLocalOnly, layaConfig } = resolveRuntimeFlags();
   return invokeCommand<SmartFeedRunMetrics>("evaluate_rss_smart_feed", {
     smartFeedId,
     forceReevaluate: options.forceReevaluate ?? false,
@@ -359,6 +387,7 @@ export async function evaluateSmartFeed(
     embeddingConfig,
     paidEmbeddingsEnabled,
     strictLocalOnly,
+    layaConfig,
   });
 }
 
@@ -376,7 +405,7 @@ export async function submitSmartFeedFeedback(
   feedbackType: SmartFeedFeedbackType,
   note?: string,
 ): Promise<SmartFeedFeedbackResult> {
-  const { embeddingConfig, paidEmbeddingsEnabled, strictLocalOnly } = resolveRuntimeFlags();
+  const { embeddingConfig, paidEmbeddingsEnabled, strictLocalOnly, layaConfig } = resolveRuntimeFlags();
   return invokeCommand<SmartFeedFeedbackResult>("submit_rss_smart_feed_feedback", {
     smartFeedId,
     articleId,
@@ -385,15 +414,17 @@ export async function submitSmartFeedFeedback(
     embeddingConfig,
     paidEmbeddingsEnabled,
     strictLocalOnly,
+    layaConfig,
   });
 }
 
 export async function getSmartFeedCapabilities(): Promise<SmartFeedCapabilities> {
-  const { embeddingConfig, paidEmbeddingsEnabled, strictLocalOnly } = resolveRuntimeFlags();
+  const { embeddingConfig, paidEmbeddingsEnabled, strictLocalOnly, layaConfig } = resolveRuntimeFlags();
   return invokeCommand<SmartFeedCapabilities>("get_rss_smart_feed_capabilities", {
     embeddingConfig,
     paidEmbeddingsEnabled,
     strictLocalOnly,
+    layaConfig,
   });
 }
 

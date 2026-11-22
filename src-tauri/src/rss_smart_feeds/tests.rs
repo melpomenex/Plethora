@@ -1594,3 +1594,193 @@ async fn performance_5000_articles_10_feeds_and_incremental_cache_hits() {
         backfill_ms, inc_ms, cache_hit_ratio
     );
 }
+
+#[test]
+fn laya_system_one_request_parsing_and_policy_resolution() {
+    use super::classifier::LayaSystemOneLlm;
+    use super::worker::resolve_llm_for_feed;
+
+    let feed = SmartFeed {
+        id: "f-laya".into(),
+        name: "Rust Systems".into(),
+        description: "Low-level Rust and systems programming articles".into(),
+        inclusion_criteria: "Rust, compilers, async runtimes".into(),
+        exclusion_criteria: "Crypto, hiring".into(),
+        source_scope: SourceScope::All,
+        source_scope_config: SourceScopeConfig::default(),
+        classification_mode: ClassificationMode::IntelligentLocal,
+        curation_strictness: CurationStrictness::Balanced,
+        minimum_relevance: None,
+        freshness_window_days: None,
+        sort_order: SmartFeedSortOrder::Relevance,
+        group_similar_stories: true,
+        is_enabled: true,
+        cloud_consent_granted: false,
+        preferred_provider: None,
+        preferred_model: None,
+        definition_revision: 1,
+        created_at: "2026-11-20T00:00:00Z".into(),
+        updated_at: "2026-11-20T00:00:00Z".into(),
+        last_evaluated_at: None,
+    };
+
+    let row = ScopedArticleRow {
+        id: "art-laya-1".into(),
+        feed_id: "f1".into(),
+        feed_title: "Systems Weekly".into(),
+        url: "https://example.com/rust-async".into(),
+        guid: None,
+        title: "Zero-copy async IO in Rust".into(),
+        author: None,
+        published_date: Some("2026-11-20T10:00:00Z".into()),
+        content: Some("Deep dive into io_uring and tokio reactor internals.".into()),
+        summary: Some("Deep dive into io_uring and tokio reactor internals.".into()),
+        image_url: None,
+        is_queued: false,
+        is_read: false,
+        date_added: "2026-11-20T10:00:00Z".into(),
+        full_content: None,
+        full_content_fetched_at: None,
+        categories: vec!["Rust".into(), "Systems".into()],
+    };
+    let snap = build_article_snapshot(&row);
+
+    let req = LayaSystemOneLlm::build_request_body(&feed, &snap);
+    assert!(req.get("model").is_none(), "laya-serve rejects model field");
+    assert!(req.get("state").is_some());
+    let questions = req.get("questions").and_then(|v| v.as_object()).unwrap();
+    assert_eq!(questions["decision"]["type"], "choice");
+    assert_eq!(questions["relevance"]["type"], "score");
+    assert_eq!(questions["matches_criteria"]["type"], "noul");
+
+    let raw_resp = serde_json::json!({
+        "answers": {
+            "decision": {
+                "type": "choice",
+                "choice": "INCLUDE",
+                "probabilities": { "INCLUDE": 0.91, "UNCERTAIN": 0.06, "EXCLUDE": 0.03 }
+            },
+            "relevance": { "type": "score", "score": 3.6 },
+            "matches_criteria": { "type": "noul", "noul": 0.88 }
+        },
+        "usage": { "input_tokens": 120, "output_tokens": 18 }
+    });
+    let parsed = LayaSystemOneLlm::parse_response(&feed, &raw_resp, DecisionSource::IntelligentLocal)
+        .expect("should parse valid Laya System One response");
+    assert_eq!(parsed.decision, MatchDecision::INCLUDE);
+    assert_eq!(parsed.decision_source, DecisionSource::IntelligentLocal);
+    assert_eq!(parsed.evaluation_status, EvaluationStatus::Completed);
+    assert_eq!(parsed.estimated_tokens, 138);
+    assert!(parsed.relevance_score > 0.8);
+    assert!(parsed.decision_reason.contains("Laya"));
+
+    // Invalid choice fails cleanly as InvalidOutput
+    let bad_resp = serde_json::json!({
+        "answers": {
+            "decision": { "type": "choice", "choice": "MAYBE" }
+        }
+    });
+    assert!(matches!(
+        LayaSystemOneLlm::parse_response(&feed, &bad_resp, DecisionSource::IntelligentLocal),
+        Err(LlmAdjudicationError::InvalidOutput(_))
+    ));
+
+    // Loopback Laya config resolves even when ai_config is None
+    let laya_cfg = SmartFeedLayaConfig {
+        enabled: true,
+        provider_id: Some("laya".into()),
+        base_url: Some("http://127.0.0.1:8000".into()),
+        model: None,
+        timeout_ms: Some(15_000),
+    };
+    let resolved = resolve_llm_for_feed(&feed, None, Some(&laya_cfg), false)
+        .expect("loopback Laya should resolve without ai_config");
+    assert!(resolved.provider_label().starts_with("laya:http://127.0.0.1:8000"));
+
+    // Non-loopback Laya URL is blocked in IntelligentLocal mode
+    let remote_laya = SmartFeedLayaConfig {
+        enabled: true,
+        provider_id: Some("laya".into()),
+        base_url: Some("https://remote.example.com".into()),
+        model: None,
+        timeout_ms: None,
+    };
+    assert!(matches!(
+        resolve_llm_for_feed(&feed, None, Some(&remote_laya), false),
+        Err(LlmAdjudicationError::StrictLocalBlocked(_))
+    ));
+}
+
+#[tokio::test]
+async fn intelligent_local_feed_never_uses_cloud_embeddings() {
+    let pool = setup_pool().await;
+    insert_feed(&pool, "f-local", "Local Feed").await;
+    sqlx::query(
+        "INSERT INTO rss_articles (id, feed_id, url, title, published_date, content, summary, date_added, categories)
+         VALUES ('art-loc-1', 'f-local', 'https://example.com/1', 'Rust compiler internals', '2026-11-20T12:00:00Z', 'Rust MIR and borrow checker details', 'Rust MIR', '2026-11-20T12:00:00Z', '[\"Rust\"]')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let created = repository::create_feed(
+        &pool,
+        CreateSmartFeedInput {
+            name: "Rust".into(),
+            description: "Rust compiler".into(),
+            inclusion_criteria: "Rust, compiler".into(),
+            exclusion_criteria: String::new(),
+            source_scope: SourceScope::All,
+            source_scope_config: SourceScopeConfig::default(),
+            classification_mode: ClassificationMode::IntelligentLocal,
+            curation_strictness: CurationStrictness::Balanced,
+            minimum_relevance: None,
+            freshness_window_days: None,
+            sort_order: SmartFeedSortOrder::Relevance,
+            group_similar_stories: true,
+            is_enabled: true,
+            cloud_consent_granted: false,
+            preferred_provider: None,
+            preferred_model: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    // Even with a cloud embedding config (OpenRouter) and paid_embeddings_enabled=true,
+    // IntelligentLocal must stay local and never call the cloud embedding endpoint.
+    let cloud_emb_cfg = EmbeddingConfigInput {
+        provider: crate::ai::embeddings::EmbeddingProviderType::OpenRouter,
+        openai_api_key: None,
+        openai_model: None,
+        cohere_api_key: None,
+        cohere_model: None,
+        openrouter_api_key: Some("sk-or-test".into()),
+        openrouter_model: Some("openai/text-embedding-3-small".into()),
+        ollama_base_url: None,
+        ollama_model: None,
+    };
+
+    let metrics = evaluate_smart_feed_with_deps(
+        &pool,
+        None,
+        None,
+        &created.id,
+        EvaluationOptions {
+            force_reevaluate: true,
+            article_ids: None,
+            embedding_config: Some(cloud_emb_cfg),
+            paid_embeddings_enabled: Some(true),
+            ai_config: None,
+            strict_local_only: false,
+            laya_config: None,
+        },
+        None,
+        None,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(metrics.total_scanned, 1);
+    assert_eq!(metrics.embeddings_generated, 0);
+}

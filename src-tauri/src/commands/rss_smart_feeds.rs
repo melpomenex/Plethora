@@ -24,6 +24,7 @@ pub async fn create_rss_smart_feed(
     embedding_config: Option<EmbeddingConfigInput>,
     paid_embeddings_enabled: Option<bool>,
     strict_local_only: Option<bool>,
+    laya_config: Option<SmartFeedLayaConfig>,
     app: AppHandle,
     repo: State<'_, Repository>,
     ai_state: State<'_, AIState>,
@@ -33,6 +34,7 @@ pub async fn create_rss_smart_feed(
         embedding_config.clone(),
         paid_embeddings_enabled,
         strict_local_only,
+        laya_config.clone(),
     );
     let created = repository::create_feed(repo.pool(), input).await?;
     let stats = repository::get_feed_with_stats(repo.pool(), &created.id).await?;
@@ -57,6 +59,7 @@ pub async fn create_rss_smart_feed(
                     paid_embeddings_enabled,
                     ai_config: ai_cfg,
                     strict_local_only: strict,
+                    laya_config,
                 },
                 None,
                 None,
@@ -90,6 +93,7 @@ pub async fn update_rss_smart_feed(
     embedding_config: Option<EmbeddingConfigInput>,
     paid_embeddings_enabled: Option<bool>,
     strict_local_only: Option<bool>,
+    laya_config: Option<SmartFeedLayaConfig>,
     app: AppHandle,
     repo: State<'_, Repository>,
     ai_state: State<'_, AIState>,
@@ -99,6 +103,7 @@ pub async fn update_rss_smart_feed(
         embedding_config.clone(),
         paid_embeddings_enabled,
         strict_local_only,
+        laya_config.clone(),
     );
     let (updated, policy_changed) = repository::update_feed(repo.pool(), &id, input).await?;
     let stats = repository::get_feed_with_stats(repo.pool(), &updated.id).await?;
@@ -124,6 +129,7 @@ pub async fn update_rss_smart_feed(
                     paid_embeddings_enabled,
                     ai_config: ai_cfg,
                     strict_local_only: strict,
+                    laya_config,
                 },
                 None,
                 None,
@@ -214,6 +220,7 @@ pub async fn evaluate_rss_smart_feed(
     embedding_config: Option<EmbeddingConfigInput>,
     paid_embeddings_enabled: Option<bool>,
     strict_local_only: Option<bool>,
+    laya_config: Option<SmartFeedLayaConfig>,
     app: AppHandle,
     repo: State<'_, Repository>,
     ai_state: State<'_, AIState>,
@@ -223,6 +230,7 @@ pub async fn evaluate_rss_smart_feed(
         embedding_config.clone(),
         paid_embeddings_enabled,
         strict_local_only,
+        laya_config.clone(),
     );
     let ai_cfg = ai_state.config.lock().ok().and_then(|g| g.clone());
     let strict = strict_local_only.unwrap_or(false);
@@ -241,6 +249,7 @@ pub async fn evaluate_rss_smart_feed(
                 paid_embeddings_enabled,
                 ai_config: ai_cfg,
                 strict_local_only: strict,
+                laya_config,
             },
             None,
             None,
@@ -264,6 +273,7 @@ pub async fn evaluate_rss_smart_feed(
                     paid_embeddings_enabled,
                     ai_config: ai_cfg,
                     strict_local_only: strict,
+                    laya_config,
                 },
                 None,
                 None,
@@ -303,6 +313,7 @@ pub async fn submit_rss_smart_feed_feedback(
     embedding_config: Option<EmbeddingConfigInput>,
     paid_embeddings_enabled: Option<bool>,
     strict_local_only: Option<bool>,
+    laya_config: Option<SmartFeedLayaConfig>,
     app: AppHandle,
     repo: State<'_, Repository>,
     worker: State<'_, SmartFeedWorkerState>,
@@ -311,6 +322,7 @@ pub async fn submit_rss_smart_feed_feedback(
         embedding_config.clone(),
         paid_embeddings_enabled,
         strict_local_only,
+        laya_config,
     );
     let result = apply_smart_feed_feedback(
         repo.pool(),
@@ -332,6 +344,7 @@ pub async fn get_rss_smart_feed_capabilities(
     embedding_config: Option<EmbeddingConfigInput>,
     paid_embeddings_enabled: Option<bool>,
     strict_local_only: Option<bool>,
+    laya_config: Option<SmartFeedLayaConfig>,
     ai_state: State<'_, AIState>,
     key_store: State<'_, AIKeyStore>,
     worker: State<'_, SmartFeedWorkerState>,
@@ -340,6 +353,7 @@ pub async fn get_rss_smart_feed_capabilities(
         embedding_config.clone(),
         paid_embeddings_enabled,
         strict_local_only,
+        laya_config.clone(),
     );
     let strict = strict_local_only.unwrap_or(false);
     let paid_ok = paid_embeddings_enabled.unwrap_or(false);
@@ -362,20 +376,49 @@ pub async fn get_rss_smart_feed_capabilities(
     };
 
     let ai_cfg = ai_state.config.lock().ok().and_then(|g| g.clone());
-    let (intelligent_local_available, local_llm_model) = match ai_cfg.as_ref() {
-        Some(cfg) => {
-            let ok = is_loopback_url(&cfg.local_settings.ollama_base_url)
-                && !cfg.models.ollama_model.trim().is_empty();
-            (
-                ok,
-                if ok {
-                    Some(cfg.models.ollama_model.clone())
-                } else {
-                    None
-                },
-            )
+    let laya_configured = laya_config.as_ref().filter(|c| c.enabled).and_then(|cfg| {
+        let base_url = cfg
+            .base_url
+            .as_deref()
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .unwrap_or(crate::laya_runtime::LAYA_ENDPOINT);
+        if is_loopback_url(base_url) {
+            let label = cfg
+                .model
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .map(|m| format!("Laya ({m})"))
+                .unwrap_or_else(|| "Laya (typed-decisions)".to_string());
+            Some(label)
+        } else {
+            None
         }
-        None => (false, None),
+    });
+
+    let (intelligent_local_available, local_llm_model) = if let Some(label) = laya_configured {
+        (true, Some(label))
+    } else if crate::laya_runtime::is_managed_running()
+        || crate::laya_runtime::is_laya_endpoint_healthy(crate::laya_runtime::LAYA_ENDPOINT).await
+    {
+        (true, Some("Laya (typed-decisions)".to_string()))
+    } else {
+        match ai_cfg.as_ref() {
+            Some(cfg) => {
+                let ok = is_loopback_url(&cfg.local_settings.ollama_base_url)
+                    && !cfg.models.ollama_model.trim().is_empty();
+                (
+                    ok,
+                    if ok {
+                        Some(cfg.models.ollama_model.clone())
+                    } else {
+                        None
+                    },
+                )
+            }
+            None => (false, None),
+        }
     };
 
     let mut cloud_llm_provider: Option<String> = None;

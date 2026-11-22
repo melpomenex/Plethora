@@ -3,8 +3,8 @@
 
 use super::classifier::{
     adjudicate_with_llm, compute_ranking_score, evaluate_fast_local, validate_llm_policy_for_feed,
-    AiProviderDecisionLlm, DecisionOutput, LlmAdjudicationError, SmartFeedDecisionLlm,
-    CLASSIFIER_VERSION,
+    AiProviderDecisionLlm, DecisionOutput, LayaSystemOneLlm, LlmAdjudicationError,
+    SmartFeedDecisionLlm, CLASSIFIER_VERSION,
 };
 use super::models::*;
 use super::normalize::{
@@ -41,6 +41,7 @@ pub struct SmartFeedRuntimeConfig {
     pub embedding_config: Option<EmbeddingConfigInput>,
     pub paid_embeddings_enabled: Option<bool>,
     pub strict_local_only: bool,
+    pub laya_config: Option<SmartFeedLayaConfig>,
 }
 
 #[derive(Clone)]
@@ -72,6 +73,7 @@ impl SmartFeedWorkerState {
         embedding_config: Option<EmbeddingConfigInput>,
         paid_embeddings_enabled: Option<bool>,
         strict_local_only: Option<bool>,
+        laya_config: Option<SmartFeedLayaConfig>,
     ) {
         if let Ok(mut guard) = self.runtime_config.lock() {
             if embedding_config.is_some() {
@@ -83,6 +85,7 @@ impl SmartFeedWorkerState {
             if let Some(strict) = strict_local_only {
                 guard.strict_local_only = strict;
             }
+            guard.laya_config = laya_config;
         }
     }
 
@@ -180,6 +183,7 @@ pub struct EvaluationOptions {
     pub paid_embeddings_enabled: Option<bool>,
     pub ai_config: Option<AIConfig>,
     pub strict_local_only: bool,
+    pub laya_config: Option<SmartFeedLayaConfig>,
 }
 
 /// Resolve the active embedding backend while strictly honoring paid-embedding
@@ -220,6 +224,7 @@ pub fn is_loopback_url(url: &str) -> bool {
 pub fn resolve_llm_for_feed(
     feed: &SmartFeed,
     ai_config: Option<&AIConfig>,
+    laya_config: Option<&SmartFeedLayaConfig>,
     strict_local_only: bool,
 ) -> std::result::Result<Arc<dyn SmartFeedDecisionLlm>, LlmAdjudicationError> {
     if feed.classification_mode == ClassificationMode::FastLocal {
@@ -228,9 +233,36 @@ pub fn resolve_llm_for_feed(
         ));
     }
 
+    if feed.classification_mode == ClassificationMode::IntelligentLocal {
+        if let Some(laya) = laya_config.filter(|c| c.enabled) {
+            let base_url = laya
+                .base_url
+                .as_deref()
+                .map(str::trim)
+                .filter(|s| !s.is_empty())
+                .unwrap_or(crate::laya_runtime::LAYA_ENDPOINT);
+            if !is_loopback_url(base_url) {
+                return Err(LlmAdjudicationError::StrictLocalBlocked(
+                    "Laya endpoint is not a local loopback URL".to_string(),
+                ));
+            }
+            return Ok(Arc::new(LayaSystemOneLlm::new(
+                base_url.to_string(),
+                laya.timeout_ms,
+            )));
+        }
+
+        if crate::laya_runtime::is_managed_running() {
+            return Ok(Arc::new(LayaSystemOneLlm::new(
+                crate::laya_runtime::LAYA_ENDPOINT.to_string(),
+                None,
+            )));
+        }
+    }
+
     let Some(cfg) = ai_config else {
         return Err(LlmAdjudicationError::Unavailable(
-            "No AI provider configuration available".to_string(),
+            "No local or AI provider configuration available".to_string(),
         ));
     };
 
@@ -612,11 +644,15 @@ async fn evaluate_inner(
     start: Instant,
 ) -> Result<SmartFeedRunMetrics> {
     let feed = repository::get_feed(pool, smart_feed_id).await?;
+    let feed_forces_local = matches!(
+        feed.classification_mode,
+        ClassificationMode::FastLocal | ClassificationMode::IntelligentLocal
+    );
     let backend = backend_override.unwrap_or_else(|| {
         resolve_smart_feed_embedding_backend(
             options.embedding_config.as_ref(),
             options.paid_embeddings_enabled,
-            options.strict_local_only,
+            options.strict_local_only || feed_forces_local,
         )
     });
 
@@ -723,6 +759,7 @@ async fn evaluate_inner(
         Some(resolve_llm_for_feed(
             &feed,
             options.ai_config.as_ref(),
+            options.laya_config.as_ref(),
             options.strict_local_only,
         ))
     };
@@ -1093,10 +1130,16 @@ pub async fn evaluate_articles_for_enabled_feeds(
         return Ok(Vec::new());
     }
 
+    let any_cloud_feed = enabled.iter().any(|f| {
+        matches!(
+            f.classification_mode,
+            ClassificationMode::Hybrid | ClassificationMode::Cloud
+        )
+    });
     let backend = resolve_smart_feed_embedding_backend(
         embedding_config.as_ref(),
         paid_embeddings_enabled,
-        strict_local_only,
+        strict_local_only || !any_cloud_feed,
     );
 
     // Pre-generate missing embeddings ONCE across all matching Smart Feeds.
@@ -1178,6 +1221,7 @@ pub async fn evaluate_articles_for_enabled_feeds(
                 paid_embeddings_enabled,
                 ai_config: ai_config.clone(),
                 strict_local_only,
+                laya_config: worker_state.and_then(|w| w.runtime_config().laya_config),
             },
             None,
             None,
@@ -1219,10 +1263,14 @@ pub async fn apply_smart_feed_feedback(
     )
     .await?;
 
+    let feed_forces_local = matches!(
+        feed.classification_mode,
+        ClassificationMode::FastLocal | ClassificationMode::IntelligentLocal
+    );
     let backend = resolve_smart_feed_embedding_backend(
         embedding_config,
         paid_embeddings_enabled,
-        strict_local_only,
+        strict_local_only || feed_forces_local,
     );
     rebuild_feedback_profile(pool, smart_feed_id, Some(&backend)).await?;
 
@@ -1295,6 +1343,7 @@ pub async fn apply_smart_feed_feedback(
                     paid_embeddings_enabled,
                     ai_config: None,
                     strict_local_only,
+                    laya_config: None,
                 },
                 Some(backend),
                 None,
