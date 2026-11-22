@@ -1114,7 +1114,8 @@ impl RuntimeAdapter for LayaDecisionAdapter {
     }
 
     /// A tokenizer is required: the checkpoint is text, and without a tokenizer
-    /// there is nothing to serve.
+    /// there is nothing to serve. The file may live in a sibling `tokenizer/`
+    /// directory, as it does in the official Convai repositories.
     fn required_metadata(&self) -> Vec<&'static str> {
         vec!["tokenizer.json"]
     }
@@ -1143,20 +1144,20 @@ impl RuntimeAdapter for LayaDecisionAdapter {
             .find(|candidate| index_contains(index, candidate))?;
 
         let mut files = vec![artifact_file(index, weights.to_string())];
-        // Tokenizer files ship alongside the weights and are required to serve.
-        for optional in [
-            "tokenizer.json",
-            "tokenizer_config.json",
-            "special_tokens_map.json",
-        ] {
-            if index_contains(index, optional) {
-                files.push(artifact_file(index, optional.to_string()));
+        // Tokenizer files may live in `tokenizer/`. Resolve them relative to
+        // this checkpoint's weight file so the `laya` family repo does not
+        // accidentally pair its English weights with a multilingual tokenizer.
+        let tokenizer = laya_checkpoint_file(index, weights, "tokenizer.json")?;
+        files.push(artifact_file(index, tokenizer));
+        for optional in ["tokenizer_config.json", "special_tokens_map.json"] {
+            if let Some(path) = laya_checkpoint_file(index, weights, optional) {
+                // Laya uses the same fail-closed SHA gate as ONNX downloads.
+                // Keep optional metadata only when the Hub publishes a SHA for
+                // it; ordinary small Git files have no LFS digest to verify.
+                if index.sha_of(&path).is_some() {
+                    files.push(artifact_file(index, path));
+                }
             }
-        }
-        if files.len() < 2 {
-            // Weights without a tokenizer cannot be served; refuse rather than
-            // install something that cannot run.
-            return None;
         }
 
         let weight_files = vec![artifact_file(index, weights.to_string())];
@@ -1182,6 +1183,16 @@ impl RuntimeAdapter for LayaDecisionAdapter {
             ]),
         })
     }
+}
+
+/// Find a Laya tokenizer file beside the selected checkpoint, either directly
+/// in its directory or in that directory's `tokenizer/` child.
+fn laya_checkpoint_file(index: &FileIndex, weights: &str, name: &str) -> Option<String> {
+    let checkpoint_dir = Path::new(weights).parent().unwrap_or_else(|| Path::new(""));
+    [checkpoint_dir.join(name), checkpoint_dir.join("tokenizer").join(name)]
+        .into_iter()
+        .map(|path| path.to_string_lossy().into_owned())
+        .find(|path| index_contains(index, path))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

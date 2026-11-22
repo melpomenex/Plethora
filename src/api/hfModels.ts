@@ -181,12 +181,14 @@ export const hfInstallModel = async (
   repoInput: string,
   runtime: HfRuntime,
   artifactKind: string,
+  expectedSha256?: string,
 ): Promise<InstalledHfModel> => {
   if (!isTauri()) throw new Error("Hugging Face models require the desktop app");
   return invokeCommand<InstalledHfModel>("hf_install_model", {
     repoInput,
     runtime,
     artifactKind,
+    expectedSha256: expectedSha256 ?? null,
   });
 };
 

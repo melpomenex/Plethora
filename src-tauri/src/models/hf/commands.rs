@@ -371,6 +371,7 @@ pub async fn hf_install_model(
     repo_input: String,
     runtime: String,
     artifact_kind: String,
+    expected_sha256: Option<String>,
 ) -> Result<InstalledHfModel> {
     let parsed: RepoInput = parse_repo_input(&repo_input)?;
     let runtime = parse_runtime_arg(&runtime)?;
@@ -389,6 +390,40 @@ pub async fn hf_install_model(
                 .await
                 .map_err(|e| PlethoraError::Internal(e.to_string()))?
         };
+
+    // Catalog downloads can pin the expected weight digest in addition to the
+    // immutable Hub revision. Compare it with the LFS digest before any bytes
+    // are downloaded; the downloader then verifies the same digest on disk.
+    if let Some(expected_sha256) = expected_sha256.as_deref() {
+        if runtime != HfRuntime::LayaDecision {
+            return Err(PlethoraError::Validation(
+                "An expected model digest is only supported for Laya downloads.".into(),
+            ));
+        }
+        let actual_sha256 = target
+            .artifact
+            .files
+            .iter()
+            .find(|file| file.path.ends_with(".safetensors"))
+            .and_then(|file| {
+                file.sha256.as_deref().or_else(|| {
+                    target
+                        .file_metadata
+                        .get(&file.path)
+                        .and_then(|metadata| metadata.sha256.as_deref())
+                })
+            });
+        if !actual_sha256
+            .map(|actual| actual.eq_ignore_ascii_case(expected_sha256))
+            .unwrap_or(false)
+        {
+            return Err(PlethoraError::Validation(format!(
+                "Laya checkpoint integrity check failed: expected SHA-256 {}, but the Hugging Face revision reports {}.",
+                expected_sha256,
+                actual_sha256.unwrap_or("no SHA-256")
+            )));
+        }
+    }
 
     // Server-side hard gate: re-run the disk check so an artifact that no
     // longer fits (or a Not-Recommended override) can never install a model

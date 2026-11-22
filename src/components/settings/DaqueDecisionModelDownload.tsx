@@ -55,7 +55,16 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
 
   const layaInstalls = LAYA_CHECKPOINTS.map((checkpoint) => ({
     checkpoint,
-    record: installedModels.find((model) => isLayaModel(model) && model.repo_id === checkpoint.repoId),
+    record: installedModels.find(
+      (model) =>
+        isLayaModel(model) &&
+        model.repo_id === checkpoint.repoId &&
+        model.artifact_files.some(
+          (file) =>
+            file.path.endsWith(".safetensors") &&
+            file.sha256 === checkpoint.safetensorsSha256,
+        ),
+    ),
   }));
 
   const showFor =
@@ -78,7 +87,7 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
         const pct = progress[installId]?.percent ?? 0;
         const busy = installing[installId];
         return (
-          <div key={checkpoint.runtime} className="space-y-1.5 rounded border border-border p-2">
+          <div key={checkpoint.repoId} className="space-y-1.5 rounded border border-border p-2">
             <div className="flex items-start justify-between gap-2">
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
@@ -123,7 +132,7 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
                     </button>
                     <button
                       type="button"
-                      onClick={() => void uninstall(installId)}
+                      onClick={() => void uninstall(record.id)}
                       className="rounded border border-border p-1 hover:bg-muted/50"
                       title={t("daqeDownload.remove")}
                       aria-label={t("daqeDownload.remove")}

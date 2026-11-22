@@ -36,7 +36,12 @@ interface HfModelState {
 
   fetchInstalled: () => Promise<void>;
   inspect: (repoInput: string) => Promise<HfInspection>;
-  install: (repoInput: string, runtime: HfRuntime, artifactKind: string) => Promise<InstalledHfModel>;
+  install: (
+    repoInput: string,
+    runtime: HfRuntime,
+    artifactKind: string,
+    expectedSha256?: string,
+  ) => Promise<InstalledHfModel>;
   cancelInstall: (id: string) => Promise<void>;
   uninstall: (id: string) => Promise<void>;
   clearInspection: () => void;
@@ -65,10 +70,12 @@ export const useHfModelStore = create<HfModelState>((set, get) => ({
     return inspection;
   },
 
-  install: async (repoInput, runtime, artifactKind) => {
+  install: async (repoInput, runtime, artifactKind, expectedSha256) => {
     set({ installState: "installing", error: null });
     try {
-      const model = await hfInstallModel(repoInput, runtime, artifactKind);
+      const model = expectedSha256
+        ? await hfInstallModel(repoInput, runtime, artifactKind, expectedSha256)
+        : await hfInstallModel(repoInput, runtime, artifactKind);
       await get().fetchInstalled();
       set({ installState: "idle" });
       return model;

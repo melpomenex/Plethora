@@ -11,11 +11,9 @@
  * ## Why a fixed checkpoint list rather than a repo input
  *
  * `src-tauri/src/models/hf/security.md` fails closed on artifacts whose integrity
- * is not pinned: ONNX is parsed by a bundled runtime, so an unverified download
- * is untrusted input to an interpreter. A free-text Hugging Face id would let a
- * user route around that gate by typing any repository. The list below is the
- * set that ships with a pinned digest; the installer re-verifies before install
- * either way, but the list means nobody *has* to discover a repo by hand.
+ * is not pinned. A free-text Hugging Face id would let a user route around that
+ * gate by typing any repository. The list below pins each Hugging Face commit
+ * and weight digest; the installer re-verifies the digest before installing.
  *
  * The install path is the repository's existing one — the same
  * `useHfModelStore.install` that installs speech models, with the same resume,
@@ -77,9 +75,9 @@ export const LAYA_CHECKPOINTS: readonly LayaCheckpoint[] = [
 /** The checkpoint a reader should get by default. */
 export const DEFAULT_LAYA_CHECKPOINT = LAYA_CHECKPOINTS[0];
 
-/** The id the installer's progress events are keyed by for a checkpoint. */
+/** The id the installer's progress events and registry use for a checkpoint. */
 export function layaInstallId(checkpoint: LayaCheckpoint): string {
-  return `${checkpoint.runtime}:${checkpoint.repoId}`;
+  return `hf:${checkpoint.runtime}:${checkpoint.repoId}@${checkpoint.revision}`;
 }
 
 /** Whether an installed model is a Laya checkpoint. */
@@ -98,11 +96,21 @@ export function isLayaModel(model: Pick<InstalledHfModel, "runtime">): boolean {
  */
 export async function installLayaCheckpoint(input: {
   checkpoint: LayaCheckpoint;
-  install: (repoInput: string, runtime: HfRuntime, artifactKind: string) => Promise<InstalledHfModel>;
+  install: (
+    repoInput: string,
+    runtime: HfRuntime,
+    artifactKind: string,
+    expectedSha256?: string,
+  ) => Promise<InstalledHfModel>;
 }): Promise<InstalledHfModel | null> {
   const { checkpoint, install } = input;
   try {
-    return await install(checkpoint.repoId, checkpoint.runtime, "laya-decision");
+    return await install(
+      `${checkpoint.repoId}#${checkpoint.revision}`,
+      checkpoint.runtime,
+      "laya-decision",
+      checkpoint.safetensorsSha256,
+    );
   } catch {
     // A failed install must not take the settings panel down with it. The store
     // records the error and the UI shows it; returning null says "nothing landed".
