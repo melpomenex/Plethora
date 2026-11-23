@@ -144,7 +144,7 @@ function isVerified(resolution: Awaited<ReturnType<typeof resolveStudySourceRefs
 }
 
 function objectiveIndexes(topic: StudyPlanVersionNode, quote: string): number[] {
-  const words = (text: string) => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
+  const words = (text: string): string[] => text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? [];
   const passageWords = new Set(words(quote));
   const instructionWords = new Set(['analyze', 'apply', 'compare', 'contrast', 'define', 'describe',
     'discuss', 'evaluate', 'explain', 'identify', 'learn', 'recognize', 'understand']);
