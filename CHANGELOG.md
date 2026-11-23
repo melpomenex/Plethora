@@ -1,5 +1,29 @@
 # Changelog
 
+## [3.13.0] - 2026-11-23
+
+### Added
+
+- **PDF Reader Overhaul: Thumbnails, Spread Layouts, Rotation & Navigation History** — Added a virtualized page thumbnail sidebar (`PdfPageThumbnails`), view controls (`PdfViewControls`) for continuous, single-page, two-page spread, and cover-spread layouts with LTR/RTL reading order and view rotation, persistent zoom mode/scale, embedded PDF link navigation, and verified back/forward navigation history (`PdfNavigationHistory`) across fixed and reflow modes.
+- **PDF Annotations Panel & Text/Region Markup** — Added `PdfAnnotationsPanel` and `pdfTextMarks` supporting highlight, underline, strikethrough, note, rectangle, ellipse, ink, free-text, and stamp markups with customizable colors, inline editing, and visual regression coverage.
+- **PDF File Operations, Export & Print** — Added `PdfFileActions` and backend `lopdf` structural operations to export selected or reordered pages, crop margins, rotate pages into a saved copy (`PdfSaveRotatedCopyButton`), extract text or HTML, and print pages, alongside mobile PDF backend commands.
+- **PDF Semantic Indexing & Grounded Assistant Citations** — Integrated PDF semantic projection, chunking, and FTS/embedding indexing with outline- and page-grounded assistant context (`pdfOutlineContext`, `pdfAssistantEvidence`) and clickable verified page citations (`PdfAssistantCitations`) that jump directly to the cited page.
+- **Animated Image Theme Backgrounds** — Import GIFs as animated theme backgrounds using a dedicated Rust/WASM GIF decoder (`gif-decoder.wasm`), frame composition, flash-risk preflight checks, desktop theme persistence, and smooth animated playback.
+- **AI Smart RSS Feeds & Local Laya Decision Runtime** — Added AI-curated Smart RSS Feeds supporting local, hybrid, and cloud curation with Laya typed classification decisions, managed local Laya server setup in Settings, pinned tokenizer/checkpoint integrity verification, and benchmarked local decision models.
+- **Streaming LLM Responses & Generation Stages** — Streamed LLM responses token-by-token with live generation stage indicators across chat surfaces and reliable final-chunk flushing on completion.
+- **Zoomable Embedded Image Viewer** — Click embedded images in documents and RSS article views (`RSSReader`, `RSSFullContentView`, `RSSScrollMode`, `StoryView`) to open a zoomable `EmbeddedImageViewer` modal with system-color-adaptive controls and backdrop/Escape dismissal.
+- **YouTube Playlist Import, Transcript Export & Persistent Podcast Chat** — Select specific videos from YouTube playlists in the command palette, perform block-level transcript actions with multi-format export, and preserve podcast transcript assistant conversations across navigation and app reloads.
+- **Dashboard Quick Review, Split-Screen Toolbar & Queue Audio Feedback** — Powered dashboard quick review with due cards, added middle-click on toolbar buttons to open items in split screen, added rating confirmation sounds in the study queue, and refined desktop/dashboard interactions.
+- **Mobile RSS Pull-to-Refresh** — Added pull-to-refresh gestures with haptic feedback to mobile RSS feeds and articles.
+- **Plethora Capture 1.17.0** — Hardened link and page saving in the browser extension with queued fallbacks and status toasts.
+
+### Fixed & Improved
+
+- **PDF Selection Menu, Reading Position & Translations** — Enabled the text-selection action menu on PDFs, retained reading position across reloads, and added PDF viewer and annotation translations across all 6 locales (`en`, `de`, `es`, `fr`, `ja`, `zh`).
+- **Search & Command Palette Extract Retrieval** — Added scored `LIKE` fallback with primary hits for extract search, included unassigned documents in collection filters, and returned standalone extract results in the command palette's in-memory fallback.
+- **Stability, Tab Preloading & Database Integrity** — Recovered lazy-loaded views on failure, isolated reader stats, preloaded tab chunks earlier for faster tab switching, and kept extract graph writes transactional.
+- **Build & Documentation** — Relocated Cargo temporary files in Linux build scripts when needed, refreshed the README for v3.12+ features, and documented Socket Firewall (`sfw`) usage in `AGENTS.md`.
+
 ## [3.12.0] - 2026-11-20
 
 ### Added
