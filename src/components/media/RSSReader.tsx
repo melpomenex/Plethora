@@ -123,6 +123,7 @@ import {
   rssFeedMenuItemIds,
 } from "../../lib/contextMenus";
 import { useRssSelectionMenu } from "./useRssSelectionMenu";
+import { useEmbeddedImageViewer } from "../viewer/useEmbeddedImageViewer";
 import { SearchResults } from "./SearchResults";
 import { OriginalView } from "./OriginalView";
 import { StoryView } from "./StoryView";
@@ -2250,6 +2251,15 @@ export function RSSReader() {
   // document viewing: registry-driven, document-backed actions lazily
   // ensure a backing library document for the article). ----
   const rssSelection = useRssSelectionMenu(selectedItemFeed, selectedItem);
+  const [rssProseRoot, setRssProseRoot] = useState<HTMLDivElement | null>(null);
+  const setRssProseRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      rssSelection.contentRef.current = el;
+      setRssProseRoot(el);
+    },
+    [rssSelection.contentRef],
+  );
+  const rssImageViewer = useEmbeddedImageViewer(rssProseRoot, rssSelection.contentRef);
 
   // ── Passage extract-worthiness (change
   // `complete-reader-extract-worthiness-integration`) ────────────────────────
@@ -4141,7 +4151,7 @@ export function RSSReader() {
                               )}
                             </div>
                             <div
-                              ref={rssSelection.contentRef}
+                              ref={setRssProseRef}
                               className="prose prose-sm max-w-none text-foreground dark:prose-invert reading-prose rss-reading-prose"
                               onContextMenu={rssSelection.handleContextMenu}
                               onMouseDown={rssSelection.handleMouseDown}
@@ -4173,6 +4183,7 @@ export function RSSReader() {
                         </div>
                       )}
                       {rssSelection.overlays}
+                      {rssImageViewer.viewerOverlay}
                       <PassageScoreOverlay
                         results={rssPassageScoring.results}
                         projectRects={rssPassageScoring.projectRects}

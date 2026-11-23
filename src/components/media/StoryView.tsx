@@ -4,7 +4,8 @@ import { rssReadingStyle, type RssUserPreferenceUpdate } from "../../types/rssCu
  * Single-article focused reading with minimal chrome, next/prev navigation
  */
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useEmbeddedImageViewer } from "../viewer/useEmbeddedImageViewer";
 import {
   ArrowSquareOut,
   CaretLeft,
@@ -43,6 +44,15 @@ export function StoryView({
   const toast = useToast();
   // Text-selection menu with the same actions as document viewing.
   const selection = useRssSelectionMenu(feed, item);
+  const [proseRoot, setProseRoot] = useState<HTMLDivElement | null>(null);
+  const setProseRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      selection.contentRef.current = el;
+      setProseRoot(el);
+    },
+    [selection.contentRef],
+  );
+  const imageViewer = useEmbeddedImageViewer(proseRoot, selection.contentRef);
   // Keep the DOM nodes that hold the article text stable across menu-only
   // rerenders. A fresh `{ __html }` object every render makes React reset
   // `innerHTML`, which silently collapses the native selection while the
@@ -126,7 +136,7 @@ export function StoryView({
 
           {/* Content */}
           <div
-            ref={selection.contentRef}
+            ref={setProseRef}
             className="rss-reading-prose prose prose-sm dark:prose-invert max-w-none leading-relaxed"
             onContextMenu={selection.handleContextMenu}
             onMouseDown={selection.handleMouseDown}
@@ -168,6 +178,7 @@ export function StoryView({
         </article>
       </div>
       {selection.overlays}
+      {imageViewer.viewerOverlay}
     </div>
   );
 }

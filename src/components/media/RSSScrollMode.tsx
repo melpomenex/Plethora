@@ -21,6 +21,7 @@ import { emitUserInteraction } from "../../lib/feedback/orchestrator";
  */
 
 import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useEmbeddedImageViewer } from "../viewer/useEmbeddedImageViewer";
 import {
   ArrowCounterClockwise,
   ArrowLeft,
@@ -291,6 +292,12 @@ export function RSSScrollMode({
     setIsImageExpanded(settings.rssQueue.showCoverImage ?? false);
   }, [renderedIndex, settings.rssQueue.showCoverImage]);
   const contentRef = useRef<HTMLDivElement>(null);
+  const [proseRoot, setProseRoot] = useState<HTMLDivElement | null>(null);
+  const setProseRef = useCallback((el: HTMLDivElement | null) => {
+    contentRef.current = el;
+    setProseRoot(el);
+  }, []);
+  const imageViewer = useEmbeddedImageViewer(proseRoot, contentRef);
   const selectedTextRef = useRef("");
   const containerRef = useRef<HTMLDivElement>(null);
   const lastScrollTime = useRef(0);
@@ -2275,7 +2282,7 @@ export function RSSScrollMode({
                 </div>
               ) : (
                 <div
-                  ref={contentRef}
+                  ref={setProseRef}
                   data-paper-surface={(!preferences?.theme_mode || preferences.theme_mode === "system") ? "reading" : undefined}
             style={rssReadingStyle(preferences, appearance)}
                   className="rss-reading-prose rss-reading-width flex-1 min-h-0 overflow-y-auto rss-article-content prose prose-base md:prose-lg max-w-none dark:prose-invert select-text pb-2"
@@ -2769,6 +2776,7 @@ export function RSSScrollMode({
           </div>
         </div>
       )}
+      {imageViewer.viewerOverlay}
     </div>
   );
 }

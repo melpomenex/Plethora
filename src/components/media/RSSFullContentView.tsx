@@ -5,7 +5,8 @@ import {
   RSS_FONTS,
   type RssUserPreferenceUpdate,
 } from "../../types/rssCustomization";
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, type Ref } from "react";
+import { useEmbeddedImageViewer } from "../viewer/useEmbeddedImageViewer";
 import {
   ArrowsClockwise,
   ArrowSquareOut,
@@ -49,11 +50,13 @@ function SafeHTML({
   fontFamily,
   lineHeight,
   fontSize,
+  contentRef,
 }: {
   html: string;
   fontFamily: "sans" | "serif" | "mono";
   lineHeight: "normal" | "relaxed" | "loose";
   fontSize: number;
+  contentRef?: Ref<HTMLDivElement>;
 }) {
   const fontClasses = {
     sans: "font-sans",
@@ -75,6 +78,7 @@ function SafeHTML({
 
   return (
     <div
+      ref={contentRef}
       className={`rss-reading-prose prose prose-slate dark:prose-invert max-w-none transition-all duration-150
         ${fontClasses[fontFamily]} 
         ${heightClasses[lineHeight]}
@@ -242,6 +246,8 @@ export function RSSFullContentView({
   });
   const [showSettings, setShowSettings] = useState(false);
   const [scrollProgress, setScrollProgress] = useState(0);
+  const [proseRoot, setProseRoot] = useState<HTMLDivElement | null>(null);
+  const imageViewer = useEmbeddedImageViewer(proseRoot, selection.contentRef);
 
   // Sync controls to localStorage
 
@@ -657,9 +663,10 @@ export function RSSFullContentView({
               fontFamily={fontFamily} 
               lineHeight={lineHeight} 
               fontSize={fontSize} 
+              contentRef={setProseRoot}
             />
           ) : (
-            <div className="rss-reading-prose prose prose-slate dark:prose-invert max-w-none">
+            <div ref={setProseRoot} className="rss-reading-prose prose prose-slate dark:prose-invert max-w-none">
               {/* Show original RSS content as fallback */}
               <div
                 dangerouslySetInnerHTML={fallbackHtml}
@@ -683,6 +690,7 @@ export function RSSFullContentView({
         </div>
       </div>
       {selection.overlays}
+      {imageViewer.viewerOverlay}
     </div>
   );
 }
