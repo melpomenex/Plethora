@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import * as pdfjsLib from "pdfjs-dist";
 // PDFPageView and EventBus are exported from pdf.js's viewer module. PDFPageView
 // owns the per-page DOM (a `.page` div containing canvasWrapper + textLayer +
@@ -134,6 +134,7 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
 }: PdfPageViewWrapperProps) {
   const slotRef = useRef<HTMLDivElement | null>(null);
   const pageViewRef = useRef<PdfPageViewInstance | null>(null);
+  const [activeViewport, setActiveViewport] = useState<PageViewport | null>(null);
   const pdfPageRef = useRef<PDFPageProxy | null>(null);
   const imageRegionsRef = useRef<PdfImageRegion[]>([]);
   const hoveredRegionIdRef = useRef<string | null>(null);
@@ -205,6 +206,7 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       // `setPdfPage` recomputes the viewport (scale * PDF_TO_CSS_UNITS) and resets.
       pageView.rotation = settings.rotation;
       pageView.setPdfPage(pdfPage);
+      setActiveViewport(pageView.viewport);
       onViewportChange(pageIndex, pageView.viewport, pageView.rotation);
 
       // Build the geometric per-character layout in parallel with canvas/text
@@ -344,6 +346,7 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
         return;
       }
       if (cancelled) return;
+      setActiveViewport(pageView.viewport);
       onViewportChange(pageIndex, pageView.viewport, pageView.rotation);
       onCanvasRef(pageIndex, pageView.canvas ?? null);
       const div = pageView.textLayer?.div ?? null;
@@ -457,7 +460,7 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
       >
         <HighlightLayer
           pageIndex={pageIndex}
-          viewport={pageViewRef.current?.viewport ?? null}
+          viewport={activeViewport}
           highlights={highlights}
           interactive={false}
         />
@@ -467,7 +470,7 @@ export const PdfPageViewWrapper = memo(function PdfPageViewWrapper({
             page is rendered; committed state lives in the viewer. */}
         <SelectionOverlay
           pageIndex={pageIndex}
-          viewport={pageViewRef.current?.viewport ?? null}
+          viewport={activeViewport}
           pdfRects={selectionPdfRects ?? EMPTY_PDF_RECTS}
         />
       </div>

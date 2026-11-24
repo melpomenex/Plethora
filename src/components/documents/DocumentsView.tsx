@@ -31,6 +31,7 @@ import {
   ChartBar,
   Flag,
   Pause,
+  Play,
   Plus,
   SortAscending,
   Sparkle,
@@ -107,7 +108,7 @@ import {
 } from "../../api/documents";
 import { getAllLearningItems, type LearningItem } from "../../api/learning-items";
 import { getYouTubeThumbnail, extractYouTubeTimestamp } from "../../api/youtube";
-import { bulkSuspendItems } from "../../api/queue";
+import { bulkSuspendItems, bulkUnsuspendItems } from "../../api/queue";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { useLongPress } from "../../hooks/useLongPress";
 import { useIsActiveTab } from "../common/Tabs";
@@ -146,7 +147,7 @@ const ItemStatsModal = lazy(() =>
 const MODE_STORAGE_KEY = "documentsViewMode";
 const SAVED_VIEWS_KEY = "documentsSavedViews";
 
-type CompactDocumentFilter = "all" | "priority" | "recent" | "active" | "parked" | "highlights" | "cards";
+type CompactDocumentFilter = "all" | "priority" | "recent" | "active" | "parked" | "suspended" | "highlights" | "cards";
 
 function extractYouTubeId(urlOrId: string): string {
   if (!urlOrId) return "";
@@ -210,6 +211,8 @@ type SavedView = {
   compactDocumentsView?: boolean;
   showNextAction: boolean;
   fileTypeFilter: string;
+  categoryFilter?: string;
+  compactFilter?: CompactDocumentFilter;
 };
 
 const defaultSortByKey: Record<DocumentSortKey, DocumentSortDirection> = {
@@ -528,7 +531,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     return Array.from(cats).sort();
   }, [documents]);
 
-  const filteredDocuments = useMemo(() => {
+  const baseFilteredDocuments = useMemo(() => {
     let base = documents.filter((doc) => matchesDocumentSearch(doc, searchTokens));
     // Collection filtering is now handled by the backend (collection_id on documents)
     if (selectedFileType !== "all") {
@@ -537,6 +540,11 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     if (selectedCategory !== "all") {
       base = base.filter((doc) => (doc.category ?? "") === selectedCategory);
     }
+    return base;
+  }, [documents, searchTokens, selectedCategory, selectedFileType]);
+
+  const filteredDocuments = useMemo(() => {
+    let base = baseFilteredDocuments;
     if (compactDocumentsView && compactFilter !== "all") {
       base = base.filter((doc) => {
         switch (compactFilter) {
@@ -548,6 +556,8 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
             return (doc.progressPercent ?? 0) > 0 || doc.extractCount > 0 || doc.learningItemCount > 0;
           case "parked":
             return doc.isArchived || getPriorityTier(doc) === "low";
+          case "suspended":
+            return Boolean(doc.isDismissed);
           case "highlights":
             return doc.extractCount > 0;
           case "cards":
@@ -558,7 +568,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
       });
     }
     return base;
-  }, [compactDocumentsView, compactFilter, documents, searchTokens, selectedCategory, selectedFileType]);
+  }, [baseFilteredDocuments, compactDocumentsView, compactFilter]);
 
   const sortedDocuments = useMemo(() => {
     return sortDocuments(filteredDocuments, sortKey, sortDirection);
@@ -1223,6 +1233,34 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     }
   };
 
+  const handleBulkUnsuspend = async (idsOverride?: string[]) => {
+    const usingSelection = idsOverride === undefined;
+    const ids = idsOverride ?? Array.from(selectedIds);
+    if (ids.length === 0) return;
+    try {
+      const result = await bulkUnsuspendItems(ids);
+      if (usingSelection) {
+        finishBulkAction(
+          "Unsuspend",
+          result.succeeded,
+          result.failed.map((id, index) => ({ id, reason: result.errors[index] ?? id })),
+        );
+      } else if (result.failed.length > 0) {
+        emitUserInteraction(result.succeeded.length ? "feedback.warning" : "action.failed");
+        toast.error("Unsuspend", result.errors[0] ?? result.failed[0]);
+      } else {
+        emitUserInteraction("action.committed");
+        toast.success(
+          "Unsuspend",
+          t("documentsView.bulkSucceeded", { count: result.succeeded.length }),
+        );
+      }
+      await loadDocuments();
+    } catch (error) {
+      toast.error("Unsuspend", error instanceof Error ? error.message : String(error));
+    }
+  };
+
   const handleSort = (key: DocumentSortKey) => {
     if (sortKey === key) {
       setSortDirection(sortDirection === "asc" ? "desc" : "asc");
@@ -1332,6 +1370,8 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
       compactDocumentsView,
       showNextAction,
       fileTypeFilter: selectedFileType,
+      categoryFilter: selectedCategory,
+      compactFilter,
     };
     setSavedViews((prev) => [...prev, view]);
     setActiveViewId(view.id);
@@ -1341,18 +1381,24 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     if (!viewId) {
       setActiveViewId(null);
       setSelectedFileType("all");
+      setSelectedCategory("all");
+      setCompactFilter("all");
+      setSearchInput("");
+      setDebouncedSearch("");
       return;
     }
     const view = savedViews.find((item) => item.id === viewId);
     if (!view) return;
-    setSearchInput(view.query);
-    setDebouncedSearch(view.query);
+    setSearchInput(view.query ?? "");
+    setDebouncedSearch(view.query ?? "");
     setSortKey(view.sortKey);
     setSortDirection(view.sortDirection);
     setMode(view.mode);
     updateSettingsCategory("interface", { compactDocumentsView: view.compactDocumentsView ?? false });
     setShowNextAction(view.showNextAction);
     setSelectedFileType(view.fileTypeFilter ?? "all");
+    setSelectedCategory(view.categoryFilter ?? "all");
+    setCompactFilter(view.compactFilter ?? "all");
     setActiveViewId(view.id);
   };
 
@@ -1733,12 +1779,22 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
               icon: <Flag className="w-3.5 h-3.5" />,
               onClick: handleBulkReprioritize,
             },
-            {
-              id: "suspend",
-              label: t("documentsView.suspend"),
-              icon: <Pause className="w-3.5 h-3.5" />,
-              onClick: () => void handleBulkSuspend(),
-            },
+            ...(documents.some((d) => selectedIds.has(d.id) && !d.isDismissed)
+              ? [{
+                  id: "suspend",
+                  label: t("documentsView.suspend"),
+                  icon: <Pause className="w-3.5 h-3.5" />,
+                  onClick: () => void handleBulkSuspend(),
+                }]
+              : []),
+            ...(documents.some((d) => selectedIds.has(d.id) && Boolean(d.isDismissed))
+              ? [{
+                  id: "unsuspend",
+                  label: "Unsuspend",
+                  icon: <Play className="w-3.5 h-3.5" />,
+                  onClick: () => void handleBulkUnsuspend(),
+                }]
+              : []),
             {
               id: "archive",
               label: t("documentsView.archive"),
@@ -1807,7 +1863,7 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
               </div>
             ) : compactDocumentsView ? (
               <CompactLibraryView
-                documents={documents}
+                documents={baseFilteredDocuments}
                 sortedDocuments={sortedDocuments}
                 isLoading={isLoading}
                 hasCompletedFirstLoad={hasCompletedFirstLoad}
@@ -1831,7 +1887,13 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                 onClearSearch={() => setSearchInput("")}
                 onImport={handleImport}
                 onImportFolder={handleImportFolder}
-                onClearFilter={() => setCompactFilter("all")}
+                onClearFilter={() => {
+                  setCompactFilter("all");
+                  setSelectedCategory("all");
+                  setSelectedFileType("all");
+                  setSearchInput("");
+                  setDebouncedSearch("");
+                }}
                 cardResults={cardResults}
                 onUpdate={updateDocument}
                 onOpenPopup={(doc) => void priorityPopup.open([doc.id], [doc])}
@@ -2204,11 +2266,24 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
                     const clicked = listCtxDoc.doc;
                     setListCtxDoc(null);
                     const inSelection = selectedIds.has(clicked.id);
-                    void handleBulkSuspend(inSelection ? undefined : [clicked.id]);
+                    if (clicked.isDismissed) {
+                      void handleBulkUnsuspend(inSelection ? undefined : [clicked.id]);
+                    } else {
+                      void handleBulkSuspend(inSelection ? undefined : [clicked.id]);
+                    }
                   }}
                 >
-                  <Pause className="h-3.5 w-3.5 text-muted-foreground" />
-                  {t("documentsView.suspend")}
+                  {listCtxDoc.doc.isDismissed ? (
+                    <>
+                      <Play className="h-3.5 w-3.5 text-muted-foreground" />
+                      Unsuspend
+                    </>
+                  ) : (
+                    <>
+                      <Pause className="h-3.5 w-3.5 text-muted-foreground" />
+                      {t("documentsView.suspend")}
+                    </>
+                  )}
                 </button>
                 <button
                   className="flex items-center gap-2.5 w-full text-left px-3 py-1.5 text-sm hover:bg-muted text-foreground"
@@ -3044,6 +3119,7 @@ function CompactLibraryView({
         (doc) => (doc.progressPercent ?? 0) > 0 || doc.extractCount > 0 || doc.learningItemCount > 0
       ).length,
       parked: documents.filter((doc) => doc.isArchived || getPriorityTier(doc) === "low").length,
+      suspended: documents.filter((doc) => Boolean(doc.isDismissed)).length,
       highlights: documents.filter((doc) => doc.extractCount > 0).length,
       cards: documents.filter((doc) => doc.learningItemCount > 0).length,
     };
@@ -3063,6 +3139,7 @@ function CompactLibraryView({
     { id: "recent", label: t("documentsView.recentlyImported"), icon: Clock },
     { id: "active", label: t("documentsView.activeReading"), icon: BookOpen },
     { id: "parked", label: t("documentsView.parked"), icon: FolderOpen },
+    { id: "suspended", label: "Suspended", icon: Pause },
   ];
 
   const secondaryFilters: Array<{
@@ -3563,6 +3640,11 @@ function CompactDocumentRow({
             <span>{doc.learningItemCount} {t("documentsView.cardsShort")}</span>
             <span>{formatRelativeTime(getLastTouched(doc))}</span>
             <DueDateBadge doc={doc} />
+            {doc.isDismissed && (
+              <span className="rounded bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-medium text-amber-500">
+                Suspended
+              </span>
+            )}
             <DocumentAudioEditionIndicator docId={doc.id} />
           </div>
           <div className="mt-2 flex items-center justify-between gap-2">

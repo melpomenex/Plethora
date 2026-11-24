@@ -4855,6 +4855,7 @@ export function PDFViewer({
                       scrollContainerRef={scrollContainerRef}
                       pageIndex={index}
                       scale={pageScales[index] ?? scale}
+                      rotation={fixedView.rotation}
                       eventBus={eventBusRef.current!}
                       highlights={getHighlightsForPage(pageNum)}
                       selectionPdfRects={selectionPdfRectsByPage?.get(pageNum) ?? null}
