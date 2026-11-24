@@ -618,6 +618,40 @@ function ensureNeedleSidecar(targetTriple) {
   }
 }
 
+const CACTUS_VISION_LIB_VERSION = '4.1.1';
+
+function ensureCactusLibrary(targetTriple) {
+  if (!targetTriple.includes('apple-darwin')) {
+    return;
+  }
+  if (!targetTriple.startsWith('aarch64')) {
+    console.warn(`⚠️  libcactus.dylib has no prebuilt asset for ${targetTriple}; skipping.`);
+    return;
+  }
+  const libPath = path.join(BIN_DIR, 'libcactus.dylib');
+  const versionMarker = path.join(BIN_DIR, '.cactus-dylib-provisioned');
+  let provisionedVersion = null;
+  try {
+    provisionedVersion = fs.readFileSync(versionMarker, 'utf8').trim();
+  } catch {}
+
+  if (isUsableSidecar(libPath) && provisionedVersion === CACTUS_VISION_LIB_VERSION) {
+    return;
+  }
+
+  try {
+    console.log(`Provisioning Mirage Vision runtime (libcactus.dylib ${CACTUS_VISION_LIB_VERSION}) for ${targetTriple}...`);
+    execFileSync(process.execPath, [path.join(__dirname, 'provision-cactus-lib.mjs'), 'macos'], { stdio: 'inherit' });
+    fs.writeFileSync(versionMarker, CACTUS_VISION_LIB_VERSION, 'utf8');
+  } catch (err) {
+    try { fs.rmSync(libPath, { force: true }); } catch {}
+    console.warn(`⚠️  libcactus.dylib provisioning failed for ${targetTriple}: ${err.message}`);
+    if (process.env.CI) {
+      throw err;
+    }
+  }
+}
+
 // Whisper is built statically (BUILD_SHARED_LIBS=OFF), so on Windows the only
 // DLLs that ever land in bin/ are the onnxruntime ones sherpa-onnx drops
 // alongside its sidecar. tauri.windows.conf.json declares those DLLs as an
@@ -1493,6 +1527,7 @@ async function main() {
 
   // Zero-byte placeholders satisfy Tauri's externalBin path checks but cannot run.
   // Only skip provisioning when every required executable is a non-empty file.
+  ensureCactusLibrary(targetTriple);
   if (
     isUsableSidecar(ffmpegPath)
     && isUsableSidecar(whisperPath)
@@ -1532,6 +1567,7 @@ async function main() {
   ensureSherpaSidecar(targetTriple);
   ensureWindowsDirectMlRuntime(targetTriple);
   ensureNeedleSidecar(targetTriple);
+  ensureCactusLibrary(targetTriple);
   ensureWindowsWhisperVulkanRuntime(targetTriple);
 
   if (platform === 'linux') {

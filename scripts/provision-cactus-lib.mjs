@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Provision `libcactus.so` for Linux x86_64 (`src-tauri/bin/libcactus.so`)
- * and Android arm64-v8a (`src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/libcactus.so`)
+ * Provision `libcactus.so` for Linux x86_64 (`src-tauri/bin/libcactus.so`),
+ * Android arm64-v8a (`src-tauri/gen/android/app/src/main/jniLibs/arm64-v8a/libcactus.so`),
+ * and `libcactus.dylib` for macOS arm64 (`src-tauri/bin/libcactus.dylib`)
  * by linking Cactus Compute's published `libcactus.a` static archive into a shared library.
  */
 
@@ -67,6 +68,35 @@ function buildAndroidArm64() {
   console.log(`Provisioned ${out}`);
 }
 
+function buildMacosArm64() {
+  if (process.platform !== "darwin") {
+    console.warn("Skipping macOS arm64 libcactus.dylib: must be built on macOS.");
+    return;
+  }
+  const out = path.join(ROOT, "src-tauri", "bin", "libcactus.dylib");
+  const tmpA = path.join(os.tmpdir(), "libcactus-macos-arm64.a");
+  fs.mkdirSync(path.dirname(out), { recursive: true });
+  download(`${BASE_URL}/macos-arm64/libcactus.a`, tmpA);
+  execFileSync(
+    "clang++",
+    [
+      "-arch",
+      "arm64",
+      "-mmacosx-version-min=11.0",
+      "-shared",
+      `-Wl,-force_load,${tmpA}`,
+      "-Wl,-install_name,@rpath/libcactus.dylib",
+      "-o",
+      out,
+    ],
+    { stdio: "inherit" }
+  );
+  execFileSync("codesign", ["--force", "--sign", "-", out], { stdio: "inherit" });
+  fs.rmSync(tmpA, { force: true });
+  console.log(`Provisioned ${out}`);
+}
+
 const target = process.argv[2] || "all";
 if (target === "linux" || target === "all") buildLinux();
 if (target === "android" || target === "all") buildAndroidArm64();
+if (target === "macos" || (target === "all" && process.platform === "darwin")) buildMacosArm64();

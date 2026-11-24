@@ -158,7 +158,7 @@
       "frameworks": [],
       "minimumSystemVersion": "10.13",
       "infoPlist": "Info.plist",
-      "entitlements": null,
+      "entitlements": "entitlements.plist",
       "signingIdentity": null
     },
     "windows": {

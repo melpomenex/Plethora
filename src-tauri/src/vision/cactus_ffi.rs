@@ -70,9 +70,6 @@ impl CactusLibrary {
                 candidates.push(PathBuf::from(trimmed));
             }
         }
-        for name in Self::platform_lib_names() {
-            candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin").join(name));
-        }
         if let Ok(exe) = std::env::current_exe() {
             if let Some(dir) = exe.parent() {
                 for name in Self::platform_lib_names() {
@@ -86,6 +83,9 @@ impl CactusLibrary {
                     candidates.push(dir.join("../Frameworks").join(name));
                 }
             }
+        }
+        for name in Self::platform_lib_names() {
+            candidates.push(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("bin").join(name));
         }
         if let Ok(cwd) = std::env::current_dir() {
             for name in Self::platform_lib_names() {
@@ -237,5 +237,22 @@ impl CactusLibrary {
             return Err("cactus_describe returned empty output".to_string());
         }
         Ok(json_str)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn loads_bundled_cactus_library_when_present() {
+        let bundled = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("bin")
+            .join(CactusLibrary::platform_lib_names()[0]);
+        if !bundled.exists() {
+            return;
+        }
+        let lib = CactusLibrary::load().expect("bundled libcactus should load and bind symbols");
+        assert!(lib.path.exists());
     }
 }
