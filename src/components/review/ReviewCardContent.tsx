@@ -374,10 +374,12 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
     }
 
     const html = renderClozeSegmentsHtml(clozeEval, showAnswer);
+    const listAndSpacingClass =
+      "whitespace-pre-wrap [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-1";
     const textClass =
       variant === "scroll"
-        ? "text-xl md:text-2xl leading-relaxed text-foreground"
-        : "text-base md:text-lg leading-relaxed text-foreground";
+        ? `text-xl md:text-2xl leading-relaxed text-foreground ${listAndSpacingClass}`
+        : `text-base md:text-lg leading-relaxed text-foreground ${listAndSpacingClass}`;
 
     return (
       <div className={cn("space-y-4", className)}>
@@ -404,7 +406,7 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
         {part === "both" && showAnswer && card.answer && !clozeEval.sourceText.includes(card.answer) && (
           <div
             data-testid="card-answer-content"
-            className="mt-4 pt-4 border-t border-border/50 text-base md:text-lg leading-relaxed text-foreground"
+            className={`mt-4 pt-4 border-t border-border/50 text-base md:text-lg leading-relaxed text-foreground ${listAndSpacingClass}`}
             dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(card.answer) }}
           />
         )}
@@ -413,10 +415,12 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
   }
 
   // 3. Basic / QA / Flashcard
+  const basicSpacingClass =
+    "whitespace-pre-wrap [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-6 [&_ul]:my-2 [&_ol]:list-decimal [&_ol]:pl-6 [&_ol]:my-2 [&_li]:my-1";
   const basicTextClass =
     variant === "scroll"
-      ? "text-xl md:text-2xl leading-relaxed text-foreground"
-      : "text-base md:text-lg leading-relaxed text-foreground";
+      ? `text-xl md:text-2xl leading-relaxed text-foreground ${basicSpacingClass}`
+      : `text-base md:text-lg leading-relaxed text-foreground ${basicSpacingClass}`;
 
   return (
     <div className={cn("space-y-4", className)}>
@@ -443,7 +447,7 @@ export const ReviewCardContent = React.memo(function ReviewCardContent({
       {part === "both" && showAnswer && card.answer && (
         <div
           data-testid="card-answer-content"
-          className="mt-4 pt-4 border-t border-border/50 text-base md:text-lg leading-relaxed text-foreground"
+          className={`mt-4 pt-4 border-t border-border/50 text-base md:text-lg leading-relaxed text-foreground ${basicSpacingClass}`}
           dangerouslySetInnerHTML={{ __html: renderAnkiHtmlWithLatex(card.answer) }}
         />
       )}

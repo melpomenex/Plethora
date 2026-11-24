@@ -45,8 +45,9 @@ export function indentContent(
   indentStr = "  "
 ): { text: string; start: number; end: number } {
   if (start === end) {
-    // Single cursor: insert indentStr at cursor
-    const newText = text.slice(0, start) + indentStr + text.slice(end);
+    // Single cursor: indent at the start of the current line (keeps mid-line text intact)
+    const lineStart = text.lastIndexOf("\n", start - 1) + 1;
+    const newText = text.slice(0, lineStart) + indentStr + text.slice(lineStart);
     return {
       text: newText,
       start: start + indentStr.length,
@@ -68,7 +69,7 @@ export function indentContent(
   const newText = text.slice(0, lineStart) + indentedBlock + text.slice(lineEnd);
   const newStart = start + indentStr.length;
   const addedChars = indentStr.length * lines.length;
-  const newEnd = end + (isEndAtLineBreak ? addedChars - indentStr.length : addedChars);
+  const newEnd = end + addedChars;
 
   return {
     text: newText,
@@ -84,23 +85,7 @@ export function outdentContent(
   indentSize = 2
 ): { text: string; start: number; end: number } {
   if (start === end) {
-    // Single cursor
-    // If immediately preceded by 2 spaces or a tab, remove it
-    if (start >= indentSize && text.slice(start - indentSize, start) === " ".repeat(indentSize)) {
-      return {
-        text: text.slice(0, start - indentSize) + text.slice(start),
-        start: start - indentSize,
-        end: start - indentSize,
-      };
-    }
-    if (start >= 1 && (text[start - 1] === "\t" || text[start - 1] === " ")) {
-      return {
-        text: text.slice(0, start - 1) + text.slice(start),
-        start: start - 1,
-        end: start - 1,
-      };
-    }
-    // Otherwise, check beginning of current line
+    // Single cursor: outdent from the start of the current line
     const lineStart = text.lastIndexOf("\n", start - 1) + 1;
     let removeCount = 0;
     if (text.startsWith(" ".repeat(indentSize), lineStart)) {

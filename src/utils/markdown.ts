@@ -61,18 +61,29 @@ const DISPLAY_LATEX_BRACKET_RE = /\\\[([\s\S]*?)\\\]/g;
 const DISPLAY_LATEX_DOLLAR_RE = /\$\$([\s\S]*?)\$\$/g;
 const INLINE_CODE_RE = /`([^`]+)`/g;
 const IMAGE_RE = /!\[([^\]]*)\]\(([^)]+)\)/g;
-const INLINE_LATEX_PAREN_RE = /\\\((.+?)\\\)/g;
+const INLINE_LATEX_PAREN_RE = /\\\(([\s\S]+?)\\\)/g;
 const INLINE_LATEX_DOLLAR_RE = /(^|[^\\])\$([^$\n]+?)\$/g;
 const LINK_RE = /\[([^\]]+)\]\(([^)]+)\)/g;
 const BOLD_RE = /\*\*(.+?)\*\*/g;
 const ITALIC_UNDERSCORE_RE = /\b_(.+?)_\b/g;
 const ITALIC_ASTERISK_RE = /\*([^*]+)\*/g;
-const LIKELY_MATH_RE = /\\[a-zA-Z]+|[=^_{}]|[+\-*/<>]|[α-ωΑ-Ω∫∑∏√∞±×÷≈≠≤≥]/;
+const LIKELY_MATH_RE =
+  /\\[a-zA-Z]+|[=^_{}]|[+\-*/<>]|[α-ωΑ-Ω∫∑∏√∞±×÷≈≠≤≥]|^[a-zA-Z](?:\([a-zA-Z0-9,\s]+\))?$|^\([a-zA-Z0-9]+(?:\s*,\s*[a-zA-Z0-9]+)+\)$/;
+const CURRENCY_LIKE_RE = /^[\d,.]+(?:[kKmMbB%]|\/[a-zA-Z]+)?(?:\s|$)/;
+
+function isLikelyInlineLatex(rawInner: string): boolean {
+  if (!rawInner || /^\s|\s$/.test(rawInner)) return false;
+  const expr = rawInner.trim();
+  if (CURRENCY_LIKE_RE.test(expr) && !/\\[a-zA-Z]+|[=^_{}]/.test(expr)) {
+    return false;
+  }
+  return LIKELY_MATH_RE.test(expr);
+}
 
 const HEADING_RE = /^(#{1,6})\s+(.*)$/;
 const BLOCKQUOTE_RE = /^\s*>\s?(.*)$/;
-const UNORDERED_RE = /^\s*[-*+]\s+(.*)$/;
-const ORDERED_RE = /^\s*\d+\.\s+(.*)$/;
+const UNORDERED_RE = /^([ \t]*)(?:[-*+]|•)\s+(.*)$/;
+const ORDERED_RE = /^([ \t]*)\d+\.\s+(.*)$/;
 const HR_RE = /^\s*((\*\s*){3,}|(-\s*){3,}|(_\s*){3,})\s*$/;
 const TABLE_SEPARATOR_RE = /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/;
 
@@ -133,14 +144,6 @@ function formatInlineCore(
   }
 
   let formatted = value;
-  const inlineCodeSegments: string[] = [];
-  formatted = formatted.replace(INLINE_CODE_RE, (_match, code) => {
-    const index = inlineCodeSegments.length;
-    inlineCodeSegments.push(
-      `<code class="rounded bg-muted px-1.5 py-0.5 text-sm font-mono">${code}</code>`
-    );
-    return `@@INLINECODE_${index}@@`;
-  });
 
   formatted = formatted.replace(
     IMAGE_RE,
@@ -150,24 +153,11 @@ function formatInlineCore(
     }
   );
 
-  formatted = formatted.replace(INLINE_LATEX_PAREN_RE, (_match, expression) => {
-    return latexToHTML(expression.trim());
-  });
-
-  formatted = formatted.replace(INLINE_LATEX_DOLLAR_RE, (match, prefix, expression) => {
-    const expr = expression.trim();
-    if (!LIKELY_MATH_RE.test(expr)) return match;
-    return `${prefix}${latexToHTML(expr)}`;
-  });
-
   formatted = formatted.replace(LINK_RE, '<a class="text-primary underline decoration-dotted underline-offset-4 hover:decoration-solid" href="$2" target="_blank" rel="noreferrer">$1</a>');
   formatted = formatted.replace(BOLD_RE, "<strong>$1</strong>");
   formatted = formatted.replace(ITALIC_UNDERSCORE_RE, "<em>$1</em>");
   formatted = formatted.replace(ITALIC_ASTERISK_RE, "<em>$1</em>");
-
-  for (let i = 0; i < inlineCodeSegments.length; i++) {
-    formatted = formatted.replace(`@@INLINECODE_${i}@@`, inlineCodeSegments[i]);
-  }
+  formatted = formatted.replace(/\\\$/g, "$");
 
   if (!docId && !imageManifest && inlineCache.size < MAX_INLINE_CACHE * 2) {
     if (inlineCache.size >= MAX_INLINE_CACHE) {
@@ -187,7 +177,7 @@ function formatInlineCore(
  * renders through the markdown pipeline.
  */
 export function hasMarkdownMarkup(text: string): boolean {
-  return /\*\*|__|`|^#{1,6} \S|^[-*+] \S/m.test(text);
+  return /\*\*|__|`|^#{1,6} \S|^[ \t]*(?:[-*+]|•|\d+\.) \S/m.test(text);
 }
 
 export function renderMarkdown(text: string, options?: RenderMarkdownOptions): string {
@@ -202,44 +192,113 @@ export function renderMarkdown(text: string, options?: RenderMarkdownOptions): s
   }
 
   const codeBlocks: string[] = [];
-  const escaped = escapeHtmlFast(text);
-  const withPlaceholders = escaped.replace(CODE_BLOCK_RE, (_match, lang, code) => {
+  const inlineCodeSegments: string[] = [];
+  const displayMathBlocks: string[] = [];
+  const inlineMathSegments: string[] = [];
+
+  // 1. Protect fenced code blocks and inline code BEFORE math or HTML escaping.
+  let protectedRaw = text.replace(CODE_BLOCK_RE, (_match, lang, code) => {
     const index = codeBlocks.length;
-    const trimmed = code.trim();
-    const langClass = lang ? ` data-language="${lang}"` : '';
+    const trimmed = escapeHtmlFast(code.trim());
+    const langClass = lang ? ` data-language="${escapeHtmlFast(lang)}"` : "";
     codeBlocks.push(
-      `<pre class="mt-2 mb-2 overflow-x-auto rounded bg-muted p-3 text-sm"${langClass}><code>${trimmed}</code></pre>`
+      `<pre class="mt-2 mb-2 overflow-x-auto max-w-full rounded bg-muted p-3 text-sm"${langClass}><code>${trimmed}</code></pre>`
     );
     return `@@CODEBLOCK_${index}@@`;
   });
 
-  const renderDisplayLatex = (value: string) =>
-    value
-      .replace(DISPLAY_LATEX_BRACKET_RE, (_match, expression) => {
-        const rendered = latexToHTML(expression.trim(), { displayMode: true });
-        return `<div class="math-expression-block">${rendered}</div>`;
-      })
-      .replace(DISPLAY_LATEX_DOLLAR_RE, (_match, expression) => {
-        const rendered = latexToHTML(expression.trim(), { displayMode: true });
-        return `<div class="math-expression-block">${rendered}</div>`;
-      });
+  protectedRaw = protectedRaw.replace(INLINE_CODE_RE, (_match, code) => {
+    const index = inlineCodeSegments.length;
+    inlineCodeSegments.push(
+      `<code class="rounded bg-muted px-1.5 py-0.5 text-sm font-mono break-words">${escapeHtmlFast(code)}</code>`
+    );
+    return `@@INLINECODE_${index}@@`;
+  });
 
+  // 2. Extract and render LaTeX from raw text BEFORE escapeHtmlFast and Markdown inline regexes.
+  protectedRaw = protectedRaw
+    .replace(DISPLAY_LATEX_BRACKET_RE, (_match, expression) => {
+      const index = displayMathBlocks.length;
+      displayMathBlocks.push(
+        `<div class="math-expression-block">${latexToHTML(expression.trim(), { displayMode: true })}</div>`
+      );
+      return `\n@@DISPLAYMATH_${index}@@\n`;
+    })
+    .replace(DISPLAY_LATEX_DOLLAR_RE, (_match, expression) => {
+      const index = displayMathBlocks.length;
+      displayMathBlocks.push(
+        `<div class="math-expression-block">${latexToHTML(expression.trim(), { displayMode: true })}</div>`
+      );
+      return `\n@@DISPLAYMATH_${index}@@\n`;
+    })
+    .replace(INLINE_LATEX_PAREN_RE, (_match, expression) => {
+      const index = inlineMathSegments.length;
+      inlineMathSegments.push(latexToHTML(expression.trim()));
+      return `@@INLINEMATH_${index}@@`;
+    })
+    .replace(INLINE_LATEX_DOLLAR_RE, (match, prefix, expression) => {
+      if (!isLikelyInlineLatex(expression)) return match;
+      const index = inlineMathSegments.length;
+      inlineMathSegments.push(latexToHTML(expression.trim()));
+      return `${prefix}@@INLINEMATH_${index}@@`;
+    });
+
+  const escaped = escapeHtmlFast(protectedRaw);
   const formatInline = (value: string) => formatInlineCore(value, options?.docId, options?.imageManifest);
 
-  const withDisplayMath = renderDisplayLatex(withPlaceholders);
-  const lines = withDisplayMath.split(/\r?\n/);
+  const lines = escaped.split(/\r?\n/);
   let html = "";
-  let listType: "ul" | "ol" | null = null;
+  const listStack: Array<{ type: "ul" | "ol"; indent: number; hasOpenLi: boolean }> = [];
   let blockquoteLines: string[] = [];
 
   const isTableSeparator = (line: string) => TABLE_SEPARATOR_RE.test(line);
   const hasTablePipe = (line: string) => line.includes("|");
 
-  const flushList = () => {
-    if (listType) {
-      html += listType === "ul" ? "</ul>" : "</ol>";
-      listType = null;
+  const closeListLevel = () => {
+    const top = listStack.pop();
+    if (!top) return;
+    if (top.hasOpenLi) {
+      html += "</li>";
     }
+    html += top.type === "ul" ? "</ul>" : "</ol>";
+  };
+
+  const flushList = () => {
+    while (listStack.length > 0) {
+      closeListLevel();
+    }
+  };
+
+  const pushListItem = (type: "ul" | "ol", rawIndent: string, content: string) => {
+    const indent = rawIndent.replace(/\t/g, "  ").length;
+    while (listStack.length > 0 && indent < listStack[listStack.length - 1].indent) {
+      closeListLevel();
+    }
+    if (
+      listStack.length > 0 &&
+      indent === listStack[listStack.length - 1].indent &&
+      listStack[listStack.length - 1].type !== type
+    ) {
+      closeListLevel();
+    }
+    if (listStack.length === 0 || indent > listStack[listStack.length - 1].indent) {
+      const cls =
+        type === "ul"
+          ? listStack.length === 0
+            ? "list-disc pl-6 my-2 space-y-1"
+            : "list-[circle] pl-6 mt-1 space-y-1"
+          : "list-decimal pl-6 my-2 space-y-1";
+      html += `<${type} class="${cls}">`;
+      listStack.push({ type, indent, hasOpenLi: false });
+    } else {
+      const top = listStack[listStack.length - 1];
+      if (top.hasOpenLi) {
+        html += "</li>";
+        top.hasOpenLi = false;
+      }
+    }
+    listStack[listStack.length - 1].hasOpenLi = true;
+    html += `<li>${formatInline(content)}`;
   };
 
   const flushBlockquote = () => {
@@ -328,29 +387,27 @@ export function renderMarkdown(text: string, options?: RenderMarkdownOptions): s
 
     if (unorderedMatch) {
       flushBlockquote();
-      if (listType !== "ul") {
-        flushList();
-        listType = "ul";
-        html += '<ul class="list-disc pl-6 my-2 space-y-1">';
-      }
-      html += `<li>${formatInline(unorderedMatch[1])}</li>`;
+      pushListItem("ul", unorderedMatch[1], unorderedMatch[2]);
       continue;
     }
 
     if (orderedMatch) {
       flushBlockquote();
-      if (listType !== "ol") {
-        flushList();
-        listType = "ol";
-        html += '<ol class="list-decimal pl-6 my-2 space-y-1">';
-      }
-      html += `<li>${formatInline(orderedMatch[1])}</li>`;
+      pushListItem("ol", orderedMatch[1], orderedMatch[2]);
       continue;
     }
 
     if (line.trim() === "") {
       flushList();
       flushBlockquote();
+      continue;
+    }
+
+    const displayMathOnlyMatch = line.trim().match(/^@@DISPLAYMATH_(\d+)@@$/);
+    if (displayMathOnlyMatch) {
+      flushList();
+      flushBlockquote();
+      html += line.trim();
       continue;
     }
 
@@ -362,6 +419,15 @@ export function renderMarkdown(text: string, options?: RenderMarkdownOptions): s
   flushList();
   flushBlockquote();
 
+  inlineMathSegments.forEach((seg, index) => {
+    html = html.replace(`@@INLINEMATH_${index}@@`, seg);
+  });
+  displayMathBlocks.forEach((block, index) => {
+    html = html.replace(`@@DISPLAYMATH_${index}@@`, block);
+  });
+  inlineCodeSegments.forEach((seg, index) => {
+    html = html.replace(`@@INLINECODE_${index}@@`, seg);
+  });
   codeBlocks.forEach((block, index) => {
     html = html.replace(`@@CODEBLOCK_${index}@@`, block);
   });

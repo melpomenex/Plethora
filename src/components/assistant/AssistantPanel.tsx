@@ -4816,7 +4816,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
             <div
               key={message.id}
               data-assistant-message-id={message.id}
-              className={`flex flex-col group ${message.role === "user" ? "items-end" : "items-start"
+              className={`flex flex-col w-full min-w-0 group ${message.role === "user" ? "items-end" : "items-start"
                 }`}
               onContextMenu={(e) => handleContextMenu(e, message)}
             >
@@ -4848,7 +4848,7 @@ Do NOT output flashcards as plain JSON arrays, markdown, or anything other than 
               {/* Message Content */}
               {hasBubble && (
                 <div
-                  className={`max-w-[85%] px-3 py-2 rounded-lg text-sm ${message.role === "user"
+                  className={`max-w-[85%] min-w-0 break-words px-3 py-2 rounded-lg text-sm ${message.role === "user"
                     ? "bg-primary text-primary-foreground"
                     : message.role === "system"
                       ? "bg-muted text-muted-foreground"
