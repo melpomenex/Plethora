@@ -9,14 +9,19 @@ import {
   Clock,
   Eye,
   EyeSlash,
+  ImageSquare,
   PencilLine,
   Scissors,
   Sparkle,
   Star,
+  TextIndent,
+  TextOutdent,
   TextT,
+  Trash,
   Trophy,
   WarningCircle,
 } from "@phosphor-icons/react";
+import DOMPurify from "dompurify";
 import {
   updateExtract,
   forgetExtract,
@@ -24,6 +29,9 @@ import {
   graduateExtract,
   type Extract,
 } from "../../api/extracts";
+import { ingestImageFile } from "../../api/image-registry";
+import { indentContent, outdentContent } from "../extracts/ExtractContentEditor";
+import { useToast } from "../common/Toast";
 import { generateProgressiveSummaries } from "../../api/ai";
 import { useI18n } from "../../lib/i18n";
 import { useSettingsStore } from "../../stores/settingsStore";
@@ -45,7 +53,48 @@ interface ExtractScrollItemProps {
     onCreateCloze: (selectedText: string, range: [number, number]) => void;
     onCreateQA: () => void;
     onCreateFlashcard?: (selectedText: string) => void;
-    onUpdate?: (updates: { content: string; notes?: string }) => void;
+    onUpdate?: (updates: { content: string; html_content?: string; notes?: string }) => void;
+}
+
+interface ExtractAttachedImage {
+    id: string;
+    src: string;
+    alt: string;
+}
+
+function parseImagesFromHtml(html?: string | null): ExtractAttachedImage[] {
+    if (!html) return [];
+    const results: ExtractAttachedImage[] = [];
+    const imgRe = /<img\b[^>]*\bsrc=["']([^"']+)["'][^>]*>/gi;
+    let match: RegExpExecArray | null;
+    while ((match = imgRe.exec(html)) !== null) {
+        const tag = match[0];
+        const src = match[1];
+        const altMatch = tag.match(/\balt=["']([^"']*)["']/i);
+        results.push({
+            id: `existing-${results.length}-${src.slice(0, 24)}`,
+            src,
+            alt: altMatch?.[1] || "Extract image",
+        });
+    }
+    return results;
+}
+
+function buildExtractHtmlContent(text: string, images: ExtractAttachedImage[]): string {
+    const bodyHtml = renderMarkdown(text);
+    if (images.length === 0) {
+        return DOMPurify.sanitize(bodyHtml);
+    }
+    const figures = images
+        .map(
+            (img) =>
+                `<figure class="my-3"><img src="${img.src.replace(/"/g, "&quot;")}" alt="${img.alt.replace(/"/g, "&quot;")}" loading="eager" /></figure>`
+        )
+        .join("");
+    return DOMPurify.sanitize(`${bodyHtml}${figures}`, {
+        ADD_TAGS: ["figure", "figcaption"],
+        ADD_ATTR: ["loading", "alt", "src"],
+    });
 }
 
 /**
@@ -63,6 +112,7 @@ export function ExtractScrollItem({
     onUpdate
 }: ExtractScrollItemProps) {
     const { t } = useI18n();
+    const toast = useToast();
     const densityMode = useUIStore((s) => s.densityMode);
     const storeParentContent = useDocumentStore(
         (s) => s.documents.find((d) => d.id === extract.document_id)?.content
@@ -77,11 +127,22 @@ export function ExtractScrollItem({
     );
     const [content, setContent] = useState(extract.content);
     const [notes, setNotes] = useState(extract.notes ?? "");
+    const [attachedImages, setAttachedImages] = useState<ExtractAttachedImage[]>(() =>
+        parseImagesFromHtml(extract.html_content)
+    );
+    const [isUploadingImage, setIsUploadingImage] = useState(false);
+    const imageInputRef = useRef<HTMLInputElement>(null);
     const [saveStatus, setSaveStatus] = useState<"idle" | "dirty" | "saving" | "saved" | "error">("idle");
     const contentRef = useRef<HTMLTextAreaElement>(null);
     const proseRef = useRef<HTMLDivElement>(null);
     const { breakoutTrigger, breakoutModal } = useBreakoutOverlay(proseRef);
-    const lastSavedRef = useRef({ content: extract.content, notes: extract.notes ?? "" });
+    const lastSavedRef = useRef({
+        content: extract.content,
+        notes: extract.notes ?? "",
+        imagesKey: parseImagesFromHtml(extract.html_content)
+            .map((i) => i.src)
+            .join("|"),
+    });
     const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isMountedRef = useRef(true);
@@ -148,7 +209,13 @@ export function ExtractScrollItem({
     useEffect(() => {
         setContent(extract.content);
         setNotes(extract.notes ?? "");
-        lastSavedRef.current = { content: extract.content, notes: extract.notes ?? "" };
+        lastSavedRef.current = {
+            content: extract.content,
+            notes: extract.notes ?? "",
+            imagesKey: parseImagesFromHtml(extract.html_content)
+                .map((i) => i.src)
+                .join("|"),
+        };
         setSaveStatus("idle");
     }, [extract.id, extract.content, extract.notes]);
 
@@ -207,7 +274,12 @@ export function ExtractScrollItem({
     }, []);
 
     useEffect(() => {
-        if (content === lastSavedRef.current.content && notes === lastSavedRef.current.notes) {
+        const imagesKey = attachedImages.map((i) => i.src).join("|");
+        if (
+            content === lastSavedRef.current.content &&
+            notes === lastSavedRef.current.notes &&
+            imagesKey === lastSavedRef.current.imagesKey
+        ) {
             return;
         }
 
@@ -220,10 +292,19 @@ export function ExtractScrollItem({
         saveTimeoutRef.current = setTimeout(async () => {
             setSaveStatus("saving");
             try {
-                await updateExtract({ id: extract.id, content, note: notes });
+                const nextHtml =
+                    attachedImages.length > 0 || Boolean(extract.html_content)
+                        ? buildExtractHtmlContent(content, attachedImages)
+                        : undefined;
+                await updateExtract({
+                    id: extract.id,
+                    content,
+                    ...(nextHtml !== undefined ? { html_content: nextHtml } : {}),
+                    note: notes,
+                });
                 if (!isMountedRef.current) return;
-                lastSavedRef.current = { content, notes };
-                onUpdate?.({ content, notes });
+                lastSavedRef.current = { content, notes, imagesKey };
+                onUpdate?.({ content, html_content: nextHtml, notes });
                 setSaveStatus("saved");
                 if (statusTimeoutRef.current) {
                     clearTimeout(statusTimeoutRef.current);
@@ -245,7 +326,87 @@ export function ExtractScrollItem({
                 clearTimeout(saveTimeoutRef.current);
             }
         };
-    }, [content, notes, extract.id, onUpdate]);
+    }, [content, notes, attachedImages, extract.id, extract.html_content, onUpdate]);
+
+    const handleInsertImageFiles = async (files: FileList | File[]) => {
+        const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
+        if (imageFiles.length === 0) {
+            toast.error("Unsupported file", "Please select a valid image file.");
+            return;
+        }
+        setIsUploadingImage(true);
+        try {
+            const added: ExtractAttachedImage[] = [];
+            for (const file of imageFiles) {
+                const asset = await ingestImageFile(file);
+                added.push({
+                    id: asset.id,
+                    src: asset.data_url,
+                    alt: asset.file_name || file.name || "Extract image",
+                });
+            }
+            if (added.length > 0) {
+                setAttachedImages((prev) => [...prev, ...added]);
+                window.dispatchEvent(new CustomEvent("refresh-image-registry"));
+                toast.success("Image added to extract");
+            }
+        } catch (err) {
+            toast.error(
+                "Failed to insert image",
+                err instanceof Error ? err.message : "Could not process image file"
+            );
+        } finally {
+            setIsUploadingImage(false);
+        }
+    };
+
+    const applyIndentTransform = (direction: "indent" | "outdent") => {
+        const el = contentRef.current;
+        if (!el) return;
+        const start = el.selectionStart ?? 0;
+        const end = el.selectionEnd ?? 0;
+        const res =
+            direction === "indent"
+                ? indentContent(content, start, end)
+                : outdentContent(content, start, end);
+        setContent(res.text);
+        requestAnimationFrame(() => {
+            if (contentRef.current) {
+                contentRef.current.selectionStart = res.start;
+                contentRef.current.selectionEnd = res.end;
+            }
+        });
+    };
+
+    const handleTextareaKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+        if (event.key === "Tab") {
+            event.preventDefault();
+            applyIndentTransform(event.shiftKey ? "outdent" : "indent");
+        }
+    };
+
+    const handleEditorPaste = (event: React.ClipboardEvent<HTMLElement>) => {
+        const items = Array.from(event.clipboardData?.items ?? []);
+        const imageFiles = items
+            .filter((item) => item.kind === "file" && item.type.startsWith("image/"))
+            .map((item) => item.getAsFile())
+            .filter((f): f is File => f !== null);
+        if (imageFiles.length > 0) {
+            event.preventDefault();
+            void handleInsertImageFiles(imageFiles);
+        }
+    };
+
+    const handleEditorDrop = (event: React.DragEvent<HTMLElement>) => {
+        const files = event.dataTransfer?.files;
+        if (files && files.length > 0) {
+            const hasImage = Array.from(files).some((f) => f.type.startsWith("image/"));
+            if (hasImage) {
+                event.preventDefault();
+                void handleInsertImageFiles(files);
+            }
+        }
+    };
 
     useEffect(() => {
         return () => {
@@ -463,22 +624,96 @@ export function ExtractScrollItem({
                         }
                     }}
                     className="bg-card border border-border rounded-2xl shadow-xl min-h-[300px] max-h-[60vh] overflow-y-auto relative"
+                    onPaste={handleEditorPaste}
+                    onDragOver={(e) => {
+                        if (Array.from(e.dataTransfer?.items ?? []).some((i) => i.type.startsWith("image/"))) {
+                            e.preventDefault();
+                        }
+                    }}
+                    onDrop={handleEditorDrop}
                 >
+                    <input
+                        ref={imageInputRef}
+                        type="file"
+                        accept="image/*"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                            if (e.target.files && e.target.files.length > 0) {
+                                void handleInsertImageFiles(e.target.files);
+                                e.target.value = "";
+                            }
+                        }}
+                    />
                     {display.kind === "full" && (
                         <>
-                            {contentLevelLabel && (
-                                <div className="absolute top-3 right-3 z-10 px-3 py-1 rounded-lg text-xs font-medium bg-blue-500/20 text-blue-400">
-                                    {contentLevelLabel}
+                            <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-1 border-b border-border/40">
+                                <div className="flex items-center gap-1">
+                                    <button
+                                        type="button"
+                                        onClick={() => applyIndentTransform("indent")}
+                                        title="Indent (Tab)"
+                                        className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                    >
+                                        <TextIndent className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => applyIndentTransform("outdent")}
+                                        title="Outdent (Shift+Tab)"
+                                        className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+                                    >
+                                        <TextOutdent className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => imageInputRef.current?.click()}
+                                        disabled={isUploadingImage}
+                                        title="Insert image into extract"
+                                        className="inline-flex items-center gap-1.5 px-2 py-1 rounded hover:bg-muted text-xs text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+                                    >
+                                        <ImageSquare className="w-4 h-4" />
+                                        <span>{isUploadingImage ? "Adding..." : "Add Image"}</span>
+                                    </button>
                                 </div>
-                            )}
+                                {contentLevelLabel && (
+                                    <div className="px-2.5 py-0.5 rounded-lg text-xs font-medium bg-blue-500/20 text-blue-400">
+                                        {contentLevelLabel}
+                                    </div>
+                                )}
+                            </div>
                             <textarea
                                 ref={contentRef}
                                 value={content}
                                 onChange={(event) => setContent(event.target.value)}
+                                onKeyDown={handleTextareaKeyDown}
                                 placeholder={t("extractScrollItem.editContentPlaceholder")}
-                                className="w-full min-h-[300px] p-10 bg-transparent text-lg leading-relaxed text-foreground outline-none resize-none"
+                                className="w-full min-h-[260px] p-8 bg-transparent text-lg leading-relaxed text-foreground outline-none resize-none"
                                 onContextMenu={handleContextMenu}
                             />
+                            {attachedImages.length > 0 && (
+                                <div className="px-8 pb-6 flex flex-wrap gap-3">
+                                    {attachedImages.map((img) => (
+                                        <div key={img.id} className="relative group inline-block max-w-full">
+                                            <img
+                                                src={img.src}
+                                                alt={img.alt}
+                                                className="max-w-full max-h-72 object-contain rounded-lg border border-border"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    setAttachedImages((prev) => prev.filter((item) => item.id !== img.id))
+                                                }
+                                                aria-label={`Remove ${img.alt}`}
+                                                className="absolute top-2 right-2 p-1 rounded-full bg-background/90 border border-border text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity"
+                                            >
+                                                <Trash className="w-3.5 h-3.5" />
+                                            </button>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
                         </>
                     )}
 

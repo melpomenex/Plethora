@@ -690,6 +690,7 @@ interface ScrollQueueSettings {
   /** Target share of each item type in a composed scroll session (0-100 each; need not sum to 100). */
   composition: { documents: number; extracts: number; flashcards: number };
   autoProceed: boolean; // Auto-proceed to next item in the queue when a video/audio ends
+  wheelNavigationEnabled?: boolean; // Navigate to next/prev item on mouse wheel at scroll boundaries
   ratingOrbsPosition?: "left" | "right" | "top" | "bottom"; // Snapped position of rating orbs
 }
 
@@ -718,6 +719,8 @@ function mergeScrollQueueSettings(persisted?: Partial<ScrollQueueSettings>): Scr
   const merged: ScrollQueueSettings = {
     composition: legacy.composition ?? defaultSettings.scrollQueue.composition,
     autoProceed: legacy.autoProceed ?? defaultSettings.scrollQueue.autoProceed,
+    wheelNavigationEnabled:
+      legacy.wheelNavigationEnabled ?? defaultSettings.scrollQueue.wheelNavigationEnabled ?? true,
     ratingOrbsPosition: legacy.ratingOrbsPosition ?? defaultSettings.scrollQueue.ratingOrbsPosition,
   };
   if (legacy.composition === undefined && typeof legacy.flashcardPercentage === "number") {
@@ -1546,6 +1549,7 @@ export const defaultSettings: Settings = {
   scrollQueue: {
     composition: { documents: 60, extracts: 15, flashcards: 25 },
     autoProceed: false, // Auto-proceed to next item in the queue when a video/audio ends
+    wheelNavigationEnabled: true, // Preserve existing wheel navigation default; users can disable it
     ratingOrbsPosition: "right", // Snapped position of rating orbs
   },
   rssQueue: {

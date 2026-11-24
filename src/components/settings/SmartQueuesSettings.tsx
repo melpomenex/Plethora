@@ -69,6 +69,7 @@ export function SmartQueuesSettings({
 }: SmartQueuesSettingsProps = {}) {
   const { t } = useI18n();
   const storeSmartQueue = useSettingsStore((s) => s.settings.smartQueue);
+  const scrollQueue = useSettingsStore((s) => s.settings.scrollQueue);
   const daqe = useSettingsStore((s) => s.settings.daqe);
   const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
   const applyRankSnapshot = useQueueStore((s) => s.applyRankSnapshot);
@@ -268,6 +269,36 @@ export function SmartQueuesSettings({
             </div>
           </div>
         ) : null}
+      </section>
+
+      {/* ── Scroll Mode Navigation ────────────────────────────────────────── */}
+      <section className="rounded-lg border border-border bg-card p-6">
+        <SettingsSearchTarget
+          id="smartQueue.wheelNavigation"
+          label="Mouse-wheel item navigation"
+        >
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <div className="text-sm font-medium text-foreground">
+                Mouse-wheel item navigation
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Advance to the next or previous item when scrolling past content boundaries in Scroll Mode. Disable to scroll content without accidental topic advances.
+              </div>
+            </div>
+            <input
+              type="checkbox"
+              aria-label="Mouse-wheel item navigation"
+              checked={scrollQueue.wheelNavigationEnabled ?? true}
+              onChange={(e) =>
+                updateSettingsCategory("scrollQueue", {
+                  wheelNavigationEnabled: e.target.checked,
+                })
+              }
+              className="h-4 w-4 rounded border-border accent-primary cursor-pointer"
+            />
+          </div>
+        </SettingsSearchTarget>
       </section>
 
       {/* ── Review & Queue Ordering Settings ─────────────────────────────── */}

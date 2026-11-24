@@ -1020,6 +1020,16 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["refresh", "interval", "minutes"],
     targetId: "smartQueue.refreshInterval",
   },
+  {
+    id: "smartQueue.wheelNavigation",
+    kind: "setting",
+    section: SettingsTab.SmartQueue,
+    label: lit("Mouse-wheel item navigation"),
+    description: lit("Advance to the next or previous item when scrolling past content boundaries in Scroll Mode"),
+    aliases: [lit("scroll mode wheel"), lit("disable mouse wheel navigation"), lit("scroll advance")],
+    keywords: ["scroll", "wheel", "mouse", "navigation", "scroll mode"],
+    targetId: "smartQueue.wheelNavigation",
+  },
 
   /* ── Documents ───────────────────────────────────────────────────────── */
   {

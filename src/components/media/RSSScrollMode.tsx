@@ -728,7 +728,13 @@ export function RSSScrollMode({
 
   // Mouse wheel scroll detection
   useEffect(() => {
+    if (useSettingsStore.getState().settings.scrollQueue.wheelNavigationEnabled === false) {
+      return;
+    }
     const handleWheel = (e: WheelEvent) => {
+      if (useSettingsStore.getState().settings.scrollQueue.wheelNavigationEnabled === false) {
+        return;
+      }
       // Do not navigate while user is selecting text.
       if (hasActiveSelectionInContent()) {
         return;

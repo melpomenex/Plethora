@@ -25,6 +25,7 @@ interface ScrollQueueSettingsProps {
   onClose: () => void;
   composition: ScrollComposition;
   autoProceed: boolean;
+  wheelNavigationEnabled?: boolean;
   ratingOrbsPosition?: "left" | "right" | "top" | "bottom";
   onUpdateSetting: (key: string, value: number | boolean | string) => void;
   onUpdateComposition: (composition: ScrollComposition) => void;
@@ -42,6 +43,7 @@ export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
   onClose,
   composition,
   autoProceed,
+  wheelNavigationEnabled = true,
   ratingOrbsPosition,
   onUpdateSetting,
   onUpdateComposition,
@@ -128,6 +130,32 @@ export const ScrollQueueSettings = React.memo(function ScrollQueueSettings({
                 className={cn(
                   "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
                   autoProceed ? "translate-x-6" : "translate-x-1"
+                )}
+              />
+            </button>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <label htmlFor="wheel-navigation-toggle" className="text-sm font-medium text-foreground">Mouse-wheel item navigation</label>
+              <p className="text-xs text-muted-foreground mt-1">
+                Advance to the next or previous item when scrolling past content boundaries in Scroll Mode
+              </p>
+            </div>
+            <button
+              id="wheel-navigation-toggle"
+              role="switch"
+              aria-checked={wheelNavigationEnabled}
+              onClick={() => onUpdateSetting("wheelNavigationEnabled", !wheelNavigationEnabled)}
+              className={cn(
+                "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors",
+                wheelNavigationEnabled ? "bg-primary" : "bg-muted"
+              )}
+            >
+              <span
+                className={cn(
+                  "inline-block h-4 w-4 transform rounded-full bg-white transition-transform",
+                  wheelNavigationEnabled ? "translate-x-6" : "translate-x-1"
                 )}
               />
             </button>
