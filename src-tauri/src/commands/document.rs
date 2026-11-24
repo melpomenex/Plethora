@@ -294,6 +294,9 @@ async fn import_from_path(
         FileType::Audio => copy_media_to_app_storage(app, &disk_path, "audio")?
             .to_string_lossy()
             .to_string(),
+        FileType::Epub => copy_media_to_app_storage(app, &disk_path, "documents")?
+            .to_string_lossy()
+            .to_string(),
         _ => disk_path.clone(),
     };
 
@@ -2517,17 +2520,39 @@ mod article_import_backend_tests {
 }
 
 /// Sweep unreferenced staged import files older than 24 hours from app_data_dir/imports/
-pub fn sweep_stale_staging_files(app: &tauri::AppHandle) {
+pub async fn sweep_stale_staging_files(app: &tauri::AppHandle, repo: &Repository) {
+    use std::collections::HashSet;
     use tauri::Manager;
     if let Ok(data_dir) = app.path().app_data_dir() {
         let imports_dir = data_dir.join("imports");
         if imports_dir.is_dir() {
+            // Collect all file_path references from documents so referenced imports are never deleted.
+            let referenced: HashSet<PathBuf> = sqlx::query_scalar::<_, String>(
+                "SELECT file_path FROM documents WHERE file_path IS NOT NULL AND file_path != ''",
+            )
+            .fetch_all(repo.pool())
+            .await
+            .unwrap_or_default()
+            .into_iter()
+            .flat_map(|fp| {
+                let p = PathBuf::from(&fp);
+                let canon = std::fs::canonicalize(&p).ok();
+                [Some(p), canon].into_iter().flatten()
+            })
+            .collect();
+
             let cutoff =
                 std::time::SystemTime::now() - std::time::Duration::from_secs(24 * 60 * 60);
             if let Ok(entries) = std::fs::read_dir(&imports_dir) {
                 for entry in entries.flatten() {
                     let path = entry.path();
                     if path.is_file() {
+                        let canon = std::fs::canonicalize(&path).ok();
+                        if referenced.contains(&path)
+                            || canon.as_ref().is_some_and(|c| referenced.contains(c))
+                        {
+                            continue;
+                        }
                         if let Ok(meta) = path.metadata() {
                             if let Ok(modified) = meta.modified() {
                                 if modified < cutoff {

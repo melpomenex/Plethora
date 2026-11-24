@@ -507,11 +507,17 @@ pub async fn index_document_once(
     }
 
     // Chunks are committed and usable even if vector generation was
-    // incomplete. Record the vector error without invalidating lexical evidence.
+    // incomplete. Record `lexical_only` (not `indexed`) when vectors failed
+    // or are incomplete so the UI and retry paths reflect partial state.
+    let final_state = if embed.error.is_some() && embed.embedded < total {
+        IndexState::LexicalOnly
+    } else {
+        IndexState::Indexed
+    };
     upsert_state_row(
         repo,
         document_id,
-        IndexState::Indexed,
+        final_state,
         Some(backend),
         embed.embedded,
         total,
@@ -1312,11 +1318,58 @@ async fn embed_chunks(
             .await?;
         let vectors: Vec<Vec<f32>> = match backend.embed_texts(&texts).await {
             Ok(v) => v,
-            Err(EmbeddingUnavailable { .. }) => {
-                warn!("embedding batch failed for {}", document_id);
+            Err(EmbeddingUnavailable { reason }) => {
+                // If a multi-chunk batch failed (e.g. one oversized chunk or transient timeout),
+                // fall back to single-chunk embedding so healthy chunks still commit.
+                if batch.len() > 1 {
+                    let mut last_reason = reason.clone();
+                    let mut any_failed = false;
+                    for (chunk_id, text) in batch.iter().zip(texts.iter()) {
+                        if !should_continue() {
+                            return Ok(EmbedOutcome {
+                                embedded,
+                                error: None,
+                            });
+                        }
+                        match backend.embed_texts(std::slice::from_ref(text)).await {
+                            Ok(single_vecs) => {
+                                if let Some(vector) = single_vecs.first() {
+                                    if !vector.is_empty() {
+                                        store_embedding_row(
+                                            repo,
+                                            chunk_id,
+                                            vector,
+                                            &model,
+                                            version,
+                                            document_id,
+                                        )
+                                        .await?;
+                                        embedded += 1;
+                                    }
+                                }
+                            }
+                            Err(EmbeddingUnavailable { reason: item_reason }) => {
+                                any_failed = true;
+                                last_reason = item_reason;
+                            }
+                        }
+                    }
+                    if any_failed {
+                        warn!(
+                            "embedding batch partially failed for {}: {}",
+                            document_id, last_reason
+                        );
+                        return Ok(EmbedOutcome {
+                            embedded,
+                            error: Some(format_safe_embedding_error(&last_reason)),
+                        });
+                    }
+                    continue;
+                }
+                warn!("embedding batch failed for {}: {}", document_id, reason);
                 return Ok(EmbedOutcome {
                     embedded,
-                    error: Some("Embedding backend could not complete the request".into()),
+                    error: Some(format_safe_embedding_error(&reason)),
                 });
             }
         };
@@ -1333,6 +1386,23 @@ async fn embed_chunks(
         error: (embedded < total_chunks)
             .then(|| "Embedding backend returned incomplete vectors".into()),
     })
+}
+
+fn format_safe_embedding_error(reason: &str) -> String {
+    let trimmed = reason.trim();
+    if trimmed.is_empty() {
+        return "Embedding backend could not complete the request".to_string();
+    }
+    let lower = trimmed.to_ascii_lowercase();
+    if lower.contains("context length") || lower.contains("too many tokens") {
+        "Embedding failed: chunk exceeded the model context length".to_string()
+    } else if lower.contains("timed out") || lower.contains("timeout") {
+        "Embedding failed: embedding request timed out".to_string()
+    } else if lower.contains("connection refused") || lower.contains("connect error") {
+        "Embedding failed: could not connect to embedding provider".to_string()
+    } else {
+        "Embedding backend could not complete the request".to_string()
+    }
 }
 
 async fn chunk_text(repo: &Repository, chunk_id: &str) -> Option<String> {
@@ -2106,7 +2176,7 @@ mod tests {
             .await
             .expect("record embedding failure");
         let (state, embedded, total) = state_of(&pool, "embedding-failure").await.unwrap();
-        assert_eq!((state.as_str(), embedded, total), ("indexed", 0, 1));
+        assert_eq!((state.as_str(), embedded, total), ("lexical_only", 0, 1));
         let error: String = sqlx::query_scalar(
             "SELECT error FROM ai_index_state WHERE document_id = 'embedding-failure'",
         )

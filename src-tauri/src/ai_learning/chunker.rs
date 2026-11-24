@@ -123,12 +123,17 @@ fn chunk_transcript(
         let mut size = 0;
         while end < segments.len() {
             let next_chapter = chapters.iter().rfind(|c| c.start <= segments[end].start);
+            let formatted_len = transcript_timestamp(segments[end].start).len()
+                + 3
+                + segments[end].text.chars().count()
+                + 1;
             if end > start
-                && (size >= 900 || next_chapter.map(|c| c.start) != chapter.map(|c| c.start))
+                && (size + formatted_len > 750
+                    || next_chapter.map(|c| c.start) != chapter.map(|c| c.start))
             {
                 break;
             }
-            size += segments[end].text.chars().count() + 12;
+            size += formatted_len;
             end += 1;
         }
         let text = segments[start..end]

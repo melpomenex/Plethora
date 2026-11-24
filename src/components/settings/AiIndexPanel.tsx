@@ -39,6 +39,7 @@ import { useModal } from "../common/Modal";
 import {
   cancelAIDocumentIndexing,
   enqueueAllAIDocuments,
+  ensureAIDocumentsIndexed,
   getAIIndexStatus,
   pauseAIIndexing,
   resetAIIndex,
@@ -563,7 +564,15 @@ export function AiIndexPanel() {
                     : undefined
                 }
                 cancelLabel={t("aiLibrary.indexCancelDocument")}
-                busy={busy === `cancel-${doc.documentId}`}
+                onRetry={
+                  doc.state === "lexical_only" || doc.state === "failed" || Boolean(doc.error)
+                    ? () =>
+                        void runAction(`retry-${doc.documentId}`, () =>
+                          ensureAIDocumentsIndexed([doc.documentId])
+                        )
+                    : undefined
+                }
+                busy={busy === `cancel-${doc.documentId}` || busy === `retry-${doc.documentId}`}
               />
             ))}
             {(status?.documents ?? []).length === 0 && (
@@ -590,12 +599,14 @@ function DocumentRow({
   doc,
   title,
   onCancel,
+  onRetry,
   cancelLabel,
   busy,
 }: {
   doc: DocumentIndexStatus;
   title?: string;
   onCancel?: () => void;
+  onRetry?: () => void;
   cancelLabel: string;
   busy: boolean;
 }) {
@@ -623,6 +634,15 @@ function DocumentRow({
         >
           {t(`aiLibrary.indexState_${doc.state}`)}
         </span>
+        {onRetry && (
+          <button
+            onClick={onRetry}
+            disabled={busy}
+            className="rounded border border-border px-2 py-0.5 hover:bg-muted disabled:opacity-50"
+          >
+            Retry
+          </button>
+        )}
         {onCancel && (
           <button
             onClick={onCancel}

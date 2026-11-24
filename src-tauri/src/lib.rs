@@ -1757,8 +1757,8 @@ pub fn run() {
                     }
                 });
 
-                // Sweep any stale staging import files older than 24h
-                commands::document::sweep_stale_staging_files(&app_handle);
+                // Sweep any stale unreferenced staging import files older than 24h
+                commands::document::sweep_stale_staging_files(&app_handle, &repo).await;
 
                 // Repository state was managed earlier in setup (right after it
                 // was created), so there is nothing to manage here.

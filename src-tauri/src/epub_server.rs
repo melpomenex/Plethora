@@ -443,13 +443,63 @@ fn validate_epub_archive(path: &std::path::Path) -> Result<(), String> {
 /// epub.js fetches only `META-INF/container.xml`, the `.opf` manifest,
 /// navigation, and the active spine entries on demand — without copying the
 /// archive to mirror storage or downloading the entire `.epub` into JS memory.
+pub(crate) fn resolve_epub_path_candidates(
+    file_path: &str,
+    app_data_dir: Option<&std::path::Path>,
+) -> Vec<PathBuf> {
+    let raw = PathBuf::from(file_path);
+    let mut candidates = vec![raw.clone()];
+    if let Some(data_dir) = app_data_dir {
+        if raw.is_relative() {
+            candidates.push(data_dir.join(&raw));
+        }
+        if let Some(file_name) = raw.file_name() {
+            candidates.push(data_dir.join("incrementum").join("documents").join(file_name));
+            candidates.push(data_dir.join("imports").join(file_name));
+        }
+    }
+    candidates
+}
+
 #[tauri::command]
 pub async fn get_epub_stream_url(
     app_handle: tauri::AppHandle,
     file_path: String,
 ) -> Result<String, String> {
-    let source_canonical = std::fs::canonicalize(&file_path)
-        .map_err(|error| format!("Cannot stat epub file: {error}"))?;
+    use tauri::Manager;
+    let trimmed = file_path.trim();
+    if trimmed.is_empty() {
+        return Err("EPUB file path is empty. Please re-import the document.".to_string());
+    }
+    if trimmed.starts_with("http://") || trimmed.starts_with("https://") {
+        return Err(
+            "This EPUB references a remote URL rather than a local file. Re-import the EPUB to open it."
+                .to_string(),
+        );
+    }
+
+    let app_data_dir = app_handle.path().app_data_dir().ok();
+    let candidates = resolve_epub_path_candidates(trimmed, app_data_dir.as_deref());
+    let mut source_canonical = None;
+    let mut last_err = None;
+    for candidate in &candidates {
+        match std::fs::canonicalize(candidate) {
+            Ok(p) => {
+                source_canonical = Some(p);
+                break;
+            }
+            Err(e) => last_err = Some(e),
+        }
+    }
+    let source_canonical = source_canonical.ok_or_else(|| {
+        format!(
+            "Cannot stat epub file '{}': {}",
+            trimmed,
+            last_err
+                .map(|e| e.to_string())
+                .unwrap_or_else(|| "file not found".to_string())
+        )
+    })?;
     validate_epub_archive(&source_canonical)?;
 
     let metadata = std::fs::metadata(&source_canonical)
