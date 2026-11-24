@@ -16,7 +16,7 @@ import {
   ArenaReviewProvenance,
   ArenaGradePreview,
 } from "../api/review";
-import { getLearningItems } from "../api/learning-items";
+import { getLearningItem, getLearningItems } from "../api/learning-items";
 import { useCollectionStore } from "./collectionStore";
 import { useSettingsStore } from "./settingsStore";
 import { useStudyDeckStore } from "./studyDeckStore";
@@ -189,6 +189,7 @@ interface ReviewState {
   /** Replace the in-flight card (and its queue entry) after an edit, without
    * reloading the queue or touching any other session state. */
   patchCurrentCard: (updated: ReviewSessionItem) => void;
+  patchCardTags: (itemId: string, tags: string[]) => void;
   removeItemFromSession: (itemId: string) => void;
   resetSession: () => void;
   startReviewAtItem: (itemId: string) => Promise<void>;
@@ -954,6 +955,18 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     }
   },
 
+  patchCardTags: (itemId: string, tags: string[]) => {
+    set((state) => ({
+      currentCard:
+        state.currentCard?.id === itemId
+          ? { ...state.currentCard, tags }
+          : state.currentCard,
+      queue: state.queue.map((item) =>
+        item.id === itemId ? { ...item, tags } : item
+      ),
+    }));
+  },
+
   resetSession: () => {
     lastUndoSnapshot = null;
     set({
@@ -992,10 +1005,30 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
   startReviewAtItem: async (itemId: string) => {
     await get().loadQueue();
     const { queue } = get();
-    const index = queue.findIndex((item) => item.id === itemId);
-    if (index === -1) return;
-    const nextItem = queue[index];
+    let index = queue.findIndex((item) => item.id === itemId);
+    let nextQueue = queue;
+    let nextItem: ReviewSessionItem | null = index >= 0 ? queue[index] : null;
+
+    if (!nextItem) {
+      // Target item may be future-scheduled (e.g., opened from Schedule View) or outside the due slice.
+      // Never silently fall back to queue[0] (the wrong card); fetch the exact item instead.
+      const fetched = await getLearningItem(itemId);
+      if (!fetched) {
+        set({
+          currentCard: null,
+          currentIndex: 0,
+          error: "The selected review card is no longer available.",
+        });
+        return;
+      }
+      const fetchedAsSession = fetched as unknown as ReviewSessionItem;
+      nextQueue = [fetchedAsSession, ...queue.filter((item) => item.id !== itemId)];
+      index = 0;
+      nextItem = fetchedAsSession;
+    }
+
     set({
+      queue: nextQueue,
       currentIndex: index,
       currentCard: nextItem,
       isAnswerShown: false,
@@ -1003,6 +1036,7 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
       previewIntervals: null,
       reviewPhase: "question",
       pendingArenaReview: null,
+      error: null,
       sessionStartTime: Date.now(),
       sessionStartedAt: get().sessionStartedAt || Date.now(),
     });

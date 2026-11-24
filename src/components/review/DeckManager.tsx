@@ -34,8 +34,9 @@ import { useReviewStore } from "../../stores/reviewStore";
 import { useI18n } from "../../lib/i18n";
 import { useToast } from "../common/Toast";
 import { useConfirmDialog, ConfirmDialog } from "../common/ConfirmDialog";
-import { getAllLearningItems, createLearningItem, exportDeckAsApkg, exportDeckAsCsv, type LearningItem } from "../../api/learning-items";
-import { bulkSuspendItems, bulkUnsuspendItems, bulkDeleteItems } from "../../api/queue";
+import { getAllLearningItems, createLearningItem, updateLearningItemTags, exportDeckAsApkg, exportDeckAsCsv, type LearningItem } from "../../api/learning-items";
+import { bulkSuspendItems, bulkUnsuspendItems, bulkDeleteItems, bulkUpdateItemTags } from "../../api/queue";
+import { useQueueStore } from "../../stores/queueStore";
 import { matchesDeck, swapDeckTags, shouldEnsureBrowserExtensionDeck } from "../../utils/studyDecks";
 import { inferAnkiDeckNames } from "../../utils/ankiImport";
 import { DynamicVirtualList } from "../common/VirtualList";
@@ -427,13 +428,25 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     const ids = Array.from(selectedIds);
     if (ids.length === 0) return;
     try {
-      await bulkDeleteItems(ids);
-      setAllCards((prev) => prev.filter((c) => !ids.includes(c.id)));
-      toast.success(`Deleted ${ids.length} cards`);
-      setSelectedIds(new Set());
+      const result = await bulkDeleteItems(ids);
+      const succeededSet = new Set(result.succeeded);
+      if (succeededSet.size > 0) {
+        setAllCards((prev) => prev.filter((c) => !succeededSet.has(c.id)));
+        useQueueStore.getState().removeItemsLocally(result.succeeded);
+      }
+      if (result.failed.length > 0) {
+        const detail = result.errors[0] ? ` (${result.errors[0]})` : "";
+        toast.error(
+          `Failed to delete ${result.failed.length} of ${ids.length} cards${detail}`
+        );
+        setSelectedIds(new Set(result.failed));
+      } else {
+        toast.success(`Deleted ${result.succeeded.length} cards`);
+        setSelectedIds(new Set());
+      }
       setShowDeleteConfirm(false);
-    } catch {
-      toast.error("Failed to delete cards");
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to delete cards");
     }
   }, [selectedIds, toast]);
 
@@ -441,6 +454,7 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     async (tagsToAdd: string[], tagsToRemove: string[]) => {
       const ids = Array.from(selectedIds);
       if (ids.length === 0) return;
+      const previousCards = allCards;
       setAllCards((prev) =>
         prev.map((c) => {
           if (!ids.includes(c.id)) return c;
@@ -452,11 +466,22 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
           return { ...c, tags: newTags };
         })
       );
-      setSelectedIds(new Set());
-      setMobileSurface(null);
-      toast.success(`Retagged ${ids.length} cards`);
+      try {
+        const result = await bulkUpdateItemTags(ids, tagsToAdd, tagsToRemove);
+        if (result.failed.length > 0) {
+          toast.error(`Failed to retag ${result.failed.length} of ${ids.length} cards`);
+          await loadAllItems();
+          return;
+        }
+        setSelectedIds(new Set());
+        setMobileSurface(null);
+        toast.success(`Retagged ${result.succeeded.length} cards`);
+      } catch {
+        setAllCards(previousCards);
+        toast.error("Failed to retag cards");
+      }
     },
-    [selectedIds, toast]
+    [selectedIds, allCards, toast, loadAllItems]
   );
 
   const handleLeechFilter = useCallback(() => {
@@ -737,10 +762,12 @@ export function DeckManager({ onBack, onStartReview, onEditInStudio }: DeckManag
     setAllCards((prev) =>
       prev.map((c) => (c.id === cardId ? { ...c, tags: nextTags } : c))
     );
-    // Persist the tag change via database
+    // Persist the tag change via the canonical backend API
     try {
-      const { updateLearningItem } = await import("../../lib/database");
-      await updateLearningItem(cardId, { tags: nextTags });
+      const persisted = await updateLearningItemTags(cardId, nextTags);
+      setAllCards((prev) =>
+        prev.map((c) => (c.id === cardId ? { ...c, tags: persisted.tags ?? nextTags } : c))
+      );
       toast.success(`Moved card to "${deck.name}"`);
     } catch {
       toast.error("Failed to move card");

@@ -2888,6 +2888,41 @@ const commandHandlers: Record<string, CommandHandler> = {
         return null;
     },
 
+    bulk_delete_items: async (args) => {
+        const itemIds = Array.isArray(args?.itemIds) ? (args.itemIds as string[]) : [];
+        const succeeded: string[] = [];
+        const failed: string[] = [];
+        const errors: string[] = [];
+        for (const id of itemIds) {
+            try {
+                const learningItem = await db.getLearningItem(id);
+                if (learningItem) {
+                    await db.deleteLearningItem(id);
+                    succeeded.push(id);
+                    continue;
+                }
+                const extract = await db.getExtract(id);
+                if (extract) {
+                    await db.deleteExtract(id);
+                    succeeded.push(id);
+                    continue;
+                }
+                const doc = await db.getDocument(id);
+                if (doc) {
+                    await db.deleteDocument(id);
+                    succeeded.push(id);
+                    continue;
+                }
+                failed.push(id);
+                errors.push(`${id}: Queue item ${id} not found`);
+            } catch (err) {
+                failed.push(id);
+                errors.push(`${id}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+        }
+        return { succeeded, failed, errors };
+    },
+
     get_queue: async (args) => {
         const collectionId = args?.collectionId as string | undefined;
         const strict = args.orderingMode === "strict_manual";
@@ -3567,6 +3602,14 @@ const commandHandlers: Record<string, CommandHandler> = {
 
         // Calculate base interval from FSRS-7
         let intervalDays = selected.interval;
+        const intervalModifier = (doc as { interval_modifier?: number }).interval_modifier;
+        if (
+            typeof intervalModifier === "number" &&
+            Number.isFinite(intervalModifier) &&
+            intervalModifier > 0
+        ) {
+            intervalDays *= intervalModifier;
+        }
         
         // Apply bounds for "Hard" rating (rating = 2)
         if (request.rating === 2) {

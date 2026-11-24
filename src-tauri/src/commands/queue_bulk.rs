@@ -410,12 +410,7 @@ pub async fn bulk_delete_items(
             // learning-items-only delete reported success for every document
             // and extract while removing nothing.
             Some(QueueEntityKind::LearningItem) => {
-                sqlx::query("DELETE FROM learning_items WHERE id = ?")
-                    .bind(item_id)
-                    .execute(repo.pool())
-                    .await
-                    .map(|_| ())
-                    .map_err(crate::error::PlethoraError::from)
+                crate::commands::learning_item::delete_learning_item_in_repo(&repo, item_id).await
             }
             Some(QueueEntityKind::Document) => repo.delete_document(item_id).await,
             Some(QueueEntityKind::Extract) => repo.delete_extract(item_id).await,

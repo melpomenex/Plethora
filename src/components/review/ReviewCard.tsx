@@ -369,6 +369,13 @@ export const ReviewCard = React.memo(function ReviewCard({
           <CompactTagEditor
             target={{ type: "learning-item", id: card.id, tags: card.tags ?? [] }}
             previewLimit={2}
+            onTagsPersisted={(tags) => {
+              // Ensure reviewStore.currentCard.tags updates synchronously even before
+              // any external listener runs, so closing/reopening Edit Tags never reverts.
+              void import("../../stores/reviewStore").then(({ useReviewStore }) => {
+                useReviewStore.getState().patchCardTags(card.id, tags);
+              });
+            }}
           />
         )}
         <div className="ml-auto flex items-center gap-1">

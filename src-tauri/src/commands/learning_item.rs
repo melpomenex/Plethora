@@ -582,10 +582,9 @@ pub async fn get_learning_item(
     Ok(item)
 }
 
-#[tauri::command]
-pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) -> Result<()> {
+pub async fn delete_learning_item_in_repo(repo: &Repository, item_id: &str) -> Result<()> {
     let item = repo
-        .get_learning_item(&item_id)
+        .get_learning_item(item_id)
         .await?
         .ok_or_else(|| PlethoraError::NotFound(format!("Learning item {}", item_id)))?;
 
@@ -593,7 +592,7 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
 
     // Unlink the learning item's element_tree node from the overlay topology,
     // mirroring create_learning_item's register_node edge.
-    if let Some(node_id) = find_node_id_in_tx(&mut transaction, ElementKind::LearningItem, &item_id)
+    if let Some(node_id) = find_node_id_in_tx(&mut transaction, ElementKind::LearningItem, item_id)
         .await
         .ok()
         .flatten()
@@ -610,7 +609,7 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
     journal_entity(
         &mut transaction,
         EntityType::LearningItem,
-        &item_id,
+        item_id,
         SyncOperation::Delete,
         crate::sync::outbox::learning_item_revision(item.updated_at.as_deref()),
         serde_json::to_vec(&delete_payload)
@@ -619,7 +618,7 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
     .await?;
 
     let deleted = sqlx::query("DELETE FROM learning_items WHERE id = ?1")
-        .bind(&item_id)
+        .bind(item_id)
         .execute(&mut *transaction)
         .await?;
     if deleted.rows_affected() == 0 {
@@ -646,6 +645,11 @@ pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) 
 
     transaction.commit().await?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn delete_learning_item(item_id: String, repo: State<'_, Repository>) -> Result<()> {
+    delete_learning_item_in_repo(&repo, &item_id).await
 }
 
 #[tauri::command]

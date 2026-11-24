@@ -3,6 +3,7 @@ import { subscribeItemTagsUpdated } from "./itemTagEvents";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useExtractStore } from "../../stores/extractStore";
 import { useQueueStore } from "../../stores/queueStore";
+import { useReviewStore } from "../../stores/reviewStore";
 
 /**
  * Store reconciliation for successful tag mutations (design decision 3:
@@ -45,6 +46,7 @@ export function applyItemTagsToStores(itemType: ItemTagType, id: string, tags: s
 
   if (itemType === "learning-item") {
     useQueueStore.getState().applyItemDelta(id, { tags });
+    useReviewStore.getState().patchCardTags(id, tags);
     return;
   }
 }

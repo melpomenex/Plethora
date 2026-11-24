@@ -1069,10 +1069,19 @@ export function QueueScrollPage() {
     };
   }, []);
 
-  const handleExtractUpdate = useCallback((extractId: string, updates: { content: string; notes?: string }) => {
+  const handleExtractUpdate = useCallback((extractId: string, updates: { content: string; html_content?: string; notes?: string }) => {
     setScrollItems(prev => prev.map((item) => (
       item.type === "extract" && item.extract?.id === extractId
-        ? { ...item, extract: { ...item.extract, content: updates.content, notes: updates.notes, date_modified: new Date().toISOString() } }
+        ? {
+            ...item,
+            extract: {
+              ...item.extract,
+              content: updates.content,
+              ...(updates.html_content !== undefined ? { html_content: updates.html_content } : {}),
+              notes: updates.notes,
+              date_modified: new Date().toISOString(),
+            },
+          }
         : item
     )));
   }, []);
@@ -3524,6 +3533,9 @@ export function QueueScrollPage() {
   // Mouse wheel scroll detection - only navigate when document can't scroll further
   // For EPUB documents, disable auto-advance to allow user to read through the entire book
   useEffect(() => {
+    if (settings.scrollQueue.wheelNavigationEnabled === false) {
+      return;
+    }
     const handleWheel = (e: WheelEvent) => {
       const now = Date.now();
 
@@ -3614,7 +3626,7 @@ export function QueueScrollPage() {
       container.addEventListener("wheel", handleWheel, { passive: true });
       return () => container.removeEventListener("wheel", handleWheel);
     }
-  }, [goToNext, goToPrevious, currentItem, documents]);
+  }, [goToNext, goToPrevious, currentItem, documents, settings.scrollQueue.wheelNavigationEnabled]);
 
   const toggleFullscreen = useCallback(async () => {
     try {
@@ -4063,6 +4075,14 @@ export function QueueScrollPage() {
           newSet.add(currentItem.documentId!);
           return newSet;
         });
+        // Synchronize Reading Queue store so completed documents do not persist in Queue tab
+        if (result?.next_review_date && new Date(result.next_review_date).getTime() <= Date.now()) {
+          useQueueStore.getState().applyItemDelta(currentItem.documentId, {
+            dueDate: result.next_review_date,
+          });
+        } else {
+          useQueueStore.getState().removeItemsLocally([currentItem.documentId]);
+        }
 
         // Track items reviewed this session
         const nextSessionCount = itemsReviewedThisSession + 1;
@@ -4092,8 +4112,9 @@ export function QueueScrollPage() {
       } else if (currentItem.type === "flashcard" && currentItem.learningItem) {
         // Rate flashcard using the active scheduler (FSRS/Classic four-grade, or
         // Adaptive/Precision natively via `grade`).
+        let updatedLearningItem: Awaited<ReturnType<typeof submitReview>> | undefined;
         try {
-          await submitReview(currentItem.learningItem.id, rating, timeTaken, undefined, {
+          updatedLearningItem = await submitReview(currentItem.learningItem.id, rating, timeTaken, undefined, {
             algorithm: settings.learning.algorithm,
           });
           token?.release();
@@ -4102,6 +4123,16 @@ export function QueueScrollPage() {
           throw err;
         }
         emitInteractionFeedback("review.card-graded", { rating }, { interactionId: createFeedbackInteractionId(), origin: "user" });
+
+        // Synchronize Reading Queue store so completed flashcards do not persist in Reading Queue
+        if (updatedLearningItem?.due_date && new Date(updatedLearningItem.due_date).getTime() <= Date.now()) {
+          useQueueStore.getState().applyItemDelta(currentItem.learningItem.id, {
+            dueDate: updatedLearningItem.due_date,
+            interval: updatedLearningItem.interval,
+          });
+        } else {
+          useQueueStore.getState().removeItemsLocally([currentItem.learningItem.id]);
+        }
 
         // Track items reviewed
         setItemsReviewedThisSession(prev => prev + 1);
@@ -4136,6 +4167,7 @@ export function QueueScrollPage() {
         advanceAfterRemoval(ratedItemId);
       } else if (currentItem.type === "extract" && currentItem.extract) {
         await submitExtractReview(currentItem.extract.id, rating, timeTaken);
+        useQueueStore.getState().removeItemsLocally([currentItem.extract.id]);
 
         // Track items reviewed
         setItemsReviewedThisSession(prev => prev + 1);
@@ -5691,6 +5723,7 @@ export function QueueScrollPage() {
         onClose={() => setShowSettings(false)}
         composition={settings.scrollQueue.composition}
         autoProceed={settings.scrollQueue.autoProceed}
+        wheelNavigationEnabled={settings.scrollQueue.wheelNavigationEnabled ?? true}
         ratingOrbsPosition={settings.scrollQueue.ratingOrbsPosition}
         onUpdateSetting={(key, value) => updateSettingsCategory('scrollQueue', { [key]: value })}
         onUpdateComposition={(composition) => updateSettingsCategory('scrollQueue', { composition })}

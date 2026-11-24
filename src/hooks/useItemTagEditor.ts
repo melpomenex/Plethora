@@ -105,6 +105,8 @@ export function useItemTagEditor(
       pendingRef.current = true;
       setBusy(true);
       setError(null);
+      tagsRef.current = nextTags;
+      setTags(nextTags);
       const mutationTargetKey = `${target.type}:${target.id}`;
       const stillSameItem = () => targetKeyRef.current === mutationTargetKey;
       try {

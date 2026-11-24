@@ -159,6 +159,7 @@ export function CardPreviewPanel({
           <CompactTagEditor
             target={{ type: "learning-item", id: card.id, tags: card.tags }}
             previewLimit={4}
+            onTagsPersisted={(tags) => onCardUpdate?.({ ...card, tags })}
           />
         </div>
       </div>
@@ -272,7 +273,15 @@ function EditTab({
     const updated = { ...card, question, answer, tags: newTags };
     onSave?.(updated);
     try {
-      await updateLearningItemContentWithVersion(card.id, question, answer || undefined, "Edited via Deck Manager");
+      await updateLearningItemContentWithVersion(
+        card.id,
+        question,
+        answer || undefined,
+        "Edited via Deck Manager",
+        undefined,
+        undefined,
+        newTags
+      );
       toast.success(t("review.deckManager.saved"));
     } catch {
       onSave?.(card);
