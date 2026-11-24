@@ -121,15 +121,22 @@ export async function prepareCurriculumPreflight(
       },
     },
   });
-  result.preflight.modelSelection = selectedConfigId ?? '';
+  result.preflight.modelSelection = selectedConfigId || result.preflight.model?.configId || '';
   result.preflight.embedding = embedding.description;
   result.preflight.executionBranch = 'library';
 
   if (authorized) {
     validatePreflightUnchanged(authorized, result.route);
+    const sameDocSet = (() => {
+      const a = new Set(authorized.documentIds);
+      const b = new Set(result.preflight.documentIds);
+      if (a.size !== b.size) return false;
+      for (const id of a) if (!b.has(id)) return false;
+      return true;
+    })();
     if (authorized.reasoningFallback !== result.preflight.reasoningFallback ||
         JSON.stringify(authorized.embedding) !== JSON.stringify(result.preflight.embedding) ||
-        JSON.stringify(authorized.documentIds) !== JSON.stringify(result.preflight.documentIds)) {
+        !sameDocSet) {
       throw new StudyApiError({ code: 'invalid_state', messageKey: 'study_generation.error.provider_changed_on_resume', retryable: false });
     }
   }

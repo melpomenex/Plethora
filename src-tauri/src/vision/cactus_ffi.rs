@@ -81,8 +81,9 @@ impl CactusLibrary {
                     // Linux AppImage / .deb resource layout: usr/bin/exe -> usr/lib/<product>/bin/
                     candidates.push(dir.join("../lib/Plethora/bin").join(name));
                     candidates.push(dir.join("../lib/plethora-tauri/bin").join(name));
-                    // macOS .app bundle resource layout: Contents/MacOS/exe -> Contents/Resources/bin/
+                    // macOS .app bundle resource layout: Contents/MacOS/exe -> Contents/Resources/bin/ & Contents/Frameworks/
                     candidates.push(dir.join("../Resources/bin").join(name));
+                    candidates.push(dir.join("../Frameworks").join(name));
                 }
             }
         }
@@ -92,7 +93,9 @@ impl CactusLibrary {
                 candidates.push(cwd.join("bin").join(name));
             }
         }
-        // Standard soname lookup (resolves Android APK nativeLibraryDir & LD_LIBRARY_PATH)
+        // Standard soname lookup (resolves Android APK nativeLibraryDir & Linux LD_LIBRARY_PATH).
+        // Skip bare relative names on macOS because Hardened Runtime dyld rejects relative dlopen paths.
+        #[cfg(not(target_os = "macos"))]
         for name in Self::platform_lib_names() {
             candidates.push(PathBuf::from(name));
         }
@@ -113,6 +116,12 @@ impl CactusLibrary {
                 },
                 Err(e) => errors.push(format!("{}: {}", path.display(), e)),
             }
+        }
+        if errors.is_empty() {
+            return Err(format!(
+                "Mirage Vision native runtime ({}) is not installed or bundled on this system. Bundle it in Contents/Resources/bin/ or Contents/Frameworks/, or set PLETHORA_CACTUS_LIB to its full path.",
+                Self::platform_lib_names()[0],
+            ));
         }
         Err(format!(
             "Could not load Cactus Compute native library (libcactus). Set PLETHORA_CACTUS_LIB or bundle {}. Details: {}",
