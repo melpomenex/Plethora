@@ -409,7 +409,8 @@ impl DocumentRepository {
                 tags = ?5, date_modified = ?6, priority_rating = ?7,
                 priority_slider = ?8, priority_score = ?9,
                 is_archived = ?10, is_favorite = ?11,
-                total_pages = COALESCE(?12, total_pages)
+                total_pages = COALESCE(?12, total_pages),
+                interval_modifier = ?14
             WHERE id = ?13
             "#,
         )
@@ -426,6 +427,11 @@ impl DocumentRepository {
         .bind(updates.is_favorite)
         .bind(updates.total_pages)
         .bind(id)
+        .bind(if updates.interval_modifier.is_finite() && updates.interval_modifier > 0.0 {
+            updates.interval_modifier
+        } else {
+            1.0
+        })
         .execute(&self.pool)
         .await?;
 

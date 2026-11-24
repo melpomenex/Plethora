@@ -459,9 +459,23 @@ export function ItemDetailsPopover({
     try {
       const rawDoc = details.raw as unknown as import("../../types/document").Document | null;
       if (!rawDoc) throw new Error("Document details not loaded yet");
-      await updateDocument(target.id, { ...rawDoc, intervalModifier: rounded });
-      setDetails((prev) => ({ ...prev, intervalModifier: rounded }));
-      setLocalModifier(rounded.toFixed(1));
+      const saved = await updateDocument(target.id, { ...rawDoc, intervalModifier: rounded });
+      const persistedModifier =
+        typeof saved?.intervalModifier === "number" && Number.isFinite(saved.intervalModifier)
+          ? saved.intervalModifier
+          : rounded;
+      setDetails((prev) => ({
+        ...prev,
+        intervalModifier: persistedModifier,
+        raw: saved ? (saved as unknown as Record<string, unknown>) : prev.raw,
+      }));
+      setLocalModifier(persistedModifier.toFixed(1));
+      void import("../../stores/documentStore").then(({ useDocumentStore }) => {
+        useDocumentStore.getState().updateDocument(target.id, {
+          intervalModifier: persistedModifier,
+          dateModified: saved?.dateModified ?? rawDoc.dateModified,
+        });
+      });
       toast.success(t("itemDetails.modifierSaved") || "Interval modifier saved");
     } catch (err) {
       console.error("Failed to save interval modifier", err);

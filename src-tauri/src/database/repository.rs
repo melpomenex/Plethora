@@ -1824,7 +1824,8 @@ impl Repository {
                 is_archived = ?10, is_favorite = ?11,
                 total_pages = COALESCE(?12, total_pages),
                 is_local_only = MAX(is_local_only, ?14),
-                is_ai_excluded = MAX(is_ai_excluded, ?15)
+                is_ai_excluded = MAX(is_ai_excluded, ?15),
+                interval_modifier = ?16
             WHERE id = ?13
             "#,
         )
@@ -1843,6 +1844,11 @@ impl Repository {
         .bind(id)
         .bind(updates.effective_local_only())
         .bind(updates.effective_ai_excluded())
+        .bind(if updates.interval_modifier.is_finite() && updates.interval_modifier > 0.0 {
+            updates.interval_modifier
+        } else {
+            1.0
+        })
         .execute(&mut *tx)
         .await?
         .rows_affected();
@@ -1854,7 +1860,7 @@ impl Repository {
         let updated = Self::journal_document_fields(
             &mut tx,
             id,
-            &["content", "position", "tags", "priority", "flags"],
+            &["content", "position", "tags", "priority", "flags", "schedule"],
         )
         .await?;
         tx.commit().await?;
