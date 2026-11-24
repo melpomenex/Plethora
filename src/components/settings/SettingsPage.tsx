@@ -40,7 +40,7 @@ import { useModal } from "../common/Modal";
 import { NumericInput } from "../common";
 import { Switch } from "../common/Switch";
 import { cn } from "../../utils";
-import { importWithRetry } from "../../utils/importWithRetry";
+import { createRetryableLazy } from "../../utils/retryableLazy";
 import { useMobileShell } from "../../hooks/useMobileShell";
 import { isTauri } from "../../lib/tauri";
 import { resolveCurrentAppPlatform } from "../../lib/platformCapabilities";
@@ -100,26 +100,7 @@ function lazySection<T extends React.ComponentType<any>>(
   name: string,
   loader: () => Promise<{ default: T }>
 ): React.ComponentType<any> {
-  let cachedLazy: React.ComponentType<any> | null = null;
-  let lastFailed = false;
-
-  const createLazy = () =>
-    lazy(() =>
-      importWithRetry(name, loader).catch((err) => {
-        lastFailed = true;
-        console.error(`[SettingsPage] Failed to lazy-load section "${name}":`, err);
-        throw err;
-      })
-    );
-
-  return function RetryableLazySection(props: Record<string, unknown>) {
-    if (!cachedLazy || lastFailed) {
-      lastFailed = false;
-      cachedLazy = createLazy();
-    }
-    const Component = cachedLazy;
-    return <Component {...props} />;
-  };
+  return createRetryableLazy(name, loader, { logPrefix: "[SettingsPage]" });
 }
 
 const KeyboardShortcutSettings = lazySection("KeyboardShortcutSettings", () =>

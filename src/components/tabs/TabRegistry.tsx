@@ -1,6 +1,6 @@
-import { lazy, type ComponentType } from "react";
+import type { ComponentType } from "react";
 import type { Tab, TabType } from "../../stores/tabsStore";
-import { importWithRetry } from "../../utils/importWithRetry";
+import { createRetryableLazy, type RetryableLazyComponent } from "../../utils/retryableLazy";
 import {
   isPlatformCapabilityAvailable,
   type PlatformCapabilityId,
@@ -9,35 +9,11 @@ import {
 // Central registry of all lazy-loaded tab components
 // Components use named exports, so we need to convert them to default exports
 
-/** Wrap a lazy import with timeout + retry (WebView chunk stalls) and error
- * logging to identify which module fails to load. Unlike bare `React.lazy`,
- * this wrapper resets its lazy promise after a failure so `TabErrorBoundary`
- * Retry genuinely re-attempts the import instead of re-throwing a cached rejection. */
 function debugLazy<T extends ComponentType<any>>(
   name: string,
   loader: () => Promise<{ default: T }>
-): ComponentType<any> {
-  let cachedLazy: ComponentType<any> | null = null;
-  let lastFailed = false;
-
-  const createLazy = () =>
-    lazy(() =>
-      importWithRetry(name, loader).catch((err) => {
-        lastFailed = true;
-        console.error(`[TabRegistry] Failed to lazy-load "${name}":`, err);
-        // Re-throw so React.lazy triggers the error boundary
-        throw err;
-      })
-    );
-
-  return function RetryableLazyTab(props: Record<string, unknown>) {
-    if (!cachedLazy || lastFailed) {
-      lastFailed = false;
-      cachedLazy = createLazy();
-    }
-    const Component = cachedLazy;
-    return <Component {...props} />;
-  };
+): RetryableLazyComponent<T> {
+  return createRetryableLazy(name, loader, { logPrefix: "[TabRegistry]" });
 }
 
 export const DashboardTab = debugLazy("DashboardTab", () => import("./DashboardTab").then(m => ({ default: m.DashboardTab })));
@@ -78,41 +54,53 @@ export const StudyPlansTab = debugLazy("StudyPlansTab", () => import("../study-p
  * "first switch to a view spins forever, away-and-back fixes it" class of
  * bug; see importWithRetry.ts and lib/tauri.ts for the stall mechanics).
  *
- * Raw loaders (not the lazy components) — React.lazy would only invoke each
- * loader once anyway, and calling these thunks early populates the same ESM
- * module cache the later lazy render reads.
+ * Preloading the `RetryableLazyComponent` instances directly warms the exact
+ * resolved-component cache used at render time, so prefetched tabs render
+ * synchronously without re-suspending on first visit. Bounded concurrency
+ * avoids saturating the WebView asset protocol or dev server at boot.
  */
-const COMMON_TAB_LOADERS: Array<[string, () => Promise<unknown>]> = [
-  ["DocumentsTab", () => import("./DocumentsTab")],
-  ["SettingsPage", () => import("../settings/SettingsPage")],
-  ["QueueTab", () => import("./QueueTab")],
-  ["ReviewTab", () => import("./ReviewTab")],
-  ["DashboardTab", () => import("./DashboardTab")],
-  ["ContinueReadingTab", () => import("./ContinueReadingTab")],
+const COMMON_TAB_COMPONENTS: ReadonlyArray<RetryableLazyComponent> = [
+  DocumentsTab,
+  SettingsTab,
+  QueueTab,
+  ReviewTab,
+  DashboardTab,
+  ContinueReadingTab,
 ];
 
-const SECONDARY_TAB_LOADERS: Array<[string, () => Promise<unknown>]> = [
-  ["ExtractsTab", () => import("./ExtractsTab")],
-  ["AnalyticsTab", () => import("./AnalyticsTab")],
-  ["RSSReader", () => import("../media/RSSReader")],
-  ["LearningInsightsTab", () => import("./LearningInsightsTab")],
-  ["StudyPlansTab", () => import("../study-plans/StudyPlansTab")],
+const SECONDARY_TAB_COMPONENTS: ReadonlyArray<RetryableLazyComponent> = [
+  ExtractsTab,
+  AnalyticsTab,
+  RSSReader,
+  LearningInsightsTab,
+  StudyPlansTab,
+  PodcastTab,
 ];
+
+async function preloadBatch(
+  components: ReadonlyArray<RetryableLazyComponent>,
+  concurrency = 2
+): Promise<void> {
+  let index = 0;
+  const worker = async () => {
+    while (index < components.length) {
+      const next = components[index++];
+      await next.preload();
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, components.length) }, () => worker())
+  );
+}
 
 let prefetchStarted = false;
 
 export function prefetchCommonTabs(): void {
   if (prefetchStarted) return;
   prefetchStarted = true;
-  for (const [name, load] of COMMON_TAB_LOADERS) {
-    // importWithRetry retries stalled WebView fetches; failures here are
-    // non-fatal by design (the tab's own lazy loader surfaces real errors).
-    void importWithRetry(name, load).catch(() => {});
-  }
+  void preloadBatch(COMMON_TAB_COMPONENTS, 2);
   setTimeout(() => {
-    for (const [name, load] of SECONDARY_TAB_LOADERS) {
-      void importWithRetry(name, load).catch(() => {});
-    }
+    void preloadBatch(SECONDARY_TAB_COMPONENTS, 2);
   }, 400);
 }
 
