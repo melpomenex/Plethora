@@ -1,5 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { useTabsStore } from "../../stores";
+import { useEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import {
+  useTabsStore,
+  useDashboardLayoutStore,
+  isDefaultDashboardLayout,
+  type DashboardSectionId,
+  type DashboardQuickActionId,
+} from "../../stores";
 import { useUIStore } from "../../stores/uiStore";
 import { useDocumentStore } from "../../stores/documentStore";
 import { useCollectionStore } from "../../stores/collectionStore";
@@ -42,6 +48,8 @@ import { CaptureActivityCard } from "../analytics/CaptureActivityCard";
 import { StudyPlansDashboardCard } from "../study-plans/StudyPlansDashboardCard";
 import { SleepLearningDashboardCard } from "../health/SleepLearningDashboardCard";
 import { TodaysHorizonBanner } from "../dashboard/TodaysHorizonBanner";
+import { DashboardCustomizeSectionFrame } from "../dashboard/DashboardCustomizeSectionFrame";
+import { Button, IconButton } from "../md3";
 import {
   QuickReviewWidget,
   formatLearningItemForQuickReview,
@@ -51,22 +59,30 @@ import { AdaptiveContentHeader, SafeScrollContainer } from "../adaptive";
 import { selectDailyFocus } from "./dashboardFocus";
 import {
   ArrowClockwise,
+  ArrowCounterClockwise,
+  ArrowLeft,
+  ArrowRight,
   ArrowSquareOut,
   BookOpen,
   Brain,
   CaretRight,
   ChartBar,
+  Check,
   Command,
   Copy,
+  Eye,
+  EyeSlash,
   Files,
   FolderPlus,
   Gear,
   Headphones,
   Lightning,
   Rss,
+  SlidersHorizontal,
   Target,
   TrendUp,
 } from "@phosphor-icons/react";
+import { cn } from "../../utils/cn";
 import { t as translateRecentFeature } from "../../lib/i18n";
 
 
@@ -106,6 +122,35 @@ export function DashboardTab() {
   const captureSource = getCaptureListingSource();
   const { activity, captures, reload: reloadCaptureActivity } = useCaptureActivity(isActiveTab, captureSource);
   const toast = useToast();
+  const [isCustomizing, setIsCustomizing] = useState(false);
+  const [liveAnnouncement, setLiveAnnouncement] = useState("");
+  const [dragState, setDragState] = useState<{
+    draggingId: DashboardSectionId;
+    dropTargetId: DashboardSectionId | null;
+    dropPosition: "before" | "after" | null;
+    pointerId: number;
+  } | null>(null);
+  const sectionsContainerRef = useRef<HTMLDivElement>(null);
+  const sectionOrder = useDashboardLayoutStore((s) => s.sectionOrder);
+  const hiddenSections = useDashboardLayoutStore((s) => s.hiddenSections);
+  const quickActionOrder = useDashboardLayoutStore((s) => s.quickActionOrder);
+  const hiddenQuickActions = useDashboardLayoutStore((s) => s.hiddenQuickActions);
+  const moveSection = useDashboardLayoutStore((s) => s.moveSection);
+  const reorderSection = useDashboardLayoutStore((s) => s.reorderSection);
+  const setSectionVisible = useDashboardLayoutStore((s) => s.setSectionVisible);
+  const moveQuickAction = useDashboardLayoutStore((s) => s.moveQuickAction);
+  const setQuickActionVisible = useDashboardLayoutStore((s) => s.setQuickActionVisible);
+  const resetDashboardLayout = useDashboardLayoutStore((s) => s.resetToDefault);
+  const isDefaultLayout = useMemo(
+    () =>
+      isDefaultDashboardLayout({
+        sectionOrder,
+        hiddenSections,
+        quickActionOrder,
+        hiddenQuickActions,
+      }),
+    [sectionOrder, hiddenSections, quickActionOrder, hiddenQuickActions],
+  );
   const ensureStartup = useStartupStore((state) => state.ensureStartup);
   const startupLoadedForCollection = useRef<string | null>(null);
   const startupProgress = useStartupStore(
@@ -508,6 +553,13 @@ export function DashboardTab() {
 
   const buildSurfaceMenuItems = (): ContextMenuItem[] => [
     {
+      id: "customize-dashboard",
+      label: isCustomizing ? t("dashboard.customize.done") : t("dashboard.customize.contextMenu"),
+      icon: <SlidersHorizontal className="h-4 w-4 text-primary" />,
+      onClick: () => setIsCustomizing((prev) => !prev),
+    },
+    { id: "sep:0", type: ContextMenuItemType.Separator, label: "" },
+    {
       id: "refresh-dashboard",
       label: t("contextMenu.refreshDashboard"),
       icon: <ArrowClockwise className="h-4 w-4 text-muted-foreground" />,
@@ -709,115 +761,347 @@ export function DashboardTab() {
     },
   ];
 
-  return (
-    <SafeScrollContainer
-      className="bg-background"
-      data-responsive-surface="dashboard"
-      data-paper-surface="chrome"
-      onContextMenu={(e) => dashboardMenu.openEvent(e, buildSurfaceMenuItems())}
-    >
-      <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pb-24 md:pb-8">
-        <AdaptiveContentHeader
-          className="px-0 pt-5 pb-5 md:pt-7 md:pb-7"
-          title={t("dashboard.welcomeBack")}
-          description={t("dashboard.companion")}
-        />
+  const sectionLabels: Record<DashboardSectionId, string> = {
+    focus: t("dashboard.customize.section.focus"),
+    "quick-actions": t("dashboard.quickActions"),
+    "continue-reading": t("continueReading.title"),
+    "capture-activity": t("dashboard.captureActivity"),
+    "todays-horizon": t("dashboard.customize.section.todaysHorizon"),
+    "study-plans": t("dashboard.customize.section.studyPlans"),
+    progress: t("dashboard.progress"),
+    "quick-tip": t("dashboard.quickTip"),
+    "quick-review": t("dashboard.customize.section.quickReview"),
+  };
 
-        <FocusPanel
-          className="mb-6 md:mb-8"
-          onContextMenu={(e) => dashboardMenu.openEvent(e, buildFocusPanelMenuItems())}
-        >
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-primary">{t("dashboard.quickActions")}</p>
-              <h2 className="mt-1 text-xl font-semibold text-foreground">
-                {hasNoDocuments
-                  ? t("dashboard.importFirst")
-                  : focusAction.id === "review"
-                  ? t("dashboard.startReview")
-                  : focusAction.id === "continue-reading"
-                    ? t("continueReading.title")
-                  : focusAction.id === "queue"
-                    ? t("dashboard.continueReading")
-                    : t("dashboard.browseDocuments")}
-              </h2>
-              <p className={error ? "mt-1 text-sm text-destructive" : "mt-1 text-sm text-muted-foreground"} role={error ? "alert" : undefined}>
-                {error
-                  ? `${t("dashboard.failedLoadAnalytics")}: ${error}`
-                  : isLoading
-                  ? t("dashboard.loadingAnalytics")
-                  : focusCount > 0
-                    ? t("dashboard.due", { count: focusCount })
-                    : t("dashboard.importFirst")}
-              </p>
-            </div>
-            <ActionButton
-              variant="primary"
-              size="large"
-              onClick={() => {
-                if (hasNoDocuments) {
-                  importDocument();
-                } else {
-                  openTab(focusAction);
-                }
-              }}
-            >
-              <FocusIcon className="h-5 w-5" aria-hidden="true" />
-              {hasNoDocuments ? t("dashboard.import") : focusAction.id === "review" ? t("dashboard.startReview") : t("common.open")}
-            </ActionButton>
-          </div>
-        </FocusPanel>
+  const quickActionMap = useMemo(
+    () => new Map<DashboardQuickActionId, QuickAction>(quickActions.map((a) => [a.id as DashboardQuickActionId, a])),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [t],
+  );
 
-        {/* Quick Actions Grid - 2 columns mobile, 3 columns tablet+, adaptive rows */}
-        <SummarySection title={t("dashboard.quickActions")}>
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3 md:gap-4 mb-6 md:mb-8">
-          {quickActions.map((action) => {
-            const Icon = action.icon;
-            return (
-              <button
-                key={action.id}
-                onClick={() => openTab(action)}
-                onContextMenu={(e) => dashboardMenu.openEvent(e, buildQuickActionMenuItems(action))}
-                onKeyDown={(e) => dashboardMenu.handleRowKeyDown(e, () => buildQuickActionMenuItems(action))}
-                className="group relative flex min-h-[110px] md:min-h-[130px] flex-col items-start rounded-xl border border-border bg-card p-3 md:p-4 text-left transition-all hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <div
-                  className={`${action.iconBg} p-2 md:p-3 rounded-lg mb-2 md:mb-3 transition-transform group-hover:scale-110`}
-                >
-                  <Icon className="w-4 h-4 md:w-5 md:h-5" />
-                </div>
-                <h3 className="font-semibold text-xs md:text-sm text-foreground mb-0.5 line-clamp-1">
-                  {action.title}
-                </h3>
-                <p className="text-[10px] md:text-xs text-muted-foreground line-clamp-2 md:line-clamp-none">
-                  {action.description}
-                </p>
-                {action.primary && stats && (
-                  <div className="absolute top-2 right-2 md:top-3 md:right-3">
-                    <div className="flex items-center gap-1 text-[10px] font-medium text-primary">
-                      {action.id === "queue" && (stats.due_documents || stats.cards_due_today || 0) > 0 && (
-                        <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                          {mode === "phone" ? (stats.due_documents || stats.cards_due_today || 0) : t("dashboard.due", { count: stats.due_documents || stats.cards_due_today || 0 })}
-                        </span>
-                      )}
-                      {action.id === "review" && stats.cards_due_today > 0 && (
-                        <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded">
-                          {mode === "phone" ? stats.cards_due_today : t("dashboard.due", { count: stats.cards_due_today })}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                )}
-              </button>
+  const orderedQuickActions = useMemo(
+    () =>
+      quickActionOrder
+        .map((id) => quickActionMap.get(id))
+        .filter((action): action is QuickAction => action != null),
+    [quickActionOrder, quickActionMap],
+  );
+
+  const visibleQuickActions = useMemo(
+    () => orderedQuickActions.filter((action) => !hiddenQuickActions.includes(action.id as DashboardQuickActionId)),
+    [orderedQuickActions, hiddenQuickActions],
+  );
+
+  const visibleSectionsCount = sectionOrder.filter((id) => !hiddenSections.includes(id)).length;
+
+  useEffect(() => {
+    if (!isCustomizing) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        if (dragState) {
+          setDragState(null);
+          return;
+        }
+        if (!dashboardMenu.visible) {
+          setIsCustomizing(false);
+        }
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [isCustomizing, dragState, dashboardMenu.visible]);
+
+  useEffect(() => {
+    if (!dragState) return;
+    const activeDrag = dragState;
+
+    const resolveDropTarget = (clientY: number): { targetId: DashboardSectionId | null; position: "before" | "after" | null } => {
+      const container = sectionsContainerRef.current;
+      if (!container) return { targetId: null, position: null };
+      const nodes = Array.from(container.querySelectorAll<HTMLElement>("[data-dashboard-section-id]"));
+      for (const node of nodes) {
+        const id = node.dataset.dashboardSectionId as DashboardSectionId | undefined;
+        if (!id) continue;
+        const rect = node.getBoundingClientRect();
+        const midY = rect.top + rect.height / 2;
+        if (clientY < midY) {
+          return id === activeDrag.draggingId ? { targetId: null, position: null } : { targetId: id, position: "before" };
+        }
+      }
+      const last = nodes[nodes.length - 1];
+      const lastId = last?.dataset.dashboardSectionId as DashboardSectionId | undefined;
+      if (lastId && lastId !== activeDrag.draggingId) {
+        return { targetId: lastId, position: "after" };
+      }
+      return { targetId: null, position: null };
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerId !== activeDrag.pointerId) return;
+      const { targetId, position } = resolveDropTarget(event.clientY);
+      setDragState((prev) =>
+        prev && prev.pointerId === event.pointerId
+          ? { ...prev, dropTargetId: targetId, dropPosition: position }
+          : prev,
+      );
+    };
+
+    const finishDrag = (event: PointerEvent, commitDrop: boolean) => {
+      if (event.pointerId !== activeDrag.pointerId) return;
+      if (commitDrop && activeDrag.dropTargetId && activeDrag.dropPosition) {
+        const currentIdx = sectionOrder.indexOf(activeDrag.draggingId);
+        const targetIdx = sectionOrder.indexOf(activeDrag.dropTargetId);
+        if (currentIdx !== -1 && targetIdx !== -1) {
+          let insertIdx = activeDrag.dropPosition === "before" ? targetIdx : targetIdx + 1;
+          if (currentIdx < insertIdx) insertIdx -= 1;
+          if (insertIdx !== currentIdx) {
+            reorderSection(activeDrag.draggingId, insertIdx);
+            setLiveAnnouncement(
+              t("dashboard.customize.moved", {
+                section: sectionLabels[activeDrag.draggingId],
+                position: insertIdx + 1,
+                total: sectionOrder.length,
+              }),
             );
-          })}
-        </div>
-        </SummarySection>
+          }
+        }
+      }
+      setDragState(null);
+    };
 
-        {/* Continue Reading Section */}
-        {hasResumableReading && resumableDocs.length > 0 && (
+    const onPointerUp = (event: PointerEvent) => finishDrag(event, true);
+    const onPointerCancel = (event: PointerEvent) => finishDrag(event, false);
+
+    window.addEventListener("pointermove", onPointerMove);
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+    return () => {
+      window.removeEventListener("pointermove", onPointerMove);
+      window.removeEventListener("pointerup", onPointerUp);
+      window.removeEventListener("pointercancel", onPointerCancel);
+    };
+  }, [dragState, reorderSection, sectionLabels, sectionOrder, t]);
+
+  const handleSectionDragStart = (sectionId: DashboardSectionId, event: ReactPointerEvent<HTMLButtonElement>) => {
+    if (event.button !== 0) return;
+    event.preventDefault();
+    try {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    } catch {
+      // Ignore in test environments without full pointer capture support
+    }
+    setDragState({
+      draggingId: sectionId,
+      dropTargetId: null,
+      dropPosition: null,
+      pointerId: event.pointerId,
+    });
+  };
+
+  const handleMoveSection = (sectionId: DashboardSectionId, direction: "up" | "down") => {
+    const currentIdx = sectionOrder.indexOf(sectionId);
+    const nextIdx = direction === "up" ? currentIdx - 1 : currentIdx + 1;
+    if (nextIdx < 0 || nextIdx >= sectionOrder.length) return;
+    moveSection(sectionId, direction);
+    setLiveAnnouncement(
+      t("dashboard.customize.moved", {
+        section: sectionLabels[sectionId],
+        position: nextIdx + 1,
+        total: sectionOrder.length,
+      }),
+    );
+  };
+
+  const renderSectionBody = (sectionId: DashboardSectionId): ReactNode => {
+    switch (sectionId) {
+      case "focus":
+        return (
+          <FocusPanel
+            className={isCustomizing ? "mb-0" : "mb-6 md:mb-8"}
+            onContextMenu={(e) => dashboardMenu.openEvent(e, buildFocusPanelMenuItems())}
+          >
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-primary">{t("dashboard.quickActions")}</p>
+                <h2 className="mt-1 text-xl font-semibold text-foreground">
+                  {hasNoDocuments
+                    ? t("dashboard.importFirst")
+                    : focusAction.id === "review"
+                    ? t("dashboard.startReview")
+                    : focusAction.id === "continue-reading"
+                      ? t("continueReading.title")
+                    : focusAction.id === "queue"
+                      ? t("dashboard.continueReading")
+                      : t("dashboard.browseDocuments")}
+                </h2>
+                <p className={error ? "mt-1 text-sm text-destructive" : "mt-1 text-sm text-muted-foreground"} role={error ? "alert" : undefined}>
+                  {error
+                    ? `${t("dashboard.failedLoadAnalytics")}: ${error}`
+                    : isLoading
+                    ? t("dashboard.loadingAnalytics")
+                    : focusCount > 0
+                      ? t("dashboard.due", { count: focusCount })
+                      : t("dashboard.importFirst")}
+                </p>
+              </div>
+              <ActionButton
+                variant="primary"
+                size="large"
+                onClick={() => {
+                  if (hasNoDocuments) {
+                    importDocument();
+                  } else {
+                    openTab(focusAction);
+                  }
+                }}
+              >
+                <FocusIcon className="h-5 w-5" aria-hidden="true" />
+                {hasNoDocuments ? t("dashboard.import") : focusAction.id === "review" ? t("dashboard.startReview") : t("common.open")}
+              </ActionButton>
+            </div>
+          </FocusPanel>
+        );
+
+      case "quick-actions": {
+        const actionsToRender = isCustomizing ? orderedQuickActions : visibleQuickActions;
+        return (
+          <SummarySection title={t("dashboard.quickActions")}>
+            {isCustomizing && visibleQuickActions.length === 0 && (
+              <p className="mb-3 text-sm text-muted-foreground">
+                {t("dashboard.customize.quickAction.empty")}
+              </p>
+            )}
+            <div className={cn("grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3 md:gap-4", !isCustomizing && "mb-6 md:mb-8")}>
+              {actionsToRender.map((action, actionIndex) => {
+                const Icon = action.icon;
+                const actionId = action.id as DashboardQuickActionId;
+                const isActionVisible = !hiddenQuickActions.includes(actionId);
+
+                if (isCustomizing) {
+                  return (
+                    <div
+                      key={action.id}
+                      data-quick-action-id={action.id}
+                      className={cn(
+                        "flex min-h-[130px] flex-col justify-between rounded-xl border p-3 text-left transition-colors",
+                        isActionVisible
+                          ? "border-outline-variant bg-card"
+                          : "border-dashed border-outline-variant/80 bg-muted/30 opacity-75",
+                      )}
+                    >
+                      <div>
+                        <div className="mb-2 flex items-center justify-between gap-1">
+                          <div className={`${action.iconBg} rounded-lg p-2`}>
+                            <Icon className="h-4 w-4" aria-hidden="true" />
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => setQuickActionVisible(actionId, !isActionVisible)}
+                            aria-pressed={isActionVisible}
+                            aria-label={t("dashboard.customize.quickAction.toggle", { action: action.title })}
+                            className={cn(
+                              "inline-flex min-h-8 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                              isActionVisible
+                                ? "border-primary/40 bg-primary/10 text-primary"
+                                : "border-outline-variant bg-surface-container text-on-surface-variant",
+                            )}
+                          >
+                            {isActionVisible ? (
+                              <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                            ) : (
+                              <EyeSlash className="h-3.5 w-3.5" aria-hidden="true" />
+                            )}
+                            <span>
+                              {isActionVisible
+                                ? t("dashboard.customize.quickAction.visible")
+                                : t("dashboard.customize.quickAction.hidden")}
+                            </span>
+                          </button>
+                        </div>
+                        <h3 className="line-clamp-1 text-xs font-semibold text-foreground">
+                          {action.title}
+                        </h3>
+                      </div>
+
+                      <div className="mt-2 flex items-center justify-between border-t border-border pt-2">
+                        <IconButton
+                          type="button"
+                          variant="standard"
+                          size="sm"
+                          icon={ArrowLeft}
+                          aria-label={t("dashboard.customize.quickAction.moveLeft", { action: action.title })}
+                          disabled={actionIndex === 0}
+                          onClick={() => moveQuickAction(actionId, "left")}
+                        />
+                        <IconButton
+                          type="button"
+                          variant="standard"
+                          size="sm"
+                          icon={ArrowRight}
+                          aria-label={t("dashboard.customize.quickAction.moveRight", { action: action.title })}
+                          disabled={actionIndex === actionsToRender.length - 1}
+                          onClick={() => moveQuickAction(actionId, "right")}
+                        />
+                      </div>
+                    </div>
+                  );
+                }
+
+                return (
+                  <button
+                    key={action.id}
+                    onClick={() => openTab(action)}
+                    onContextMenu={(e) => dashboardMenu.openEvent(e, buildQuickActionMenuItems(action))}
+                    onKeyDown={(e) => dashboardMenu.handleRowKeyDown(e, () => buildQuickActionMenuItems(action))}
+                    className="group relative flex min-h-[110px] md:min-h-[130px] flex-col items-start rounded-xl border border-border bg-card p-3 md:p-4 text-left transition-all hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
+                  >
+                    <div
+                      className={`${action.iconBg} p-2 md:p-3 rounded-lg mb-2 md:mb-3 transition-transform group-hover:scale-110`}
+                    >
+                      <Icon className="w-4 h-4 md:w-5 md:h-5" />
+                    </div>
+                    <h3 className="font-semibold text-xs md:text-sm text-foreground mb-0.5 line-clamp-1">
+                      {action.title}
+                    </h3>
+                    <p className="text-[10px] md:text-xs text-muted-foreground line-clamp-2 md:line-clamp-none">
+                      {action.description}
+                    </p>
+                    {action.primary && stats && (
+                      <div className="absolute top-2 right-2 md:top-3 md:right-3">
+                        <div className="flex items-center gap-1 text-[10px] font-medium text-primary">
+                          {action.id === "queue" && (stats.due_documents || stats.cards_due_today || 0) > 0 && (
+                            <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                              {mode === "phone" ? (stats.due_documents || stats.cards_due_today || 0) : t("dashboard.due", { count: stats.due_documents || stats.cards_due_today || 0 })}
+                            </span>
+                          )}
+                          {action.id === "review" && stats.cards_due_today > 0 && (
+                            <span className="bg-primary/10 text-primary px-1.5 py-0.5 rounded">
+                              {mode === "phone" ? stats.cards_due_today : t("dashboard.due", { count: stats.cards_due_today })}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </SummarySection>
+        );
+      }
+
+      case "continue-reading":
+        if (!hasResumableReading || resumableDocs.length === 0) {
+          if (!isCustomizing) return null;
+          return (
+            <p className="text-sm text-muted-foreground">
+              {t("dashboard.continueReading")}
+            </p>
+          );
+        }
+        return (
           <SummarySection title={t("continueReading.title")}>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4 mb-6 md:mb-8">
+            <div className={cn("grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4", !isCustomizing && "mb-6 md:mb-8")}>
               {resumableDocs.map((doc) => (
                 <button
                   key={doc.id}
@@ -860,189 +1144,341 @@ export function DashboardTab() {
               ))}
             </div>
           </SummarySection>
-        )}
+        );
 
-        {/* Capture Activity Section (card renders its own header) */}
-        <div className="mb-6 md:mb-8">
-          <CaptureActivityCard
-            data={activity.data}
-            isLoading={activity.isLoading}
-            error={activity.error}
-            onRetry={reloadCaptureActivity}
-            captureShelf={{ ...captures, source: captureSource, onRetry: captures.reload, onOpen: document => void openCapture(document), onOpenOriginal: document => void openCaptureOriginal(document), onViewAll: openCaptureLibrary }}
-            onOpenNeedsReview={openImportNeedsReview}
+      case "capture-activity":
+        return (
+          <div className={isCustomizing ? "" : "mb-6 md:mb-8"}>
+            <CaptureActivityCard
+              data={activity.data}
+              isLoading={activity.isLoading}
+              error={activity.error}
+              onRetry={reloadCaptureActivity}
+              captureShelf={{ ...captures, source: captureSource, onRetry: captures.reload, onOpen: document => void openCapture(document), onOpenOriginal: document => void openCaptureOriginal(document), onViewAll: openCaptureLibrary }}
+              onOpenNeedsReview={openImportNeedsReview}
+            />
+          </div>
+        );
+
+      case "todays-horizon":
+        return (
+          <TodaysHorizonBanner
+            activePlansCount={0}
+            pendingAssessmentsCount={0}
+            dueReviewsCount={stats?.cards_due_today ?? 0}
+            highPriorityExtractsCount={stats?.due_documents ?? 0}
+            unreadDiscoveryCount={resumableDocs.length}
+            onResumeMilestone={() => {
+              const studyPlansSection = document.querySelector('[data-study-plans-card="true"]');
+              studyPlansSection?.scrollIntoView({ behavior: "smooth", block: "center" });
+            }}
+            onLaunchQueue={() => {
+              const queueAction = quickActions.find((a) => a.id === "queue");
+              if (queueAction) openTab(queueAction);
+            }}
           />
-        </div>
+        );
 
-        {/* Today's Horizon Bridge */}
-        <TodaysHorizonBanner
-          activePlansCount={0}
-          pendingAssessmentsCount={0}
-          dueReviewsCount={stats?.cards_due_today ?? 0}
-          highPriorityExtractsCount={stats?.due_documents ?? 0}
-          unreadDiscoveryCount={resumableDocs.length}
-          onResumeMilestone={() => {
-            const studyPlansSection = document.querySelector('[data-study-plans-card="true"]');
-            studyPlansSection?.scrollIntoView({ behavior: "smooth", block: "center" });
-          }}
-          onLaunchQueue={() => {
-            const queueAction = quickActions.find((a) => a.id === "queue");
-            if (queueAction) openTab(queueAction);
-          }}
+      case "study-plans":
+        return (
+          <div className={isCustomizing ? "" : "mb-6 md:mb-8"} data-study-plans-card="true">
+            <StudyPlansDashboardCard />
+          </div>
+        );
+
+      case "progress":
+        return (
+          <SummarySection title={t("dashboard.progress")}>
+            <div className={cn("grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6", !isCustomizing && "mb-6 md:mb-8")}>
+              {/* Main Stats Card */}
+              <div
+                onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatsCardMenuItems())}
+                className="md:col-span-2 border border-border rounded-xl p-4 md:p-6"
+              >
+                <div className="flex items-center justify-between mb-4 md:mb-6">
+                  <div className="flex items-center gap-2">
+                    <TrendUp className="w-5 h-5 text-muted-foreground" />
+                    <h2 className="text-lg md:text-xl font-semibold text-foreground">
+                      {t("dashboard.yourProgress")}
+                    </h2>
+                  </div>
+                  <button
+                    onClick={() => openTab(quickActions.find(a => a.id === "analytics")!)}
+                    className="text-xs md:text-sm text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+                  >
+                    {t("dashboard.viewAll")}
+                    <CaretRight className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6">
+                  <div
+                    onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatTileMenuItems("documents"))}
+                    className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0"
+                  >
+                    <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
+                      <Files className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
+                      <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
+                        {t("dashboard.documents")}
+                      </span>
+                    </div>
+                    <span className="text-lg sm:text-2xl md:text-3xl font-bold text-foreground">
+                      {isLoading ? (
+                        <span className="animate-pulse">...</span>
+                      ) : (
+                        stats?.total_documents ?? 0
+                      )}
+                    </span>
+                  </div>
+
+                  <div
+                    onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatTileMenuItems("review"))}
+                    className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0"
+                  >
+                    <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
+                      <Target className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
+                      <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
+                        {t("layout.dueToday")}
+                      </span>
+                    </div>
+                    <span className="text-lg sm:text-2xl md:text-3xl font-bold text-foreground">
+                      {isLoading ? (
+                        <span className="animate-pulse">...</span>
+                      ) : (
+                        stats?.cards_due_today ?? 0
+                      )}
+                    </span>
+                  </div>
+
+                  <div
+                    onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatTileMenuItems("analytics"))}
+                    className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0"
+                  >
+                    <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
+                      <Lightning className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
+                      <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
+                        {t("dashboard.cardsLearned")}
+                      </span>
+                    </div>
+                    <span className="text-lg sm:text-2xl md:text-3xl font-bold text-foreground">
+                      {isLoading ? (
+                        <span className="animate-pulse">...</span>
+                      ) : (
+                        stats?.cards_learned ?? 0
+                      )}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Progress bar */}
+                <div className="mt-4 md:mt-6 pt-4 md:pt-6 border-t border-border">
+                  <div className="flex items-center justify-between text-xs md:text-sm mb-2">
+                    <span className="text-muted-foreground">{t("dashboard.dailyGoalProgress")}</span>
+                    <span className="font-medium text-foreground">
+                      {Math.min(
+                        100,
+                        Math.round(
+                          ((stats?.reviews_today || stats?.cards_reviewed_today || 0) /
+                            Math.max(1, stats?.daily_goal || 20)) *
+                            100
+                        )
+                      )}
+                      %
+                    </span>
+                  </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary rounded-full transition-all duration-500"
+                      style={{
+                        width: `${Math.min(
+                          100,
+                          Math.round(
+                            ((stats?.reviews_today || stats?.cards_reviewed_today || 0) /
+                              Math.max(1, stats?.daily_goal || 20)) *
+                              100
+                          )
+                        )}%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <SleepLearningDashboardCard />
+            </div>
+          </SummarySection>
+        );
+
+      case "quick-tip":
+        return (
+          <div
+            onContextMenu={(e) => dashboardMenu.openEvent(e, buildTipMenuItems())}
+            className={cn("p-4 md:p-5 bg-muted/50 border border-border rounded-xl", !isCustomizing && "mb-6 md:mb-8")}
+          >
+            <h3 className="font-medium text-sm text-foreground mb-2">
+              💡 {t("dashboard.quickTip")}
+            </h3>
+            <p className="text-xs md:text-sm text-muted-foreground">
+              {t("dashboard.commandPaletteHint")}
+            </p>
+          </div>
+        );
+
+      case "quick-review":
+        return (
+          <div className={isCustomizing ? "" : "mb-6 md:mb-8"}>
+            <QuickReviewWidget
+              cards={quickReviewCards}
+              onRate={handleQuickRate}
+              onOpenDocument={openSourceDocumentById}
+              onExpand={() => {
+                const reviewAction = quickActions.find((action) => action.id === "review");
+                if (reviewAction) openTab(reviewAction);
+              }}
+              maxCards={5}
+            />
+          </div>
+        );
+    }
+  };
+
+  return (
+    <SafeScrollContainer
+      className="bg-background"
+      data-responsive-surface="dashboard"
+      data-paper-surface="chrome"
+      onContextMenu={(e) => dashboardMenu.openEvent(e, buildSurfaceMenuItems())}
+    >
+      <div className="max-w-6xl mx-auto px-4 md:px-6 lg:px-8 pb-24 md:pb-8">
+        <AdaptiveContentHeader
+          className="px-0 pt-5 pb-5 md:pt-7 md:pb-7"
+          title={t("dashboard.welcomeBack")}
+          description={t("dashboard.companion")}
+          secondaryActions={
+            isCustomizing ? (
+              <Button
+                type="button"
+                variant="outlined"
+                size="sm"
+                disabled={isDefaultLayout}
+                onClick={resetDashboardLayout}
+              >
+                <ArrowCounterClockwise className="h-4 w-4" aria-hidden="true" />
+                {t("dashboard.customize.reset")}
+              </Button>
+            ) : (
+              <Button
+                type="button"
+                variant="tonal"
+                size="sm"
+                onClick={() => setIsCustomizing(true)}
+              >
+                <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+                {t("dashboard.customize.button")}
+              </Button>
+            )
+          }
+          primaryAction={
+            isCustomizing ? (
+              <Button
+                type="button"
+                variant="filled"
+                size="sm"
+                onClick={() => setIsCustomizing(false)}
+              >
+                <Check className="h-4 w-4" aria-hidden="true" />
+                {t("dashboard.customize.done")}
+              </Button>
+            ) : undefined
+          }
         />
 
-        {/* Study Plans Section */}
-        <div className="mb-6 md:mb-8" data-study-plans-card="true">
-          <StudyPlansDashboardCard />
+        {isCustomizing && (
+          <div
+            role="status"
+            className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm text-on-surface"
+          >
+            <span>{t("dashboard.customize.banner")}</span>
+            <span className="rounded-full bg-surface-container px-2.5 py-0.5 text-xs font-medium text-on-surface-variant">
+              {t("dashboard.customize.visibleCount", {
+                visible: visibleSectionsCount,
+                total: sectionOrder.length,
+              })}
+            </span>
+          </div>
+        )}
+
+        <div className="sr-only" aria-live="polite">
+          {liveAnnouncement}
         </div>
 
-        {/* Stats Section */}
-        <SummarySection title={t("dashboard.progress")}>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 md:gap-6">
-          {/* Main Stats Card */}
-          <div
-            onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatsCardMenuItems())}
-            className="md:col-span-2 border border-border rounded-xl p-4 md:p-6"
-          >
-            <div className="flex items-center justify-between mb-4 md:mb-6">
-              <div className="flex items-center gap-2">
-                <TrendUp className="w-5 h-5 text-muted-foreground" />
-                <h2 className="text-lg md:text-xl font-semibold text-foreground">
-                  {t("dashboard.yourProgress")}
-                </h2>
-              </div>
-              <button
-                onClick={() => openTab(quickActions.find(a => a.id === "analytics")!)}
-                className="text-xs md:text-sm text-primary hover:text-primary/80 flex items-center gap-1 transition-colors"
+        {!isCustomizing && visibleSectionsCount === 0 ? (
+          <div className="rounded-xl border border-outline-variant bg-surface-container-low p-6 text-center">
+            <h2 className="text-lg font-semibold text-on-surface">
+              {t("dashboard.customize.allHiddenTitle")}
+            </h2>
+            <p className="mt-1 text-sm text-on-surface-variant">
+              {t("dashboard.customize.allHiddenBody")}
+            </p>
+            <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+              <Button
+                type="button"
+                variant="filled"
+                size="sm"
+                onClick={() => setIsCustomizing(true)}
               >
-                {t("dashboard.viewAll")}
-                <CaretRight className="w-4 h-4" />
-              </button>
-            </div>
-
-            <div className="grid grid-cols-3 gap-2 sm:gap-4 md:gap-6">
-              <div
-                onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatTileMenuItems("documents"))}
-                className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0"
+                <SlidersHorizontal className="h-4 w-4" aria-hidden="true" />
+                {t("dashboard.customize.button")}
+              </Button>
+              <Button
+                type="button"
+                variant="outlined"
+                size="sm"
+                onClick={resetDashboardLayout}
               >
-                <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
-                  <Files className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
-                  <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
-                    {t("dashboard.documents")}
-                  </span>
-                </div>
-                <span className="text-lg sm:text-2xl md:text-3xl font-bold text-foreground">
-                  {isLoading ? (
-                    <span className="animate-pulse">...</span>
-                  ) : (
-                    stats?.total_documents ?? 0
-                  )}
-                </span>
-              </div>
-
-              <div
-                onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatTileMenuItems("review"))}
-                className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0"
-              >
-                <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
-                  <Target className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
-                  <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
-                    {t("layout.dueToday")}
-                  </span>
-                </div>
-                <span className="text-lg sm:text-2xl md:text-3xl font-bold text-foreground">
-                  {isLoading ? (
-                    <span className="animate-pulse">...</span>
-                  ) : (
-                    stats?.cards_due_today ?? 0
-                  )}
-                </span>
-              </div>
-
-              <div
-                onContextMenu={(e) => dashboardMenu.openEvent(e, buildStatTileMenuItems("analytics"))}
-                className="text-center md:text-left flex flex-col items-center md:items-start p-2 bg-muted/20 rounded-lg md:bg-transparent md:p-0"
-              >
-                <div className="flex items-center justify-center md:justify-start gap-1.5 mb-1 text-muted-foreground w-full">
-                  <Lightning className="w-3.5 h-3.5 md:w-4 md:h-4 text-muted-foreground" />
-                  <span className="text-[10px] sm:text-xs md:text-sm font-medium line-clamp-1">
-                    {t("dashboard.cardsLearned")}
-                  </span>
-                </div>
-                <span className="text-lg sm:text-2xl md:text-3xl font-bold text-foreground">
-                  {isLoading ? (
-                    <span className="animate-pulse">...</span>
-                  ) : (
-                    stats?.cards_learned ?? 0
-                  )}
-                </span>
-              </div>
-            </div>
-
-            {/* Progress bar */}
-            <div className="mt-4 md:mt-6 pt-4 md:pt-6 border-t border-border">
-              <div className="flex items-center justify-between text-xs md:text-sm mb-2">
-                <span className="text-muted-foreground">{t("dashboard.dailyGoalProgress")}</span>
-                <span className="font-medium text-foreground">
-                  {Math.min(
-                    100,
-                    Math.round(
-                      ((stats?.reviews_today || stats?.cards_reviewed_today || 0) /
-                        Math.max(1, stats?.daily_goal || 20)) *
-                        100
-                    )
-                  )}
-                  %
-                </span>
-              </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary rounded-full transition-all duration-500"
-                  style={{
-                    width: `${Math.min(
-                      100,
-                      Math.round(
-                        ((stats?.reviews_today || stats?.cards_reviewed_today || 0) /
-                          Math.max(1, stats?.daily_goal || 20)) *
-                          100
-                      )
-                    )}%`,
-                  }}
-                />
-              </div>
+                <ArrowCounterClockwise className="h-4 w-4" aria-hidden="true" />
+                {t("dashboard.customize.reset")}
+              </Button>
             </div>
           </div>
-
-          <SleepLearningDashboardCard />
-        </div>
-        </SummarySection>
-
-        {/* Tips Section */}
-        <div
-          onContextMenu={(e) => dashboardMenu.openEvent(e, buildTipMenuItems())}
-          className="mt-6 md:mt-8 p-4 md:p-5 bg-muted/50 border border-border rounded-xl"
-        >
-          <h3 className="font-medium text-sm text-foreground mb-2">
-            💡 {t("dashboard.quickTip")}
-          </h3>
-          <p className="text-xs md:text-sm text-muted-foreground">
-            {t("dashboard.commandPaletteHint")}
-          </p>
-        </div>
-
-        {/* Quick Review */}
-        <div className="mt-6 md:mt-8">
-          <QuickReviewWidget
-            cards={quickReviewCards}
-            onRate={handleQuickRate}
-            onOpenDocument={openSourceDocumentById}
-            onExpand={() => {
-              const reviewAction = quickActions.find((action) => action.id === "review");
-              if (reviewAction) openTab(reviewAction);
-            }}
-            maxCards={5}
-          />
-        </div>
+        ) : (
+          <div ref={sectionsContainerRef}>
+            {sectionOrder.map((sectionId, index) => {
+              const isVisible = !hiddenSections.includes(sectionId);
+              const label = sectionLabels[sectionId];
+              const content = renderSectionBody(sectionId);
+              if (!isCustomizing && (!isVisible || content == null)) {
+                return null;
+              }
+              return (
+                <DashboardCustomizeSectionFrame
+                  key={sectionId}
+                  sectionId={sectionId}
+                  label={label}
+                  isCustomizing={isCustomizing}
+                  isVisible={isVisible}
+                  isFirst={index === 0}
+                  isLast={index === sectionOrder.length - 1}
+                  isDragging={dragState?.draggingId === sectionId}
+                  dropIndicator={
+                    dragState?.dropTargetId === sectionId ? dragState.dropPosition : null
+                  }
+                  onMoveUp={() => handleMoveSection(sectionId, "up")}
+                  onMoveDown={() => handleMoveSection(sectionId, "down")}
+                  onToggleVisible={(visible) => setSectionVisible(sectionId, visible)}
+                  onDragHandlePointerDown={(event) => handleSectionDragStart(sectionId, event)}
+                  moveUpLabel={t("dashboard.customize.moveUp", { section: label })}
+                  moveDownLabel={t("dashboard.customize.moveDown", { section: label })}
+                  visibilityLabel={t("dashboard.customize.toggleSection", { section: label })}
+                  dragHandleLabel={t("dashboard.customize.dragHandle", { section: label })}
+                  hiddenBadgeLabel={t("dashboard.customize.hiddenBadge")}
+                >
+                  {content}
+                </DashboardCustomizeSectionFrame>
+              );
+            })}
+          </div>
+        )}
       </div>
       <ContextMenu
         menuId="dashboard-surface-menu"

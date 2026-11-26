@@ -38,4 +38,14 @@ export { useLanguageProfileStore } from "./languageProfileStore";
 export { useLanguageKnowledgeStore } from "./languageKnowledgeStore";
 export { useSavedQueueStore } from "./savedQueueStore";
 export { useSavedViewsStore } from "./savedViewsStore";
+export {
+  useDashboardLayoutStore,
+  DASHBOARD_LAYOUT_STORAGE_KEY,
+  DEFAULT_DASHBOARD_SECTION_ORDER,
+  DEFAULT_QUICK_ACTION_ORDER,
+  isDefaultDashboardLayout,
+  type DashboardSectionId,
+  type DashboardQuickActionId,
+  type DashboardLayoutConfig,
+} from "./dashboardLayoutStore";
 
