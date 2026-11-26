@@ -4,8 +4,8 @@ use crate::database::Repository;
 use crate::models::language_knowledge::{
     KnownWordImportPreview, KnownWordImportRecord, LanguageKnowledgeEvidenceEvent,
     LanguageKnowledgeEvidenceInput, LanguageKnowledgeExport, LanguageKnowledgeStateChange,
-    LanguageKnowledgeStateHistory, LanguageKnowledgeStateSnapshot, LanguageMemorizationLink,
-    LanguageMemorizationLinkInput,
+    LanguageKnowledgeStateHistory, LanguageKnowledgeStateSnapshot, LanguageKnowledgeSyncEnvelope,
+    LanguageMemorizationLink, LanguageMemorizationLinkInput,
 };
 use crate::models::language_lexicon::LexiconPage;
 use tauri::State;
@@ -129,6 +129,86 @@ pub async fn export_language_knowledge(
     repo: State<'_, Repository>,
 ) -> Result<LanguageKnowledgeExport, String> {
     repo.export_language_knowledge(&profile_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_language_knowledge_states(
+    profile_id: String,
+    entry_ids: Option<Vec<String>>,
+    state: Option<String>,
+    offset: Option<i64>,
+    limit: Option<i64>,
+    repo: State<'_, Repository>,
+) -> Result<LexiconPage<LanguageKnowledgeStateSnapshot>, String> {
+    repo.list_language_knowledge_states(
+        &profile_id,
+        entry_ids,
+        state.as_deref(),
+        offset.unwrap_or(0),
+        limit.unwrap_or(50),
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_language_memorization_links(
+    profile_id: String,
+    entry_id: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<Vec<LanguageMemorizationLink>, String> {
+    repo.list_language_memorization_links(&profile_id, entry_id.as_deref())
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_language_memorization_link(
+    profile_id: String,
+    link_id: String,
+    repo: State<'_, Repository>,
+) -> Result<bool, String> {
+    repo.delete_language_memorization_link(&profile_id, &link_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_language_knowledge_evidence(
+    profile_id: String,
+    entry_id: Option<String>,
+    offset: Option<i64>,
+    limit: Option<i64>,
+    repo: State<'_, Repository>,
+) -> Result<LexiconPage<LanguageKnowledgeEvidenceEvent>, String> {
+    repo.list_language_knowledge_evidence(
+        &profile_id,
+        entry_id.as_deref(),
+        offset.unwrap_or(0),
+        limit.unwrap_or(50),
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn serialize_language_knowledge_for_sync(
+    profile_id: String,
+    repo: State<'_, Repository>,
+) -> Result<LanguageKnowledgeSyncEnvelope, String> {
+    repo.serialize_language_knowledge_for_sync(&profile_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn apply_language_knowledge_sync(
+    payload: LanguageKnowledgeSyncEnvelope,
+    repo: State<'_, Repository>,
+) -> Result<LanguageKnowledgeSyncEnvelope, String> {
+    repo.apply_language_knowledge_sync(payload)
         .await
         .map_err(|error| error.to_string())
 }

@@ -6212,6 +6212,220 @@ pub const MIGRATIONS: &[Migration] = &[
         );
         "#,
     ),
+    Migration::new(
+        "157_language_lexical_coverage",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_lexical_coverage_results (
+            coverage_key TEXT PRIMARY KEY,
+            document_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            content_fingerprint TEXT NOT NULL,
+            processor_version TEXT NOT NULL,
+            lexicon_state_version TEXT NOT NULL,
+            policy_version TEXT NOT NULL,
+            threshold_version TEXT NOT NULL,
+            method TEXT NOT NULL,
+            freshness TEXT NOT NULL CHECK (freshness IN ('pending', 'fresh', 'stale', 'unavailable', 'failed')),
+            summary_json TEXT,
+            unique_vocab_json TEXT,
+            error TEXT,
+            computed_at INTEGER,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_coverage_results_document_profile
+            ON language_lexical_coverage_results(document_id, profile_id);
+
+        CREATE INDEX IF NOT EXISTS idx_language_coverage_results_versions
+            ON language_lexical_coverage_results(
+                document_id,
+                profile_id,
+                content_fingerprint,
+                processor_version,
+                lexicon_state_version,
+                policy_version,
+                threshold_version
+            );
+
+        CREATE TABLE IF NOT EXISTS language_lexical_coverage_chunks (
+            coverage_key TEXT NOT NULL REFERENCES language_lexical_coverage_results(coverage_key) ON DELETE CASCADE,
+            chunk_id TEXT NOT NULL,
+            chunk_index INTEGER NOT NULL,
+            total_weight REAL NOT NULL,
+            counted_token_count INTEGER NOT NULL,
+            result_json TEXT NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (coverage_key, chunk_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_coverage_chunks_order
+            ON language_lexical_coverage_chunks(coverage_key, chunk_index);
+
+        CREATE TABLE IF NOT EXISTS language_lexical_coverage_chunk_entries (
+            coverage_key TEXT NOT NULL,
+            chunk_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            lexical_entry_id TEXT NOT NULL,
+            PRIMARY KEY (coverage_key, chunk_id, lexical_entry_id),
+            FOREIGN KEY (coverage_key, chunk_id)
+                REFERENCES language_lexical_coverage_chunks(coverage_key, chunk_id)
+                ON DELETE CASCADE,
+            FOREIGN KEY (profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_coverage_reverse_entry
+            ON language_lexical_coverage_chunk_entries(profile_id, lexical_entry_id);
+
+        CREATE INDEX IF NOT EXISTS idx_language_coverage_reverse_document
+            ON language_lexical_coverage_chunk_entries(document_id, profile_id, chunk_id);
+
+        CREATE TABLE IF NOT EXISTS language_lexical_coverage_jobs (
+            job_id TEXT PRIMARY KEY,
+            coverage_key TEXT NOT NULL,
+            document_id TEXT NOT NULL,
+            profile_id TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'completed', 'cancelled', 'failed', 'stale')),
+            next_chunk_index INTEGER NOT NULL DEFAULT 0,
+            completed_chunks INTEGER NOT NULL DEFAULT 0,
+            completed_units INTEGER NOT NULL DEFAULT 0,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            error TEXT,
+            updated_at INTEGER NOT NULL,
+            FOREIGN KEY (profile_id) REFERENCES language_profiles(id) ON DELETE CASCADE,
+            FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_coverage_jobs_document_profile
+            ON language_lexical_coverage_jobs(document_id, profile_id, updated_at);
+        "#,
+    ),
+    Migration::new(
+        "158_language_packs_and_dictionaries",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_packs (
+            id TEXT PRIMARY KEY,
+            language_tag TEXT NOT NULL,
+            target_language TEXT NOT NULL,
+            base_language TEXT,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL CHECK (kind IN ('dictionary', 'morphology', 'readings', 'frequency', 'bundle')),
+            format TEXT NOT NULL CHECK (format IN ('json', 'tsv', 'yomichan-zip', 'stardict', 'kaikki-jsonl')),
+            version TEXT NOT NULL,
+            source_url TEXT,
+            sha256 TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL DEFAULT 0,
+            entry_count INTEGER NOT NULL DEFAULT 0,
+            license TEXT NOT NULL,
+            attribution TEXT NOT NULL,
+            capabilities_json TEXT NOT NULL DEFAULT '{}',
+            install_path TEXT,
+            status TEXT NOT NULL DEFAULT 'installed' CHECK (status IN ('installed', 'corrupt', 'removed')),
+            error TEXT,
+            installed_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            last_verified_at INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_packs_lang_status
+            ON language_packs(language_tag, status, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS language_dictionary_entries (
+            id TEXT PRIMARY KEY,
+            pack_id TEXT NOT NULL REFERENCES language_packs(id) ON DELETE CASCADE,
+            language_tag TEXT NOT NULL,
+            headword TEXT NOT NULL,
+            normalized_headword TEXT NOT NULL,
+            reading TEXT,
+            lemma TEXT,
+            part_of_speech TEXT,
+            morphology_json TEXT NOT NULL DEFAULT '{}',
+            senses_json TEXT NOT NULL DEFAULT '[]',
+            examples_json TEXT NOT NULL DEFAULT '[]',
+            frequency_rank INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_dict_entries_lookup
+            ON language_dictionary_entries(language_tag, normalized_headword);
+        CREATE INDEX IF NOT EXISTS idx_language_dict_entries_lemma
+            ON language_dictionary_entries(language_tag, lemma);
+        CREATE INDEX IF NOT EXISTS idx_language_dict_entries_pack
+            ON language_dictionary_entries(pack_id);
+        "#,
+    ),
+    Migration::new(
+        "159_language_analytics_and_generation",
+        r#"
+        CREATE TABLE IF NOT EXISTS language_analytics_daily (
+            profile_id TEXT NOT NULL REFERENCES language_profiles(id) ON DELETE CASCADE,
+            day_utc TEXT NOT NULL,
+            metrics_json TEXT NOT NULL DEFAULT '{}',
+            event_cursor INTEGER NOT NULL DEFAULT 0,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (profile_id, day_utc)
+        );
+
+        CREATE TABLE IF NOT EXISTS language_analytics_events (
+            id TEXT PRIMARY KEY,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            profile_id TEXT NOT NULL REFERENCES language_profiles(id) ON DELETE CASCADE,
+            event_kind TEXT NOT NULL,
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            occurred_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_analytics_events_profile_time
+            ON language_analytics_events(profile_id, occurred_at DESC);
+
+        CREATE TABLE IF NOT EXISTS language_generated_documents (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES language_profiles(id) ON DELETE CASCADE,
+            document_id TEXT REFERENCES documents(id) ON DELETE SET NULL,
+            source_document_id TEXT,
+            action_kind TEXT NOT NULL,
+            target_coverage REAL,
+            measured_coverage REAL,
+            provider_id TEXT,
+            model_id TEXT,
+            prompt_summary TEXT,
+            provenance_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_generated_docs_profile_time
+            ON language_generated_documents(profile_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS language_translation_cache (
+            cache_key TEXT PRIMARY KEY,
+            profile_id TEXT REFERENCES language_profiles(id) ON DELETE CASCADE,
+            source_lang TEXT NOT NULL,
+            target_lang TEXT NOT NULL,
+            source_hash TEXT NOT NULL,
+            provider_id TEXT NOT NULL,
+            provider_version TEXT NOT NULL,
+            translation_text TEXT NOT NULL,
+            confidence REAL,
+            created_at INTEGER NOT NULL,
+            expires_at INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_language_translation_cache_lookup
+            ON language_translation_cache(source_lang, target_lang, source_hash, provider_id);
+        "#,
+    ),
+    Migration::new(
+        "160_study_plan_language_profile",
+        r#"
+        ALTER TABLE study_plans ADD COLUMN language_profile_id TEXT REFERENCES language_profiles(id) ON DELETE SET NULL;
+        ALTER TABLE study_plans ADD COLUMN target_proficiency TEXT;
+        ALTER TABLE study_plans ADD COLUMN language_focus_json TEXT;
+        CREATE INDEX IF NOT EXISTS idx_study_plans_language_profile
+            ON study_plans(language_profile_id);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

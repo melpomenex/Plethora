@@ -68,7 +68,7 @@ class AndroidNlpPlugin(private val activity: Activity) : Plugin(activity) {
             .build()
         val translator = Translation.getClient(options)
         translator.downloadModelIfNeeded()
-            .continueWithTask { translator.translate(text) }
+            .onSuccessTask { translator.translate(text) }
             .addOnSuccessListener { translated ->
                 val o = JSObject()
                 o.put("translatedText", translated)
@@ -77,18 +77,16 @@ class AndroidNlpPlugin(private val activity: Activity) : Plugin(activity) {
             .addOnFailureListener { e ->
                 invoke.reject(e.message ?: "translate failed", "inference_failed")
             }
+            .addOnCompleteListener {
+                translator.close()
+            }
     }
 
     private fun langTag(tag: String): String? {
-        return when (tag.lowercase().substringBefore('-')) {
-            "en" -> TranslateLanguage.ENGLISH
-            "es" -> TranslateLanguage.SPANISH
-            "fr" -> TranslateLanguage.FRENCH
-            "de" -> TranslateLanguage.GERMAN
-            "ja" -> TranslateLanguage.JAPANESE
-            "zh" -> TranslateLanguage.CHINESE
-            else -> null
-        }
+        val normalized = tag.trim().replace('_', '-').lowercase()
+        if (normalized.isEmpty()) return null
+        return TranslateLanguage.fromLanguageTag(normalized.substringBefore('-'))
+            ?: TranslateLanguage.fromLanguageTag(normalized)
     }
 
     private fun cap(id: String, ready: Boolean): JSObject {

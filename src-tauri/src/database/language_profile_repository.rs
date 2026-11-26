@@ -289,6 +289,48 @@ impl Repository {
         .await
     }
 
+    pub async fn unarchive_language_profile(
+        &self,
+        id: &str,
+        account_id: Option<&str>,
+        workspace_id: Option<&str>,
+    ) -> Result<LanguageProfile> {
+        self.update_language_profile(
+            id,
+            LanguageProfileUpdate {
+                lifecycle: Some(ProfileLifecycle::Active),
+                ..Default::default()
+            },
+            account_id,
+            workspace_id,
+        )
+        .await
+    }
+
+    pub async fn delete_language_profile_association(
+        &self,
+        profile_id: &str,
+        content_type: &str,
+        content_id: &str,
+        account_id: Option<&str>,
+        workspace_id: Option<&str>,
+    ) -> Result<bool> {
+        let scope = normalize_scope(account_id, workspace_id);
+        let result = sqlx::query(
+            "DELETE FROM language_profile_associations
+             WHERE profile_id = ?1 AND content_type = ?2 AND content_id = ?3
+               AND account_id = ?4 AND workspace_id = ?5",
+        )
+        .bind(profile_id)
+        .bind(content_type)
+        .bind(content_id)
+        .bind(&scope.account_id)
+        .bind(&scope.workspace_id)
+        .execute(self.pool())
+        .await?;
+        Ok(result.rows_affected() > 0)
+    }
+
     pub async fn delete_language_profile(
         &self,
         id: &str,
@@ -296,6 +338,20 @@ impl Repository {
         workspace_id: Option<&str>,
     ) -> Result<ProfileDeleteReport> {
         let scope = normalize_scope(account_id, workspace_id);
+        let mut tx = self.pool().begin().await?;
+        let exists = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM language_profiles
+             WHERE id = ?1 AND account_id = ?2 AND workspace_id = ?3 AND lifecycle <> 'deleted'",
+        )
+        .bind(id)
+        .bind(&scope.account_id)
+        .bind(&scope.workspace_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if exists.is_none() {
+            return Err(PlethoraError::NotFound(format!("Language profile {id}")));
+        }
+
         let associations = sqlx::query(
             "SELECT content_type, content_id FROM language_profile_associations
              WHERE profile_id = ?1 AND account_id = ?2 AND workspace_id = ?3",
@@ -303,7 +359,7 @@ impl Repository {
         .bind(id)
         .bind(&scope.account_id)
         .bind(&scope.workspace_id)
-        .fetch_all(self.pool())
+        .fetch_all(&mut *tx)
         .await?;
         let document_ids: Vec<String> = associations
             .iter()
@@ -322,36 +378,43 @@ impl Repository {
                     "SELECT COUNT(*) FROM learning_items WHERE document_id = ?1",
                 )
                 .bind(document_id)
-                .fetch_one(self.pool())
+                .fetch_one(&mut *tx)
                 .await?;
             }
             count
         };
         let retained_documents = document_ids.len() as i64;
-        let removed_profile_derived_data = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM language_lexical_entries WHERE profile_id = ?1",
-        )
-        .bind(id)
-        .fetch_one(self.pool())
-        .await?
-            + sqlx::query_scalar::<_, i64>(
-                "SELECT COUNT(*) FROM language_occurrences WHERE profile_id = ?1",
-            )
-            .bind(id)
-            .fetch_one(self.pool())
-            .await?;
-        sqlx::query("DELETE FROM language_lookup_events WHERE profile_id = ?1")
-            .bind(id)
-            .execute(self.pool())
-            .await?;
-        sqlx::query("DELETE FROM language_legacy_lookup_history WHERE profile_id = ?1")
-            .bind(id)
-            .execute(self.pool())
-            .await?;
-        sqlx::query("DELETE FROM language_lexical_entries WHERE profile_id = ?1")
-            .bind(id)
-            .execute(self.pool())
-            .await?;
+        let mut removed_profile_derived_data = 0i64;
+        for table in [
+            "language_lookup_events",
+            "language_legacy_lookup_history",
+            "language_practice_attempts",
+            "language_analysis_versions",
+            "language_phrase_candidates",
+            "language_phrase_occurrences",
+            "language_phrases",
+            "language_srs_evidence",
+            "language_srs_drafts",
+            "language_audio_alignments",
+            "language_recommendation_candidates",
+            "language_lexical_coverage_chunk_entries",
+            "language_lexical_coverage_jobs",
+            "language_lexical_coverage_results",
+            "language_analytics_events",
+            "language_analytics_daily",
+            "language_generated_documents",
+            "language_translation_cache",
+            "language_occurrences",
+            "language_lexical_entries",
+        ] {
+            let query = format!("DELETE FROM {table} WHERE profile_id = ?1");
+            let affected = sqlx::query(&query)
+                .bind(id)
+                .execute(&mut *tx)
+                .await?
+                .rows_affected() as i64;
+            removed_profile_derived_data += affected;
+        }
         let removed_associations = sqlx::query(
             "DELETE FROM language_profile_associations
              WHERE profile_id = ?1 AND account_id = ?2 AND workspace_id = ?3",
@@ -359,7 +422,7 @@ impl Repository {
         .bind(id)
         .bind(&scope.account_id)
         .bind(&scope.workspace_id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?
         .rows_affected() as i64;
         sqlx::query(
@@ -370,7 +433,7 @@ impl Repository {
         .bind(id)
         .bind(&scope.account_id)
         .bind(&scope.workspace_id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?;
         sqlx::query(
             "UPDATE language_profile_active_scopes SET profile_id = NULL, updated_at = ?1
@@ -380,8 +443,9 @@ impl Repository {
         .bind(&scope.account_id)
         .bind(&scope.workspace_id)
         .bind(id)
-        .execute(self.pool())
+        .execute(&mut *tx)
         .await?;
+        tx.commit().await?;
         Ok(ProfileDeleteReport {
             profile_id: id.to_string(),
             removed_associations,

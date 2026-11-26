@@ -30,10 +30,31 @@ pub async fn get_language_practice_attempt(
 pub async fn list_language_practice_attempts(
     profile_id: String,
     source_id: Option<String>,
+    mode: Option<String>,
+    status: Option<String>,
+    offset: Option<i64>,
     limit: Option<i64>,
     repo: State<'_, Repository>,
 ) -> Result<Vec<LanguagePracticeAttempt>, String> {
-    repo.list_language_practice_attempts(&profile_id, source_id.as_deref(), limit.unwrap_or(50))
+    repo.list_language_practice_attempts_filtered(
+        &profile_id,
+        source_id.as_deref(),
+        mode.as_deref(),
+        status.as_deref(),
+        offset.unwrap_or(0),
+        limit.unwrap_or(50),
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn import_language_practice_attempts(
+    profile_id: String,
+    attempts: Vec<LanguagePracticeAttempt>,
+    repo: State<'_, Repository>,
+) -> Result<i64, String> {
+    repo.import_language_practice_attempts(&profile_id, attempts)
         .await
         .map_err(|error| error.to_string())
 }

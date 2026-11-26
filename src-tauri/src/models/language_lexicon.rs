@@ -540,6 +540,36 @@ pub struct LanguageLexiconSyncEnvelope {
     pub occurrences_included: bool,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase", default)]
+pub struct LexicalEntrySearchFilter {
+    pub profile_id: String,
+    pub query: Option<String>,
+    pub language_tag: Option<String>,
+    pub knowledge_state: Option<String>,
+    pub object_kind: Option<LexicalObjectKind>,
+    pub ignored: Option<bool>,
+    pub lemma: Option<String>,
+    pub offset: i64,
+    pub limit: i64,
+}
+
+impl Default for LexicalEntrySearchFilter {
+    fn default() -> Self {
+        Self {
+            profile_id: String::new(),
+            query: None,
+            language_tag: None,
+            knowledge_state: None,
+            object_kind: None,
+            ignored: None,
+            lemma: None,
+            offset: 0,
+            limit: DEFAULT_OCCURRENCE_PAGE_SIZE,
+        }
+    }
+}
+
 pub fn normalize_lexical_form(value: &str) -> String {
     value.trim().to_lowercase()
 }

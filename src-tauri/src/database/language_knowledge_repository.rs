@@ -155,6 +155,7 @@ impl Repository {
         profile_id: &str,
         surface: &str,
     ) -> Result<Option<LanguageKnowledgeStateSnapshot>> {
+        self.ensure_profile(profile_id).await?;
         let normalized = normalize_lexical_form(surface);
         let exact_override = sqlx::query_scalar::<_, String>(
             "SELECT e.id FROM language_lexical_entries e
@@ -378,6 +379,7 @@ impl Repository {
         offset: i64,
         limit: i64,
     ) -> Result<LexiconPage<LanguageKnowledgeStateHistory>> {
+        self.ensure_profile(profile_id).await?;
         let (offset, limit) = page_bounds(offset, limit);
         let (where_sql, values) = if entry_id.is_some() {
             (
@@ -448,6 +450,7 @@ impl Repository {
         profile_id: &str,
         records: &[KnownWordImportRecord],
     ) -> Result<KnownWordImportPreview> {
+        self.ensure_profile(profile_id).await?;
         let mut matched_entry_ids = Vec::new();
         let mut new_words = Vec::new();
         let mut duplicates = Vec::new();
@@ -495,45 +498,245 @@ impl Repository {
         profile_id: &str,
         records: Vec<KnownWordImportRecord>,
     ) -> Result<LanguageKnowledgeExport> {
+        self.ensure_profile(profile_id).await?;
+        let mut tx = self.pool().begin().await?;
+        let operation_id = uuid::Uuid::new_v4().to_string();
         for record in records {
             let normalized = normalize_lexical_form(&record.word);
+            if normalized.is_empty() {
+                continue;
+            }
             let entry_id = if let Some(language_tag) = record.language_tag.as_deref() {
                 sqlx::query_scalar::<_, String>("SELECT id FROM language_lexical_entries WHERE profile_id = ?1 AND language_tag = ?2 AND normalized_form = ?3 LIMIT 1")
-                    .bind(profile_id).bind(language_tag).bind(&normalized).fetch_optional(self.pool()).await?
+                    .bind(profile_id).bind(language_tag).bind(&normalized).fetch_optional(&mut *tx).await?
             } else {
-                sqlx::query_scalar::<_, String>("SELECT id FROM language_lexical_entries WHERE profile_id = ?1 AND normalized_form = ?2 LIMIT 1").bind(profile_id).bind(&normalized).fetch_optional(self.pool()).await?
+                sqlx::query_scalar::<_, String>("SELECT id FROM language_lexical_entries WHERE profile_id = ?1 AND normalized_form = ?2 LIMIT 1").bind(profile_id).bind(&normalized).fetch_optional(&mut *tx).await?
             };
             let entry_id = match entry_id {
                 Some(id) => id,
                 None => {
-                    self.upsert_language_lexical_entry(LexicalEntryUpsert {
-                        profile_id: profile_id.to_string(),
-                        language_tag: record.language_tag.unwrap_or_else(|| "und".to_string()),
-                        normalized_form: normalized.clone(),
-                        canonical_form: Some(record.word),
-                        ..Default::default()
-                    })
+                    Self::upsert_entry_in_tx(
+                        &mut tx,
+                        &LexicalEntryUpsert {
+                            profile_id: profile_id.to_string(),
+                            language_tag: record.language_tag.unwrap_or_else(|| "und".to_string()),
+                            normalized_form: normalized.clone(),
+                            canonical_form: Some(record.word),
+                            ..Default::default()
+                        },
+                    )
                     .await?
-                    .id
                 }
             };
-            self.set_language_knowledge_state(LanguageKnowledgeStateChange {
-                profile_id: profile_id.to_string(),
-                entry_id,
-                state: record.state,
-                source: KnowledgeStateSource::Import,
-                actor_id: None,
-                operation_id: None,
-            })
+            Self::set_state_tx(
+                &mut tx,
+                &LanguageKnowledgeStateChange {
+                    profile_id: profile_id.to_string(),
+                    entry_id,
+                    state: record.state,
+                    source: KnowledgeStateSource::Import,
+                    actor_id: None,
+                    operation_id: Some(operation_id.clone()),
+                },
+                &operation_id,
+            )
             .await?;
         }
+        tx.commit().await?;
         self.export_language_knowledge(profile_id).await
+    }
+
+    pub async fn list_language_knowledge_states(
+        &self,
+        profile_id: &str,
+        entry_ids: Option<Vec<String>>,
+        state: Option<&str>,
+        offset: i64,
+        limit: i64,
+    ) -> Result<LexiconPage<LanguageKnowledgeStateSnapshot>> {
+        self.ensure_profile(profile_id).await?;
+        let (offset, limit) = page_bounds(offset, limit);
+        if let Some(ids) = entry_ids.as_ref().filter(|v| !v.is_empty()) {
+            let mut items = Vec::with_capacity(ids.len());
+            for id in ids {
+                if let Ok(snap) = self.snapshot_query(profile_id, id).await {
+                    items.push(snap);
+                }
+            }
+            let total = items.len() as i64;
+            return Ok(LexiconPage {
+                items,
+                offset: 0,
+                limit: total.max(1),
+                total,
+                has_more: false,
+            });
+        }
+        let (where_sql, bind_state) = if let Some(s) = state.filter(|s| !s.trim().is_empty()) {
+            ("e.profile_id = ?1 AND COALESCE(s.state, COALESCE(e.knowledge_state, 'new')) = ?2", Some(s))
+        } else {
+            ("e.profile_id = ?1", None)
+        };
+        let total = if let Some(s) = bind_state {
+            sqlx::query_scalar::<_, i64>(&format!(
+                "SELECT COUNT(*) FROM language_lexical_entries e
+                 LEFT JOIN language_knowledge_states s ON s.lexical_entry_id = e.id AND s.profile_id = e.profile_id
+                 WHERE {where_sql}"
+            ))
+            .bind(profile_id)
+            .bind(s)
+            .fetch_one(self.pool())
+            .await?
+        } else {
+            sqlx::query_scalar::<_, i64>(&format!(
+                "SELECT COUNT(*) FROM language_lexical_entries e WHERE {where_sql}"
+            ))
+            .bind(profile_id)
+            .fetch_one(self.pool())
+            .await?
+        };
+        let rows = if let Some(s) = bind_state {
+            sqlx::query(&format!(
+                "SELECT e.profile_id, e.id AS lexical_entry_id, COALESCE(s.state, COALESCE(e.knowledge_state, 'new')) AS resolved_state,
+                        COALESCE(s.manual_override, 0) AS manual_override, s.override_actor, s.override_source,
+                        COALESCE(s.passive_evidence, e.passive_evidence_count, 0) AS passive_evidence,
+                        COALESCE(s.active_evidence, e.active_evidence_count, 0) AS active_evidence, s.last_evidence_at,
+                        COALESCE(s.updated_at, e.updated_at) AS updated_at, COALESCE(s.version, 0) AS state_version
+                 FROM language_lexical_entries e LEFT JOIN language_knowledge_states s ON s.profile_id = e.profile_id AND s.lexical_entry_id = e.id
+                 WHERE {where_sql} ORDER BY updated_at DESC LIMIT ?3 OFFSET ?4"
+            ))
+            .bind(profile_id)
+            .bind(s)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(self.pool())
+            .await?
+        } else {
+            sqlx::query(&format!(
+                "SELECT e.profile_id, e.id AS lexical_entry_id, COALESCE(s.state, COALESCE(e.knowledge_state, 'new')) AS resolved_state,
+                        COALESCE(s.manual_override, 0) AS manual_override, s.override_actor, s.override_source,
+                        COALESCE(s.passive_evidence, e.passive_evidence_count, 0) AS passive_evidence,
+                        COALESCE(s.active_evidence, e.active_evidence_count, 0) AS active_evidence, s.last_evidence_at,
+                        COALESCE(s.updated_at, e.updated_at) AS updated_at, COALESCE(s.version, 0) AS state_version
+                 FROM language_lexical_entries e LEFT JOIN language_knowledge_states s ON s.profile_id = e.profile_id AND s.lexical_entry_id = e.id
+                 WHERE {where_sql} ORDER BY updated_at DESC LIMIT ?2 OFFSET ?3"
+            ))
+            .bind(profile_id)
+            .bind(limit)
+            .bind(offset)
+            .fetch_all(self.pool())
+            .await?
+        };
+        let items = rows.iter().map(snapshot_from_row).collect::<Result<Vec<_>>>()?;
+        let count = items.len() as i64;
+        Ok(LexiconPage {
+            items,
+            offset,
+            limit,
+            total,
+            has_more: offset + count < total,
+        })
+    }
+
+    pub async fn list_language_memorization_links(
+        &self,
+        profile_id: &str,
+        entry_id: Option<&str>,
+    ) -> Result<Vec<LanguageMemorizationLink>> {
+        self.ensure_profile(profile_id).await?;
+        let rows = if let Some(entry_id) = entry_id {
+            sqlx::query(
+                "SELECT * FROM language_memorization_links WHERE profile_id = ?1 AND lexical_entry_id = ?2 ORDER BY created_at DESC",
+            )
+            .bind(profile_id)
+            .bind(entry_id)
+            .fetch_all(self.pool())
+            .await?
+        } else {
+            sqlx::query(
+                "SELECT * FROM language_memorization_links WHERE profile_id = ?1 ORDER BY created_at DESC",
+            )
+            .bind(profile_id)
+            .fetch_all(self.pool())
+            .await?
+        };
+        rows.iter().map(link_from_row).collect()
+    }
+
+    pub async fn delete_language_memorization_link(
+        &self,
+        profile_id: &str,
+        link_id: &str,
+    ) -> Result<bool> {
+        self.ensure_profile(profile_id).await?;
+        let res = sqlx::query(
+            "DELETE FROM language_memorization_links WHERE profile_id = ?1 AND id = ?2",
+        )
+        .bind(profile_id)
+        .bind(link_id)
+        .execute(self.pool())
+        .await?;
+        Ok(res.rows_affected() > 0)
+    }
+
+    pub async fn list_language_knowledge_evidence(
+        &self,
+        profile_id: &str,
+        entry_id: Option<&str>,
+        offset: i64,
+        limit: i64,
+    ) -> Result<LexiconPage<LanguageKnowledgeEvidenceEvent>> {
+        self.ensure_profile(profile_id).await?;
+        let (offset, limit) = page_bounds(offset, limit);
+        let (where_sql, has_entry) = if entry_id.is_some() {
+            ("profile_id = ?1 AND lexical_entry_id = ?2", true)
+        } else {
+            ("profile_id = ?1", false)
+        };
+        let total = if has_entry {
+            sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM language_knowledge_evidence_events WHERE {where_sql}"))
+                .bind(profile_id)
+                .bind(entry_id.unwrap())
+                .fetch_one(self.pool())
+                .await?
+        } else {
+            sqlx::query_scalar::<_, i64>(&format!("SELECT COUNT(*) FROM language_knowledge_evidence_events WHERE {where_sql}"))
+                .bind(profile_id)
+                .fetch_one(self.pool())
+                .await?
+        };
+        let rows = if has_entry {
+            sqlx::query(&format!("SELECT * FROM language_knowledge_evidence_events WHERE {where_sql} ORDER BY occurred_at DESC, id LIMIT ?3 OFFSET ?4"))
+                .bind(profile_id)
+                .bind(entry_id.unwrap())
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(self.pool())
+                .await?
+        } else {
+            sqlx::query(&format!("SELECT * FROM language_knowledge_evidence_events WHERE {where_sql} ORDER BY occurred_at DESC, id LIMIT ?2 OFFSET ?3"))
+                .bind(profile_id)
+                .bind(limit)
+                .bind(offset)
+                .fetch_all(self.pool())
+                .await?
+        };
+        let items = rows.iter().map(evidence_from_row).collect::<Result<Vec<_>>>()?;
+        let count = items.len() as i64;
+        Ok(LexiconPage {
+            items,
+            offset,
+            limit,
+            total,
+            has_more: offset + count < total,
+        })
     }
 
     pub async fn export_language_knowledge(
         &self,
         profile_id: &str,
     ) -> Result<LanguageKnowledgeExport> {
+        self.ensure_profile(profile_id).await?;
         let states = sqlx::query(
             "SELECT e.profile_id, e.id AS lexical_entry_id, COALESCE(s.state, COALESCE(e.knowledge_state, 'new')) AS resolved_state,
                     COALESCE(s.manual_override, 0) AS manual_override, s.override_actor, s.override_source,
@@ -543,9 +746,12 @@ impl Repository {
              FROM language_lexical_entries e LEFT JOIN language_knowledge_states s ON s.profile_id = e.profile_id AND s.lexical_entry_id = e.id
              WHERE e.profile_id = ?1 ORDER BY e.updated_at DESC",
         ).bind(profile_id).fetch_all(self.pool()).await?.iter().map(snapshot_from_row).collect::<Result<Vec<_>>>()?;
-        let history = sqlx::query("SELECT * FROM language_knowledge_state_history WHERE profile_id = ?1 ORDER BY changed_at DESC LIMIT 10000").bind(profile_id).fetch_all(self.pool()).await?.iter().map(history_from_row).collect::<Result<Vec<_>>>()?;
-        let evidence = sqlx::query("SELECT * FROM language_knowledge_evidence_events WHERE profile_id = ?1 ORDER BY occurred_at DESC LIMIT 10000").bind(profile_id).fetch_all(self.pool()).await?.iter().map(evidence_from_row).collect::<Result<Vec<_>>>()?;
-        let memorization_links = sqlx::query("SELECT * FROM language_memorization_links WHERE profile_id = ?1 ORDER BY created_at DESC").bind(profile_id).fetch_all(self.pool()).await?.iter().map(link_from_row).collect::<Result<Vec<_>>>()?;
+        let history = sqlx::query("SELECT * FROM language_knowledge_state_history WHERE profile_id = ?1 ORDER BY changed_at DESC")
+            .bind(profile_id).fetch_all(self.pool()).await?.iter().map(history_from_row).collect::<Result<Vec<_>>>()?;
+        let evidence = sqlx::query("SELECT * FROM language_knowledge_evidence_events WHERE profile_id = ?1 ORDER BY occurred_at DESC")
+            .bind(profile_id).fetch_all(self.pool()).await?.iter().map(evidence_from_row).collect::<Result<Vec<_>>>()?;
+        let memorization_links = sqlx::query("SELECT * FROM language_memorization_links WHERE profile_id = ?1 ORDER BY created_at DESC")
+            .bind(profile_id).fetch_all(self.pool()).await?.iter().map(link_from_row).collect::<Result<Vec<_>>>()?;
         Ok(LanguageKnowledgeExport {
             schema_version: LANGUAGE_KNOWLEDGE_SCHEMA_VERSION,
             profile_id: profile_id.to_string(),
@@ -555,6 +761,53 @@ impl Repository {
             evidence,
             memorization_links,
         })
+    }
+
+    pub async fn serialize_language_knowledge_for_sync(
+        &self,
+        profile_id: &str,
+    ) -> Result<crate::models::language_knowledge::LanguageKnowledgeSyncEnvelope> {
+        let export = self.export_language_knowledge(profile_id).await?;
+        Ok(crate::models::language_knowledge::LanguageKnowledgeSyncEnvelope {
+            schema_version: export.schema_version,
+            profile_id: export.profile_id,
+            changed_at: export.exported_at,
+            states: export.states,
+            memorization_links: export.memorization_links,
+        })
+    }
+
+    pub async fn apply_language_knowledge_sync(
+        &self,
+        payload: crate::models::language_knowledge::LanguageKnowledgeSyncEnvelope,
+    ) -> Result<crate::models::language_knowledge::LanguageKnowledgeSyncEnvelope> {
+        self.ensure_profile(&payload.profile_id).await?;
+        let mut tx = self.pool().begin().await?;
+        let operation_id = uuid::Uuid::new_v4().to_string();
+        for snap in payload.states {
+            if self
+                .ensure_knowledge_entry(&payload.profile_id, &snap.lexical_entry_id)
+                .await
+                .is_ok()
+            {
+                let _ = Self::set_state_tx(
+                    &mut tx,
+                    &LanguageKnowledgeStateChange {
+                        profile_id: payload.profile_id.clone(),
+                        entry_id: snap.lexical_entry_id,
+                        state: snap.state,
+                        source: snap.override_source.unwrap_or(KnowledgeStateSource::Manual),
+                        actor_id: snap.override_actor,
+                        operation_id: Some(operation_id.clone()),
+                    },
+                    &operation_id,
+                )
+                .await?;
+            }
+        }
+        tx.commit().await?;
+        self.serialize_language_knowledge_for_sync(&payload.profile_id)
+            .await
     }
 }
 

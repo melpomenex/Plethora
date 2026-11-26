@@ -13,6 +13,7 @@ pub mod hf;
 pub mod image_asset;
 pub mod item_activity;
 pub mod item_stats;
+pub mod language_ecosystem;
 pub mod language_knowledge;
 pub mod language_lexicon;
 pub mod language_practice;

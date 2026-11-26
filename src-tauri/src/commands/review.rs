@@ -517,6 +517,14 @@ pub async fn apply_review(
                 crate::error::PlethoraError::NotFound(format!("Learning item {}", item_id))
             });
         }
+        record_language_srs_evidence_best_effort(
+            repo,
+            &item,
+            rating,
+            time_taken,
+            now.timestamp_millis(),
+        )
+        .await;
         return Ok(item);
     }
 
@@ -556,7 +564,148 @@ pub async fn apply_review(
         .await?;
     }
 
+    record_language_srs_evidence_best_effort(
+        repo,
+        &item,
+        rating,
+        time_taken,
+        now.timestamp_millis(),
+    )
+    .await;
+
     Ok(item)
+}
+
+async fn record_language_srs_evidence_best_effort(
+    repo: &Repository,
+    item: &LearningItem,
+    rating: i32,
+    time_taken: i32,
+    occurred_at_ms: i64,
+) {
+    if let Err(err) =
+        record_language_srs_evidence_inner(repo, item, rating, time_taken, occurred_at_ms).await
+    {
+        tracing::warn!(
+            learning_item_id = %item.id,
+            error = %err,
+            "Failed to record non-mutating language SRS review evidence"
+        );
+    }
+}
+
+async fn record_language_srs_evidence_inner(
+    repo: &Repository,
+    item: &LearningItem,
+    rating: i32,
+    time_taken: i32,
+    occurred_at_ms: i64,
+) -> Result<()> {
+    let links = sqlx::query(
+        "SELECT profile_id, lexical_entry_id FROM language_memorization_links WHERE learning_item_id = ?1",
+    )
+    .bind(&item.id)
+    .fetch_all(repo.pool())
+    .await?;
+
+    if links.is_empty() {
+        return Ok(());
+    }
+
+    let occurred_at_sec = occurred_at_ms / 1000;
+    let passed = rating >= 3;
+    let confidence = match rating {
+        4 => 1.0_f64,
+        3 => 0.85_f64,
+        2 => 0.45_f64,
+        _ => 0.2_f64,
+    };
+    let next_state = if passed {
+        if item.interval >= 21.0 {
+            "known"
+        } else {
+            "familiar"
+        }
+    } else {
+        "learning"
+    };
+    let srs_metadata_json = serde_json::json!({
+        "rating": rating,
+        "timeTaken": time_taken,
+        "interval": item.interval,
+        "state": format!("{:?}", item.state),
+    })
+    .to_string();
+    let knowledge_metadata_json = serde_json::json!({
+        "origin": "srs_review",
+        "rating": rating,
+        "timeTaken": time_taken,
+        "interval": item.interval,
+    })
+    .to_string();
+
+    for row in links {
+        let profile_id: String = row.try_get("profile_id")?;
+        let lexical_entry_id: String = row.try_get("lexical_entry_id")?;
+
+        sqlx::query(
+            "INSERT INTO language_srs_evidence
+             (id, profile_id, lexical_entry_id, phrase_id, learning_item_id, evidence_kind, confidence, metadata_json, occurred_at)
+             VALUES (?1, ?2, ?3, NULL, ?4, 'reviewed', ?5, ?6, ?7)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&profile_id)
+        .bind(&lexical_entry_id)
+        .bind(&item.id)
+        .bind(confidence)
+        .bind(&srs_metadata_json)
+        .bind(occurred_at_ms)
+        .execute(repo.pool())
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO language_knowledge_evidence_events
+             (id, profile_id, lexical_entry_id, kind, confidence, source_id, metadata_json, occurred_at)
+             VALUES (?1, ?2, ?3, 'recognition', ?4, ?5, ?6, ?7)",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&profile_id)
+        .bind(&lexical_entry_id)
+        .bind(confidence)
+        .bind(&item.id)
+        .bind(&knowledge_metadata_json)
+        .bind(occurred_at_sec)
+        .execute(repo.pool())
+        .await?;
+
+        sqlx::query(
+            "INSERT INTO language_knowledge_states
+             (id, profile_id, lexical_entry_id, state, manual_override, passive_evidence, active_evidence, last_evidence_at, created_at, updated_at, version)
+             VALUES (?1, ?2, ?3, ?4, 0, 0, 1, ?5, ?5, ?5, 1)
+             ON CONFLICT(profile_id, lexical_entry_id) DO UPDATE SET
+               state = CASE
+                 WHEN language_knowledge_states.manual_override = 0 THEN
+                   CASE
+                     WHEN ?4 = 'familiar' AND language_knowledge_states.state = 'known' THEN 'known'
+                     ELSE ?4
+                   END
+                 ELSE language_knowledge_states.state
+               END,
+               active_evidence = language_knowledge_states.active_evidence + 1,
+               last_evidence_at = ?5,
+               updated_at = ?5,
+               version = language_knowledge_states.version + 1",
+        )
+        .bind(uuid::Uuid::new_v4().to_string())
+        .bind(&profile_id)
+        .bind(&lexical_entry_id)
+        .bind(next_state)
+        .bind(occurred_at_sec)
+        .execute(repo.pool())
+        .await?;
+    }
+
+    Ok(())
 }
 
 /// FSRS-7 review (original logic extracted into inner function)
@@ -2477,5 +2626,221 @@ mod tests {
             "degenerate D=1.0 should be coerced, got {}",
             state.difficulty
         );
+    }
+
+    #[tokio::test]
+    async fn apply_review_records_language_evidence_for_linked_cards_only() {
+        use crate::models::language_knowledge::{
+            KnowledgeStateSource, LanguageKnowledgeState, LanguageKnowledgeStateChange,
+            LanguageMemorizationLinkInput,
+        };
+        use crate::models::language_lexicon::EncounterInput;
+        use crate::models::language_profile::LanguageProfileCreate;
+
+        let repo = setup_review_repo().await;
+        let profile = repo
+            .create_language_profile(
+                LanguageProfileCreate {
+                    name: "Spanish".into(),
+                    target_language: "es".into(),
+                    base_language: "en".into(),
+                    ..Default::default()
+                },
+                None,
+                None,
+            )
+            .await
+            .expect("language profile");
+
+        let auto_entry = repo
+            .record_language_encounter(EncounterInput {
+                profile_id: profile.id.clone(),
+                language_tag: "es".into(),
+                surface: "viajar".into(),
+                lemma: Some("viajar".into()),
+                confidence: Some(0.95),
+                token_id: Some("tok-viajar".into()),
+                ..Default::default()
+            })
+            .await
+            .expect("auto lexical entry");
+
+        let manual_entry = repo
+            .record_language_encounter(EncounterInput {
+                profile_id: profile.id.clone(),
+                language_tag: "es".into(),
+                surface: "comer".into(),
+                lemma: Some("comer".into()),
+                confidence: Some(0.95),
+                token_id: Some("tok-comer".into()),
+                ..Default::default()
+            })
+            .await
+            .expect("manual lexical entry");
+
+        repo.set_language_knowledge_state(LanguageKnowledgeStateChange {
+            profile_id: profile.id.clone(),
+            entry_id: manual_entry.id.clone(),
+            state: LanguageKnowledgeState::Known,
+            source: KnowledgeStateSource::Manual,
+            ..Default::default()
+        })
+        .await
+        .expect("manual override state");
+
+        let mut unlinked_item = LearningItem::new(ItemType::Qa, "Ordinary question".into());
+        unlinked_item.answer = Some("Ordinary answer".into());
+        unlinked_item.algorithm_type = "fsrs".into();
+        repo.create_learning_item(&unlinked_item)
+            .await
+            .expect("unlinked item");
+
+        let unlinked_reviewed = apply_review(
+            &repo,
+            &unlinked_item.id,
+            3,
+            4,
+            None,
+            DEFAULT_DESIRED_RETENTION,
+            None,
+            false,
+            Some("fsrs"),
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("unlinked review");
+
+        assert_eq!(unlinked_reviewed.review_count, 1);
+        assert!(unlinked_reviewed.interval > 0.0);
+
+        let srs_evidence_after_unlinked: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM language_srs_evidence")
+                .fetch_one(repo.pool())
+                .await
+                .expect("srs evidence count");
+        assert_eq!(srs_evidence_after_unlinked, 0);
+
+        let mut linked_item = LearningItem::new(ItemType::Qa, "viajar".into());
+        linked_item.answer = Some("to travel".into());
+        linked_item.algorithm_type = "fsrs".into();
+        repo.create_learning_item(&linked_item)
+            .await
+            .expect("linked item");
+
+        repo.create_language_memorization_link(LanguageMemorizationLinkInput {
+            profile_id: profile.id.clone(),
+            entry_id: auto_entry.id.clone(),
+            learning_item_id: linked_item.id.clone(),
+            relation: "explicit".into(),
+            actor_id: None,
+        })
+        .await
+        .expect("auto memorization link");
+
+        repo.create_language_memorization_link(LanguageMemorizationLinkInput {
+            profile_id: profile.id.clone(),
+            entry_id: manual_entry.id.clone(),
+            learning_item_id: linked_item.id.clone(),
+            relation: "explicit".into(),
+            actor_id: None,
+        })
+        .await
+        .expect("manual memorization link");
+
+        let linked_reviewed = apply_review(
+            &repo,
+            &linked_item.id,
+            3,
+            4,
+            None,
+            DEFAULT_DESIRED_RETENTION,
+            None,
+            false,
+            Some("fsrs"),
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("linked review");
+
+        assert_eq!(linked_reviewed.review_count, 1);
+        assert!(
+            (linked_reviewed.interval - unlinked_reviewed.interval).abs() < 1e-6,
+            "language link must not alter FSRS scheduling"
+        );
+
+        let srs_evidence_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM language_srs_evidence WHERE learning_item_id = ?1 AND evidence_kind = 'reviewed'",
+        )
+        .bind(&linked_item.id)
+        .fetch_one(repo.pool())
+        .await
+        .expect("linked srs evidence count");
+        assert_eq!(srs_evidence_count, 2);
+
+        let knowledge_event_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM language_knowledge_evidence_events WHERE profile_id = ?1 AND kind = 'recognition' AND source_id = ?2",
+        )
+        .bind(&profile.id)
+        .bind(&linked_item.id)
+        .fetch_one(repo.pool())
+        .await
+        .expect("knowledge event count");
+        assert_eq!(knowledge_event_count, 2);
+
+        let auto_snapshot = repo
+            .get_language_knowledge_state(&profile.id, &auto_entry.id)
+            .await
+            .expect("auto snapshot");
+        assert_eq!(auto_snapshot.active_evidence, 1);
+        assert!(!auto_snapshot.manual_override);
+        if linked_reviewed.interval >= 21.0 {
+            assert_eq!(auto_snapshot.state, LanguageKnowledgeState::Known);
+        } else {
+            assert_eq!(auto_snapshot.state, LanguageKnowledgeState::Familiar);
+        }
+
+        let manual_snapshot = repo
+            .get_language_knowledge_state(&profile.id, &manual_entry.id)
+            .await
+            .expect("manual snapshot");
+        assert!(manual_snapshot.manual_override);
+        assert_eq!(manual_snapshot.state, LanguageKnowledgeState::Known);
+        assert_eq!(manual_snapshot.active_evidence, 1);
+
+        // A lapse (rating < 3) moves non-manual entries to "learning" while leaving manual overrides intact.
+        let lapsed = apply_review(
+            &repo,
+            &linked_item.id,
+            1,
+            3,
+            None,
+            DEFAULT_DESIRED_RETENTION,
+            None,
+            false,
+            Some("fsrs"),
+            None,
+            false,
+            None,
+        )
+        .await
+        .expect("lapsed review");
+        assert_eq!(lapsed.lapses, 1);
+
+        let auto_after_lapse = repo
+            .get_language_knowledge_state(&profile.id, &auto_entry.id)
+            .await
+            .expect("auto after lapse");
+        assert_eq!(auto_after_lapse.state, LanguageKnowledgeState::Learning);
+        assert_eq!(auto_after_lapse.active_evidence, 2);
+
+        let manual_after_lapse = repo
+            .get_language_knowledge_state(&profile.id, &manual_entry.id)
+            .await
+            .expect("manual after lapse");
+        assert_eq!(manual_after_lapse.state, LanguageKnowledgeState::Known);
     }
 }

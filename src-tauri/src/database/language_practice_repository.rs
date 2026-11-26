@@ -1,7 +1,7 @@
 //! Repository operations for compact, profile-scoped practice attempts.
 
 use crate::database::Repository;
-use crate::error::Result;
+use crate::error::{PlethoraError, Result};
 use crate::models::language_practice::LanguagePracticeAttempt;
 use chrono::Utc;
 use sqlx::{sqlite::SqliteRow, Row};
@@ -47,10 +47,40 @@ fn json(value: &Option<serde_json::Value>) -> Result<Option<String>> {
 }
 
 impl Repository {
+    async fn ensure_practice_profile(&self, profile_id: &str) -> Result<()> {
+        let exists = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM language_profiles WHERE id = ?1 AND lifecycle <> 'deleted'",
+        )
+        .bind(profile_id)
+        .fetch_optional(self.pool())
+        .await?;
+        if exists.is_none() {
+            return Err(PlethoraError::NotFound(format!(
+                "Language profile {profile_id}"
+            )));
+        }
+        Ok(())
+    }
+
     pub async fn upsert_language_practice_attempt(
         &self,
         mut attempt: LanguagePracticeAttempt,
     ) -> Result<LanguagePracticeAttempt> {
+        self.ensure_practice_profile(&attempt.profile_id).await?;
+        let existing_owner = sqlx::query_scalar::<_, String>(
+            "SELECT profile_id FROM language_practice_attempts WHERE id = ?1",
+        )
+        .bind(&attempt.id)
+        .fetch_optional(self.pool())
+        .await?;
+        if let Some(owner) = existing_owner {
+            if owner != attempt.profile_id {
+                return Err(PlethoraError::InvalidInput(format!(
+                    "Practice attempt {} belongs to another language profile",
+                    attempt.id
+                )));
+            }
+        }
         let now = Utc::now().timestamp();
         if attempt.created_at <= 0 {
             attempt.created_at = now;
@@ -69,7 +99,8 @@ impl Repository {
                privacy_mode = excluded.privacy_mode, retention_expires_at = excluded.retention_expires_at,
                active_evidence_accepted = excluded.active_evidence_accepted, revealed = excluded.revealed,
                media_id = excluded.media_id, start_ms = excluded.start_ms, end_ms = excluded.end_ms,
-               updated_at = excluded.updated_at",
+               updated_at = excluded.updated_at
+             WHERE language_practice_attempts.profile_id = excluded.profile_id",
         )
         .bind(&attempt.id).bind(&attempt.profile_id).bind(&attempt.mode).bind(&attempt.status).bind(&attempt.source_type).bind(&attempt.source_id)
         .bind(json(&attempt.source_anchor)?).bind(&attempt.source_fingerprint).bind(&attempt.prompt_text)
@@ -87,6 +118,7 @@ impl Repository {
         profile_id: &str,
         id: &str,
     ) -> Result<LanguagePracticeAttempt> {
+        self.ensure_practice_profile(profile_id).await?;
         let row = sqlx::query(
             "SELECT * FROM language_practice_attempts WHERE profile_id = ?1 AND id = ?2",
         )
@@ -103,13 +135,49 @@ impl Repository {
         source_id: Option<&str>,
         limit: i64,
     ) -> Result<Vec<LanguagePracticeAttempt>> {
-        let rows = if let Some(source_id) = source_id {
-            sqlx::query("SELECT * FROM language_practice_attempts WHERE profile_id = ?1 AND source_id = ?2 ORDER BY created_at DESC LIMIT ?3")
-                .bind(profile_id).bind(source_id).bind(limit.clamp(1, 200)).fetch_all(self.pool()).await?
-        } else {
-            sqlx::query("SELECT * FROM language_practice_attempts WHERE profile_id = ?1 ORDER BY created_at DESC LIMIT ?2")
-                .bind(profile_id).bind(limit.clamp(1, 200)).fetch_all(self.pool()).await?
-        };
+        self.list_language_practice_attempts_filtered(profile_id, source_id, None, None, 0, limit)
+            .await
+    }
+
+    pub async fn list_language_practice_attempts_filtered(
+        &self,
+        profile_id: &str,
+        source_id: Option<&str>,
+        mode: Option<&str>,
+        status: Option<&str>,
+        offset: i64,
+        limit: i64,
+    ) -> Result<Vec<LanguagePracticeAttempt>> {
+        self.ensure_practice_profile(profile_id).await?;
+        let mut predicates = vec!["profile_id = ?1".to_string()];
+        let mut binds: Vec<&str> = Vec::new();
+        if let Some(value) = source_id {
+            predicates.push(format!("source_id = ?{}", binds.len() + 2));
+            binds.push(value);
+        }
+        if let Some(value) = mode {
+            predicates.push(format!("mode = ?{}", binds.len() + 2));
+            binds.push(value);
+        }
+        if let Some(value) = status {
+            predicates.push(format!("status = ?{}", binds.len() + 2));
+            binds.push(value);
+        }
+        let sql = format!(
+            "SELECT * FROM language_practice_attempts WHERE {} ORDER BY created_at DESC LIMIT ?{} OFFSET ?{}",
+            predicates.join(" AND "),
+            binds.len() + 2,
+            binds.len() + 3
+        );
+        let mut query = sqlx::query(&sql).bind(profile_id);
+        for value in binds {
+            query = query.bind(value);
+        }
+        let rows = query
+            .bind(limit.clamp(1, 200))
+            .bind(offset.max(0))
+            .fetch_all(self.pool())
+            .await?;
         rows.iter().map(from_row).collect()
     }
 
@@ -118,6 +186,7 @@ impl Repository {
         profile_id: &str,
         id: &str,
     ) -> Result<bool> {
+        self.ensure_practice_profile(profile_id).await?;
         let result =
             sqlx::query("DELETE FROM language_practice_attempts WHERE profile_id = ?1 AND id = ?2")
                 .bind(profile_id)
@@ -132,8 +201,10 @@ impl Repository {
         profile_id: &str,
         now: i64,
     ) -> Result<i64> {
+        self.ensure_practice_profile(profile_id).await?;
+        let normalized_now = if now > 10_000_000_000 { now / 1000 } else { now };
         let result = sqlx::query("DELETE FROM language_practice_attempts WHERE profile_id = ?1 AND retention_expires_at IS NOT NULL AND retention_expires_at <= ?2")
-            .bind(profile_id).bind(now).execute(self.pool()).await?;
+            .bind(profile_id).bind(normalized_now).execute(self.pool()).await?;
         Ok(result.rows_affected() as i64)
     }
 
@@ -141,9 +212,25 @@ impl Repository {
         &self,
         profile_id: &str,
     ) -> Result<Vec<LanguagePracticeAttempt>> {
+        self.ensure_practice_profile(profile_id).await?;
         let rows = sqlx::query("SELECT * FROM language_practice_attempts WHERE profile_id = ?1 ORDER BY created_at ASC")
             .bind(profile_id).fetch_all(self.pool()).await?;
         rows.iter().map(from_row).collect()
+    }
+
+    pub async fn import_language_practice_attempts(
+        &self,
+        profile_id: &str,
+        attempts: Vec<LanguagePracticeAttempt>,
+    ) -> Result<i64> {
+        self.ensure_practice_profile(profile_id).await?;
+        let mut imported = 0i64;
+        for mut attempt in attempts {
+            attempt.profile_id = profile_id.to_string();
+            self.upsert_language_practice_attempt(attempt).await?;
+            imported += 1;
+        }
+        Ok(imported)
     }
 }
 

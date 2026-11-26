@@ -2512,11 +2512,36 @@ impl Repository {
         // Keep the profile-scoped lexical aggregate usable after source
         // deletion. Occurrences retain their compact identity for sync and
         // retention cleanup, but no longer claim that the source is live.
+        let now_ts = Utc::now().timestamp();
+        let retention_ts = now_ts + 30 * 24 * 3600;
         sqlx::query(
-            "UPDATE language_occurrences SET orphan_state = 'orphaned', orphaned_at = ?1
-             WHERE document_id = ?2 AND orphan_state = 'live'",
+            "UPDATE language_occurrences
+             SET orphan_state = 'orphaned',
+                 orphaned_at = ?1,
+                 retention_expires_at = COALESCE(retention_expires_at, ?2)
+             WHERE document_id = ?3 AND orphan_state = 'live'",
         )
-        .bind(Utc::now().timestamp())
+        .bind(now_ts)
+        .bind(retention_ts)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "DELETE FROM language_profile_associations WHERE content_type = 'document' AND content_id = ?1",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "DELETE FROM language_recommendation_candidates WHERE source_id = ?1",
+        )
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+        sqlx::query(
+            "UPDATE language_audio_alignments SET status = 'stale', updated_at = ?1 WHERE source_id = ?2",
+        )
+        .bind(now_ts)
         .bind(id)
         .execute(&mut *tx)
         .await?;
@@ -8441,6 +8466,41 @@ impl Repository {
     }
 
     pub async fn delete_podcast_feed(&self, id: &str) -> Result<()> {
+        let now_ts = Utc::now().timestamp();
+        let retention_ts = now_ts + 30 * 24 * 3600;
+        let episode_ids: Vec<String> = sqlx::query_scalar::<_, String>(
+            "SELECT id FROM podcast_episodes WHERE feed_id = ?1",
+        )
+        .bind(id)
+        .fetch_all(self.pool())
+        .await
+        .unwrap_or_default();
+        for media_id in &episode_ids {
+            let _ = sqlx::query(
+                "UPDATE language_occurrences
+                 SET orphan_state = 'orphaned', orphaned_at = ?1,
+                     retention_expires_at = COALESCE(retention_expires_at, ?2)
+                 WHERE media_id = ?3 AND orphan_state = 'live'",
+            )
+            .bind(now_ts)
+            .bind(retention_ts)
+            .bind(media_id)
+            .execute(self.pool())
+            .await;
+            let _ = sqlx::query(
+                "DELETE FROM language_profile_associations WHERE content_type = 'media' AND content_id = ?1",
+            )
+            .bind(media_id)
+            .execute(self.pool())
+            .await;
+            let _ = sqlx::query(
+                "UPDATE language_audio_alignments SET status = 'stale', updated_at = ?1 WHERE media_id = ?2",
+            )
+            .bind(now_ts)
+            .bind(media_id)
+            .execute(self.pool())
+            .await;
+        }
         sqlx::query("DELETE FROM podcast_feeds WHERE id = ?")
             .bind(id)
             .execute(self.pool())

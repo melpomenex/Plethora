@@ -3,8 +3,9 @@
 use crate::database::Repository;
 use crate::models::language_lexicon::{
     EncounterBatchResult, EncounterInput, LanguageLexicalEntry, LanguageLexiconExport,
-    LanguageLexiconSyncEnvelope, LanguageLookupEvent, LanguageOccurrence, LegacyLookupRecord,
-    LexicalEntryOverride, LexicalEntryUpsert, LexiconPage, LookupInput,
+    LanguageLexiconSyncEnvelope, LanguageLookupEvent, LanguageOccurrence, LanguageSurfaceForm,
+    LegacyLookupRecord, LexicalEntryOverride, LexicalEntrySearchFilter, LexicalEntryUpsert,
+    LexiconPage, LookupInput,
 };
 use tauri::State;
 
@@ -145,6 +146,100 @@ pub async fn serialize_language_lexicon_for_sync(
     repo: State<'_, Repository>,
 ) -> Result<LanguageLexiconSyncEnvelope, String> {
     repo.serialize_language_lexicon_for_sync(&profile_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn search_language_lexical_entries(
+    filter: LexicalEntrySearchFilter,
+    repo: State<'_, Repository>,
+) -> Result<LexiconPage<LanguageLexicalEntry>, String> {
+    repo.search_language_lexical_entries(filter)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_language_lexical_entry(
+    profile_id: String,
+    entry_id: String,
+    repo: State<'_, Repository>,
+) -> Result<bool, String> {
+    repo.delete_language_lexical_entry(&profile_id, &entry_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_language_occurrence(
+    profile_id: String,
+    occurrence_id: String,
+    repo: State<'_, Repository>,
+) -> Result<bool, String> {
+    repo.delete_language_occurrence(&profile_id, &occurrence_id)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn purge_expired_language_occurrences(
+    profile_id: String,
+    now: i64,
+    repo: State<'_, Repository>,
+) -> Result<i64, String> {
+    repo.purge_expired_language_occurrences(&profile_id, now)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_language_surface_forms(
+    profile_id: String,
+    entry_id: Option<String>,
+    offset: Option<i64>,
+    limit: Option<i64>,
+    repo: State<'_, Repository>,
+) -> Result<LexiconPage<LanguageSurfaceForm>, String> {
+    repo.list_language_surface_forms(
+        &profile_id,
+        entry_id.as_deref(),
+        offset.unwrap_or(0),
+        limit.unwrap_or(50),
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_language_lookup_events(
+    profile_id: String,
+    offset: Option<i64>,
+    limit: Option<i64>,
+    repo: State<'_, Repository>,
+) -> Result<LexiconPage<LanguageLookupEvent>, String> {
+    repo.list_language_lookup_events(&profile_id, offset.unwrap_or(0), limit.unwrap_or(50))
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn import_language_lexicon(
+    profile_id: String,
+    entries: Vec<LanguageLexicalEntry>,
+    repo: State<'_, Repository>,
+) -> Result<i64, String> {
+    repo.import_language_lexicon(&profile_id, entries)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn apply_language_lexicon_sync(
+    payload: LanguageLexiconSyncEnvelope,
+    repo: State<'_, Repository>,
+) -> Result<LanguageLexiconSyncEnvelope, String> {
+    repo.apply_language_lexicon_sync(payload)
         .await
         .map_err(|error| error.to_string())
 }

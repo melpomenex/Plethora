@@ -276,3 +276,13 @@ pub struct LanguageKnowledgeExport {
     pub evidence: Vec<LanguageKnowledgeEvidenceEvent>,
     pub memorization_links: Vec<LanguageMemorizationLink>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct LanguageKnowledgeSyncEnvelope {
+    pub schema_version: u32,
+    pub profile_id: String,
+    pub changed_at: i64,
+    pub states: Vec<LanguageKnowledgeStateSnapshot>,
+    pub memorization_links: Vec<LanguageMemorizationLink>,
+}

@@ -70,6 +70,38 @@ pub async fn archive_language_profile(
 }
 
 #[tauri::command]
+pub async fn unarchive_language_profile(
+    id: String,
+    account_id: Option<String>,
+    workspace_id: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<LanguageProfile, String> {
+    repo.unarchive_language_profile(&id, account_id.as_deref(), workspace_id.as_deref())
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn delete_language_profile_association(
+    profile_id: String,
+    content_type: String,
+    content_id: String,
+    account_id: Option<String>,
+    workspace_id: Option<String>,
+    repo: State<'_, Repository>,
+) -> Result<bool, String> {
+    repo.delete_language_profile_association(
+        &profile_id,
+        &content_type,
+        &content_id,
+        account_id.as_deref(),
+        workspace_id.as_deref(),
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
 pub async fn delete_language_profile(
     id: String,
     account_id: Option<String>,
