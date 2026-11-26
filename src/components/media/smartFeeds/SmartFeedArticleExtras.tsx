@@ -191,7 +191,7 @@ export function SmartFeedArticleExtras({
       {whyOpen && (
         <div
           id={reasonId}
-          className="p-2.5 rounded-lg bg-muted/50 border border-border/60 text-[11px] space-y-1 text-muted-foreground"
+          className="p-2.5 rounded-lg bg-muted/50 border border-border/60 text-[11px] space-y-1.5 text-muted-foreground"
         >
           <p className="text-foreground font-medium">{article.decision_reason}</p>
           <p>
@@ -200,6 +200,52 @@ export function SmartFeedArticleExtras({
               percent: scorePct,
             })}
           </p>
+          {article.diagnostics && (
+            <div className="space-y-1 pt-1 border-t border-border/40">
+              {article.diagnostics.supporting_passages.length > 0 && (
+                <div>
+                  <span className="font-medium text-foreground">
+                    {t("smartFeeds.supportingEvidenceLabel")}:{" "}
+                  </span>
+                  <ul className="list-disc list-inside space-y-0.5 mt-0.5">
+                    {article.diagnostics.supporting_passages.map((excerpt, i) => (
+                      <li key={i}>{excerpt}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {article.diagnostics.contradictory_passages.length > 0 && (
+                <div>
+                  <span className="font-medium text-amber-700 dark:text-amber-300">
+                    {t("smartFeeds.contradictoryEvidenceLabel")}:{" "}
+                  </span>
+                  <ul className="list-disc list-inside space-y-0.5 mt-0.5">
+                    {article.diagnostics.contradictory_passages.map((excerpt, i) => (
+                      <li key={i}>{excerpt}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              <details className="pt-0.5">
+                <summary className="cursor-pointer select-none text-[10px] font-medium hover:text-foreground">
+                  {t("smartFeeds.technicalDiagnostics")}
+                </summary>
+                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-0.5 text-[10px]">
+                  <span>{t("smartFeeds.diagDepth")}: {article.diagnostics.evaluation_depth}</span>
+                  <span>{t("smartFeeds.diagContent")}: {article.diagnostics.content_provenance}</span>
+                  <span>
+                    {t("smartFeeds.diagPassages")}: {article.diagnostics.passages_evaluated} / {article.diagnostics.passages_total}
+                  </span>
+                  <span>
+                    {t("smartFeeds.diagTruncation")}:{" "}
+                    {article.diagnostics.unexpected_truncation
+                      ? `${article.diagnostics.state_tokens_dropped} tokens`
+                      : t("smartFeeds.diagNone")}
+                  </span>
+                </div>
+              </details>
+            </div>
+          )}
         </div>
       )}
 

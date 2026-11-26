@@ -13,8 +13,10 @@
 
 pub mod classifier;
 pub mod clustering;
+pub mod laya_budget;
 pub mod models;
 pub mod normalize;
+pub mod passages;
 pub mod repository;
 pub mod retrieval;
 pub mod worker;

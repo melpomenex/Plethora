@@ -15,6 +15,7 @@ import type {
   CreateSmartFeedInput,
   SmartFeedCapabilities,
   SmartFeedClassificationMode,
+  SmartFeedEvaluationDepth,
   SmartFeedSourceScope,
   SmartFeedsExportPayload,
   SmartFeedStrictness,
@@ -130,6 +131,7 @@ export function SmartFeedDialog({
   const [selectedFeedIds, setSelectedFeedIds] = useState<Set<string>>(new Set());
   const [selectedFolderIds, setSelectedFolderIds] = useState<Set<string>>(new Set());
   const [strictness, setStrictness] = useState<SmartFeedStrictness>("balanced");
+  const [evaluationDepth, setEvaluationDepth] = useState<SmartFeedEvaluationDepth>("adaptive");
   const [mode, setMode] = useState<SmartFeedClassificationMode>("fast_local");
   const [freshnessWindow, setFreshnessWindow] = useState<string>("");
   const [groupSimilarStories, setGroupSimilarStories] = useState(true);
@@ -161,6 +163,7 @@ export function SmartFeedDialog({
       setSelectedFeedIds(new Set(editing.source_scope_config?.feed_ids ?? []));
       setSelectedFolderIds(new Set(editing.source_scope_config?.folder_ids ?? []));
       setStrictness(editing.curation_strictness);
+      setEvaluationDepth(editing.evaluation_depth ?? "adaptive");
       setMode(editing.classification_mode);
       setFreshnessWindow(
         editing.freshness_window_days != null ? String(editing.freshness_window_days) : "",
@@ -354,6 +357,7 @@ export function SmartFeedDialog({
           },
           classification_mode: mode,
           curation_strictness: strictness,
+          evaluation_depth: evaluationDepth,
           freshness_window_days: parsedFreshness,
           group_similar_stories: groupSimilarStories,
           is_enabled: isEnabled,
@@ -721,6 +725,48 @@ export function SmartFeedDialog({
                 );
               })}
             </div>
+
+            {mode === "intelligent_local" && (
+              <div className="pt-2 border-t border-border/50 space-y-1.5">
+                <span className="text-[11px] font-semibold text-foreground">
+                  {t("smartFeeds.evaluationDepthLabel")}
+                </span>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      ["fast", t("smartFeeds.depthFast"), t("smartFeeds.depthFastDesc")],
+                      ["adaptive", t("smartFeeds.depthAdaptive"), t("smartFeeds.depthAdaptiveDesc")],
+                      ["thorough", t("smartFeeds.depthThorough"), t("smartFeeds.depthThoroughDesc")],
+                    ] as const
+                  ).map(([val, label, desc]) => (
+                    <label
+                      key={val}
+                      className={cn(
+                        "flex flex-col gap-0.5 p-2 rounded-lg border cursor-pointer transition-colors",
+                        evaluationDepth === val
+                          ? "border-primary bg-primary/10"
+                          : "border-border bg-background",
+                      )}
+                    >
+                      <div className="flex items-center gap-1.5 text-[11px] font-semibold text-foreground">
+                        <input
+                          type="radio"
+                          name="evaluation_depth"
+                          value={val}
+                          checked={evaluationDepth === val}
+                          onChange={() => setEvaluationDepth(val)}
+                          className="accent-primary"
+                        />
+                        <span>{label}</span>
+                      </div>
+                      <span className="text-[10px] leading-snug text-muted-foreground pl-4">
+                        {desc}
+                      </span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            )}
 
             {capabilities && !capabilities.semantic_embeddings_available && (
               <p className="text-[11px] text-amber-600 dark:text-amber-400 flex items-center gap-1.5 pt-1">

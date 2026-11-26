@@ -113,6 +113,99 @@ impl Default for CurationStrictness {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+pub enum EvaluationDepth {
+    Fast,
+    Adaptive,
+    Thorough,
+}
+
+impl EvaluationDepth {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Fast => "fast",
+            Self::Adaptive => "adaptive",
+            Self::Thorough => "thorough",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "fast" => Self::Fast,
+            "thorough" => Self::Thorough,
+            _ => Self::Adaptive,
+        }
+    }
+}
+
+impl Default for EvaluationDepth {
+    fn default() -> Self {
+        Self::Adaptive
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ContentProvenance {
+    HeadlineOnly,
+    SummaryOnly,
+    RssEmbedded,
+    FullExtracted,
+    Partial,
+}
+
+impl ContentProvenance {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::HeadlineOnly => "headline_only",
+            Self::SummaryOnly => "summary_only",
+            Self::RssEmbedded => "rss_embedded",
+            Self::FullExtracted => "full_extracted",
+            Self::Partial => "partial",
+        }
+    }
+
+    pub fn from_str(s: &str) -> Self {
+        match s {
+            "headline_only" => Self::HeadlineOnly,
+            "rss_embedded" => Self::RssEmbedded,
+            "full_extracted" => Self::FullExtracted,
+            "partial" => Self::Partial,
+            _ => Self::SummaryOnly,
+        }
+    }
+}
+
+impl Default for ContentProvenance {
+    fn default() -> Self {
+        Self::SummaryOnly
+    }
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SmartFeedMatchDiagnostics {
+    pub evaluation_depth: EvaluationDepth,
+    pub content_provenance: ContentProvenance,
+    pub passages_evaluated: usize,
+    pub passages_total: usize,
+    pub inference_calls: usize,
+    pub token_usage: usize,
+    pub unexpected_truncation: bool,
+    pub state_tokens_dropped: usize,
+    pub exact_tokenizer: bool,
+    pub criteria_compacted: bool,
+    pub model_id: Option<String>,
+    pub pipeline_version: String,
+    pub primary_centrality: Option<String>,
+    pub supporting_passages: Vec<String>,
+    pub contradictory_passages: Vec<String>,
+    pub matched_inclusion: Vec<String>,
+    pub matched_exclusion: Vec<String>,
+    pub evidence_coverage: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum SmartFeedSortOrder {
     Relevance,
     Newest,
@@ -299,6 +392,8 @@ pub struct SmartFeed {
     pub source_scope_config: SourceScopeConfig,
     pub classification_mode: ClassificationMode,
     pub curation_strictness: CurationStrictness,
+    #[serde(default)]
+    pub evaluation_depth: EvaluationDepth,
     pub minimum_relevance: Option<f64>,
     pub freshness_window_days: Option<i32>,
     pub sort_order: SmartFeedSortOrder,
@@ -342,6 +437,8 @@ pub struct CreateSmartFeedInput {
     pub classification_mode: ClassificationMode,
     #[serde(default)]
     pub curation_strictness: CurationStrictness,
+    #[serde(default)]
+    pub evaluation_depth: EvaluationDepth,
     pub minimum_relevance: Option<f64>,
     pub freshness_window_days: Option<i32>,
     #[serde(default)]
@@ -370,6 +467,7 @@ pub struct UpdateSmartFeedInput {
     pub source_scope_config: Option<SourceScopeConfig>,
     pub classification_mode: Option<ClassificationMode>,
     pub curation_strictness: Option<CurationStrictness>,
+    pub evaluation_depth: Option<EvaluationDepth>,
     pub minimum_relevance: Option<Option<f64>>,
     pub freshness_window_days: Option<Option<i32>>,
     pub sort_order: Option<SmartFeedSortOrder>,
@@ -399,6 +497,20 @@ pub struct SmartFeedMatch {
     pub error_message: Option<String>,
     pub is_user_override: bool,
     pub evaluated_at: String,
+    #[serde(default)]
+    pub evaluation_depth: EvaluationDepth,
+    #[serde(default)]
+    pub content_provenance: ContentProvenance,
+    #[serde(default)]
+    pub passages_evaluated: usize,
+    #[serde(default)]
+    pub passages_total: usize,
+    #[serde(default)]
+    pub inference_calls: usize,
+    #[serde(default)]
+    pub unexpected_truncation: bool,
+    #[serde(default)]
+    pub diagnostics: Option<SmartFeedMatchDiagnostics>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -453,6 +565,18 @@ pub struct SmartFeedArticleItem {
     pub cluster_id: Option<String>,
     pub cluster_size: usize,
     pub cluster_members: Vec<SmartFeedClusterMember>,
+    #[serde(default)]
+    pub evaluation_depth: EvaluationDepth,
+    #[serde(default)]
+    pub content_provenance: ContentProvenance,
+    #[serde(default)]
+    pub passages_evaluated: usize,
+    #[serde(default)]
+    pub passages_total: usize,
+    #[serde(default)]
+    pub unexpected_truncation: bool,
+    #[serde(default)]
+    pub diagnostics: Option<SmartFeedMatchDiagnostics>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

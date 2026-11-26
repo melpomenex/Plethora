@@ -53,6 +53,10 @@ fn row_to_smart_feed(row: &SqliteRow) -> Result<SmartFeed> {
         curation_strictness: CurationStrictness::from_str(
             &row.try_get::<String, _>("curation_strictness")?,
         ),
+        evaluation_depth: row
+            .try_get::<String, _>("evaluation_depth")
+            .map(|s| EvaluationDepth::from_str(&s))
+            .unwrap_or_default(),
         minimum_relevance: row.try_get("minimum_relevance")?,
         freshness_window_days: row.try_get("freshness_window_days")?,
         sort_order: SmartFeedSortOrder::from_str(&row.try_get::<String, _>("sort_order")?),
@@ -98,11 +102,11 @@ pub async fn create_feed(pool: &SqlitePool, input: CreateSmartFeedInput) -> Resu
         INSERT INTO rss_smart_feeds (
             id, name, description, inclusion_criteria, exclusion_criteria,
             source_scope, source_scope_config, classification_mode, curation_strictness,
-            minimum_relevance, freshness_window_days, sort_order, group_similar_stories,
+            evaluation_depth, minimum_relevance, freshness_window_days, sort_order, group_similar_stories,
             is_enabled, cloud_consent_granted, preferred_provider, preferred_model,
             definition_revision, created_at, updated_at, last_evaluated_at
         )
-        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, 1, ?18, ?18, NULL)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 1, ?19, ?19, NULL)
         "#,
     )
     .bind(&id)
@@ -114,6 +118,7 @@ pub async fn create_feed(pool: &SqlitePool, input: CreateSmartFeedInput) -> Resu
     .bind(&scope_cfg_json)
     .bind(input.classification_mode.as_str())
     .bind(input.curation_strictness.as_str())
+    .bind(input.evaluation_depth.as_str())
     .bind(input.minimum_relevance)
     .bind(input.freshness_window_days)
     .bind(input.sort_order.as_str())
@@ -268,6 +273,9 @@ pub async fn update_feed(
     let curation_strictness = input
         .curation_strictness
         .unwrap_or(existing.curation_strictness);
+    let evaluation_depth = input
+        .evaluation_depth
+        .unwrap_or(existing.evaluation_depth);
     let minimum_relevance = match input.minimum_relevance {
         Some(v) => v,
         None => existing.minimum_relevance,
@@ -303,6 +311,7 @@ pub async fn update_feed(
         || source_scope_config != existing.source_scope_config
         || classification_mode != existing.classification_mode
         || curation_strictness != existing.curation_strictness
+        || evaluation_depth != existing.evaluation_depth
         || minimum_relevance != existing.minimum_relevance
         || freshness_window_days != existing.freshness_window_days
         || preferred_provider != existing.preferred_provider
@@ -330,17 +339,18 @@ pub async fn update_feed(
             source_scope_config = ?6,
             classification_mode = ?7,
             curation_strictness = ?8,
-            minimum_relevance = ?9,
-            freshness_window_days = ?10,
-            sort_order = ?11,
-            group_similar_stories = ?12,
-            is_enabled = ?13,
-            cloud_consent_granted = ?14,
-            preferred_provider = ?15,
-            preferred_model = ?16,
-            definition_revision = ?17,
-            updated_at = ?18
-        WHERE id = ?19
+            evaluation_depth = ?9,
+            minimum_relevance = ?10,
+            freshness_window_days = ?11,
+            sort_order = ?12,
+            group_similar_stories = ?13,
+            is_enabled = ?14,
+            cloud_consent_granted = ?15,
+            preferred_provider = ?16,
+            preferred_model = ?17,
+            definition_revision = ?18,
+            updated_at = ?19
+        WHERE id = ?20
         "#,
     )
     .bind(&name)
@@ -351,6 +361,7 @@ pub async fn update_feed(
     .bind(&scope_cfg_json)
     .bind(classification_mode.as_str())
     .bind(curation_strictness.as_str())
+    .bind(evaluation_depth.as_str())
     .bind(minimum_relevance)
     .bind(freshness_window_days)
     .bind(sort_order.as_str())
@@ -812,6 +823,7 @@ pub async fn delete_feed_embedding_role(
 pub struct ExistingMatchState {
     pub content_hash: String,
     pub definition_revision: i64,
+    pub classifier_version: String,
     pub embedding_provider: String,
     pub embedding_model: String,
     pub evaluation_status: EvaluationStatus,
@@ -825,8 +837,8 @@ pub async fn get_existing_match_states(
 ) -> Result<HashMap<String, ExistingMatchState>> {
     let rows = sqlx::query(
         r#"
-        SELECT article_id, content_hash, definition_revision, embedding_provider,
-               embedding_model, evaluation_status, is_user_override, decision
+        SELECT article_id, content_hash, definition_revision, classifier_version,
+               embedding_provider, embedding_model, evaluation_status, is_user_override, decision
         FROM rss_smart_feed_matches
         WHERE smart_feed_id = ?1
         "#,
@@ -843,6 +855,11 @@ pub async fn get_existing_match_states(
             ExistingMatchState {
                 content_hash: row.try_get("content_hash")?,
                 definition_revision: row.try_get("definition_revision")?,
+                classifier_version: row
+                    .try_get::<Option<String>, _>("classifier_version")
+                    .ok()
+                    .flatten()
+                    .unwrap_or_default(),
                 embedding_provider: row.try_get("embedding_provider")?,
                 embedding_model: row.try_get("embedding_model")?,
                 evaluation_status: EvaluationStatus::from_str(
@@ -867,15 +884,21 @@ pub async fn upsert_matches_batch(pool: &SqlitePool, matches: &[SmartFeedMatch])
     for m in matches {
         let evidence_json =
             serde_json::to_string(&m.matched_evidence).unwrap_or_else(|_| "[]".into());
+        let diag_json = m
+            .diagnostics
+            .as_ref()
+            .and_then(|d| serde_json::to_string(d).ok());
         sqlx::query(
             r#"
             INSERT INTO rss_smart_feed_matches (
                 smart_feed_id, article_id, decision, relevance_score, ranking_score,
                 decision_reason, matched_evidence, decision_source, content_hash,
                 definition_revision, classifier_version, embedding_provider, embedding_model,
-                evaluation_status, error_message, is_user_override, evaluated_at
+                evaluation_status, error_message, is_user_override, evaluated_at,
+                evaluation_depth, content_provenance, passages_evaluated, passages_total,
+                inference_calls, unexpected_truncation, diagnostics_json
             )
-            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22, ?23, ?24)
             ON CONFLICT(smart_feed_id, article_id) DO UPDATE SET
                 decision = excluded.decision,
                 relevance_score = excluded.relevance_score,
@@ -891,7 +914,14 @@ pub async fn upsert_matches_batch(pool: &SqlitePool, matches: &[SmartFeedMatch])
                 evaluation_status = excluded.evaluation_status,
                 error_message = excluded.error_message,
                 is_user_override = excluded.is_user_override,
-                evaluated_at = excluded.evaluated_at
+                evaluated_at = excluded.evaluated_at,
+                evaluation_depth = excluded.evaluation_depth,
+                content_provenance = excluded.content_provenance,
+                passages_evaluated = excluded.passages_evaluated,
+                passages_total = excluded.passages_total,
+                inference_calls = excluded.inference_calls,
+                unexpected_truncation = excluded.unexpected_truncation,
+                diagnostics_json = excluded.diagnostics_json
             WHERE rss_smart_feed_matches.is_user_override = 0 OR excluded.is_user_override = 1
             "#,
         )
@@ -912,6 +942,13 @@ pub async fn upsert_matches_batch(pool: &SqlitePool, matches: &[SmartFeedMatch])
         .bind(m.error_message.as_deref())
         .bind(if m.is_user_override { 1i64 } else { 0i64 })
         .bind(&m.evaluated_at)
+        .bind(m.evaluation_depth.as_str())
+        .bind(m.content_provenance.as_str())
+        .bind(m.passages_evaluated as i64)
+        .bind(m.passages_total as i64)
+        .bind(m.inference_calls as i64)
+        .bind(if m.unexpected_truncation { 1i64 } else { 0i64 })
+        .bind(diag_json.as_deref())
         .execute(&mut *tx)
         .await?;
     }
@@ -1103,7 +1140,9 @@ pub async fn query_feed_articles(
             a.is_queued, a.is_read, a.date_added, a.full_content, a.full_content_fetched_at,
             m.decision, m.relevance_score, m.ranking_score, m.decision_reason,
             m.matched_evidence, m.decision_source, m.evaluation_status,
-            m.error_message, m.is_user_override, m.evaluated_at
+            m.error_message, m.is_user_override, m.evaluated_at,
+            m.evaluation_depth, m.content_provenance, m.passages_evaluated,
+            m.passages_total, m.unexpected_truncation, m.diagnostics_json
         FROM rss_smart_feed_matches m
         INNER JOIN rss_articles a ON a.id = m.article_id
         LEFT JOIN rss_feeds rf ON rf.id = a.feed_id
@@ -1203,6 +1242,37 @@ pub async fn query_feed_articles(
             cluster_id: None,
             cluster_size: 1,
             cluster_members: Vec::new(),
+            evaluation_depth: row
+                .try_get::<String, _>("evaluation_depth")
+                .map(|s| EvaluationDepth::from_str(&s))
+                .unwrap_or_default(),
+            content_provenance: row
+                .try_get::<String, _>("content_provenance")
+                .map(|s| ContentProvenance::from_str(&s))
+                .unwrap_or_default(),
+            passages_evaluated: row
+                .try_get::<Option<i64>, _>("passages_evaluated")
+                .ok()
+                .flatten()
+                .unwrap_or(0)
+                .max(0) as usize,
+            passages_total: row
+                .try_get::<Option<i64>, _>("passages_total")
+                .ok()
+                .flatten()
+                .unwrap_or(0)
+                .max(0) as usize,
+            unexpected_truncation: row
+                .try_get::<Option<i64>, _>("unexpected_truncation")
+                .ok()
+                .flatten()
+                .unwrap_or(0)
+                != 0,
+            diagnostics: row
+                .try_get::<Option<String>, _>("diagnostics_json")
+                .ok()
+                .flatten()
+                .and_then(|s| serde_json::from_str(&s).ok()),
         });
     }
 
@@ -1268,6 +1338,7 @@ pub async fn import_feeds_payload(
                 source_scope_config: item.source_scope_config,
                 classification_mode: item.classification_mode,
                 curation_strictness: item.curation_strictness,
+                evaluation_depth: item.evaluation_depth,
                 minimum_relevance: item.minimum_relevance,
                 freshness_window_days: item.freshness_window_days,
                 sort_order: item.sort_order,
@@ -1288,4 +1359,156 @@ pub async fn import_feeds_payload(
         skipped,
         ids,
     })
+}
+
+pub async fn load_article_passages(
+    pool: &SqlitePool,
+    article_id: &str,
+    content_hash: &str,
+    chunker_version: &str,
+) -> Result<Vec<super::passages::ArticlePassage>> {
+    let rows = sqlx::query(
+        r#"
+        SELECT id, article_id, content_hash, passage_index, start_char, end_char,
+               section_heading, token_count, text, provenance
+        FROM rss_article_passages
+        WHERE article_id = ?1 AND content_hash = ?2 AND chunker_version = ?3
+        ORDER BY passage_index ASC
+        "#,
+    )
+    .bind(article_id)
+    .bind(content_hash)
+    .bind(chunker_version)
+    .fetch_all(pool)
+    .await?;
+
+    let mut out = Vec::with_capacity(rows.len());
+    for row in rows {
+        out.push(super::passages::ArticlePassage {
+            id: row.try_get("id")?,
+            article_id: row.try_get("article_id")?,
+            content_hash: row.try_get("content_hash")?,
+            passage_index: row.try_get::<i64, _>("passage_index")?.max(0) as usize,
+            start_char: row.try_get::<i64, _>("start_char")?.max(0) as usize,
+            end_char: row.try_get::<i64, _>("end_char")?.max(0) as usize,
+            section_heading: row.try_get("section_heading")?,
+            token_count: row.try_get::<i64, _>("token_count")?.max(0) as usize,
+            text: row.try_get("text")?,
+            provenance: ContentProvenance::from_str(&row.try_get::<String, _>("provenance")?),
+        });
+    }
+    Ok(out)
+}
+
+pub async fn upsert_article_passages(
+    pool: &SqlitePool,
+    article_id: &str,
+    content_hash: &str,
+    chunker_version: &str,
+    passages: &[super::passages::ArticlePassage],
+) -> Result<()> {
+    let mut tx = pool.begin().await?;
+    sqlx::query(
+        "DELETE FROM rss_article_passages WHERE article_id = ?1 AND (content_hash != ?2 OR chunker_version != ?3)",
+    )
+    .bind(article_id)
+    .bind(content_hash)
+    .bind(chunker_version)
+    .execute(&mut *tx)
+    .await?;
+
+    let now = Utc::now().to_rfc3339();
+    for p in passages {
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO rss_article_passages (
+                id, article_id, content_hash, passage_index, start_char, end_char,
+                section_heading, token_count, text, provenance, chunker_version, created_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)
+            "#,
+        )
+        .bind(&p.id)
+        .bind(&p.article_id)
+        .bind(&p.content_hash)
+        .bind(p.passage_index as i64)
+        .bind(p.start_char as i64)
+        .bind(p.end_char as i64)
+        .bind(p.section_heading.as_deref())
+        .bind(p.token_count as i64)
+        .bind(&p.text)
+        .bind(p.provenance.as_str())
+        .bind(chunker_version)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
+}
+
+pub async fn load_passage_embeddings(
+    pool: &SqlitePool,
+    passage_ids: &[String],
+    provider: &str,
+    model: &str,
+) -> Result<HashMap<String, Vec<f32>>> {
+    let mut out = HashMap::new();
+    if passage_ids.is_empty() || provider.is_empty() || model.is_empty() {
+        return Ok(out);
+    }
+    for chunk in passage_ids.chunks(450) {
+        let placeholders: Vec<String> = (0..chunk.len()).map(|i| format!("?{}", i + 3)).collect();
+        let sql = format!(
+            "SELECT passage_id, embedding FROM rss_article_passage_embeddings WHERE provider = ?1 AND model = ?2 AND passage_id IN ({})",
+            placeholders.join(",")
+        );
+        let mut q = sqlx::query(&sql).bind(provider).bind(model);
+        for pid in chunk {
+            q = q.bind(pid);
+        }
+        let rows = q.fetch_all(pool).await?;
+        for row in rows {
+            let pid: String = row.try_get("passage_id")?;
+            let blob: Vec<u8> = row.try_get("embedding")?;
+            out.insert(pid, bytes_to_embedding(&blob));
+        }
+    }
+    Ok(out)
+}
+
+pub async fn upsert_passage_embeddings(
+    pool: &SqlitePool,
+    records: &[(&str, &str, &str, &str, &[f32])],
+) -> Result<()> {
+    if records.is_empty() {
+        return Ok(());
+    }
+    let mut tx = pool.begin().await?;
+    let now = Utc::now().to_rfc3339();
+    for &(passage_id, provider, model, content_hash, vec) in records {
+        if vec.is_empty() {
+            continue;
+        }
+        let bytes = embedding_to_bytes(vec);
+        sqlx::query(
+            r#"
+            INSERT OR REPLACE INTO rss_article_passage_embeddings (
+                passage_id, provider, model, dimension, embedding, content_hash, updated_at
+            )
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+            "#,
+        )
+        .bind(passage_id)
+        .bind(provider)
+        .bind(model)
+        .bind(vec.len() as i32)
+        .bind(&bytes)
+        .bind(content_hash)
+        .bind(&now)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+    Ok(())
 }

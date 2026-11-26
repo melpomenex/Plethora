@@ -3,14 +3,15 @@
 
 use super::classifier::{
     adjudicate_article_batch_feeds, adjudicate_with_llm, evaluate_fast_local,
-    parse_llm_decision_json, validate_llm_policy_for_feed, LlmAdjudicationError,
-    LlmDecisionRequest, LlmRawResponse, SmartFeedDecisionLlm,
+    parse_llm_decision_json, validate_llm_policy_for_feed, DecisionOutput, LayaSystemOneLlm,
+    LlmAdjudicationError, LlmDecisionRequest, LlmRawResponse, SmartFeedDecisionLlm,
+    CLASSIFIER_VERSION,
 };
 use super::clustering::group_feed_articles;
 use super::models::*;
-use super::normalize::build_article_snapshot;
+use super::normalize::{build_article_snapshot, ArticleSnapshot};
 use super::repository;
-use super::retrieval::{build_feed_query_profile, retrieve_candidate_signals};
+use super::retrieval::{build_feed_query_profile, retrieve_candidate_signals, CandidateSignals};
 use super::worker::{
     apply_smart_feed_feedback, evaluate_articles_for_enabled_feeds, evaluate_smart_feed_with_deps,
     resolve_smart_feed_embedding_backend, EvaluationOptions, SmartFeedWorkerState,
@@ -325,6 +326,7 @@ async fn classification_fixtures_ai_news_iran_war_overlapping_and_false_negative
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::FastLocal,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -349,6 +351,7 @@ async fn classification_fixtures_ai_news_iran_war_overlapping_and_false_negative
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::FastLocal,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -373,6 +376,7 @@ async fn classification_fixtures_ai_news_iran_war_overlapping_and_false_negative
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::FastLocal,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -397,6 +401,7 @@ async fn classification_fixtures_ai_news_iran_war_overlapping_and_false_negative
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::FastLocal,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -421,6 +426,7 @@ async fn classification_fixtures_ai_news_iran_war_overlapping_and_false_negative
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::FastLocal,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -604,6 +610,7 @@ async fn classification_fixtures_ai_news_iran_war_overlapping_and_false_negative
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::FastLocal,
             curation_strictness: CurationStrictness::Broad,
+            evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -733,6 +740,7 @@ async fn feedback_override_undo_rebuild_and_feed_independence() {
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::FastLocal,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -756,6 +764,7 @@ async fn feedback_override_undo_rebuild_and_feed_independence() {
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::FastLocal,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -915,6 +924,7 @@ async fn llm_error_recovery_retry_prompt_injection_and_consent_enforcement() {
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::Cloud,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -1102,6 +1112,7 @@ async fn folder_scoping_ingestion_hook_cancellation_cache_and_export_import() {
             },
             classification_mode: ClassificationMode::FastLocal,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -1204,6 +1215,7 @@ async fn dimension_mismatch_is_ignored_and_offline_embedding_degrades() {
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::FastLocal,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -1304,6 +1316,7 @@ async fn performance_500_articles_10_feeds_and_cache_reuse() {
                 source_scope_config: Default::default(),
                 classification_mode: ClassificationMode::FastLocal,
                 curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
                 minimum_relevance: None,
                 freshness_window_days: None,
                 sort_order: SmartFeedSortOrder::Relevance,
@@ -1401,6 +1414,7 @@ async fn mid_batch_cancellation_stops_evaluation_cleanly() {
             source_scope_config: Default::default(),
             classification_mode: ClassificationMode::Cloud,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -1508,6 +1522,7 @@ async fn performance_5000_articles_10_feeds_and_incremental_cache_hits() {
                 source_scope_config: Default::default(),
                 classification_mode: ClassificationMode::FastLocal,
                 curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
                 minimum_relevance: None,
                 freshness_window_days: None,
                 sort_order: SmartFeedSortOrder::Relevance,
@@ -1610,6 +1625,7 @@ fn laya_system_one_request_parsing_and_policy_resolution() {
         source_scope_config: SourceScopeConfig::default(),
         classification_mode: ClassificationMode::IntelligentLocal,
         curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
         minimum_relevance: None,
         freshness_window_days: None,
         sort_order: SmartFeedSortOrder::Relevance,
@@ -1646,7 +1662,9 @@ fn laya_system_one_request_parsing_and_policy_resolution() {
     let snap = build_article_snapshot(&row);
 
     let req = LayaSystemOneLlm::build_request_body(&feed, &snap);
-    assert!(req.get("model").is_none(), "laya-serve rejects model field");
+    assert_eq!(req["model"], "typed-decisions");
+    assert_eq!(req["max_len"], 1024);
+    assert_eq!(req["head_max_len"], 256);
     assert!(req.get("state").is_some());
     let questions = req.get("questions").and_then(|v| v.as_object()).unwrap();
     assert_eq!(questions["decision"]["type"], "choice");
@@ -1670,7 +1688,7 @@ fn laya_system_one_request_parsing_and_policy_resolution() {
     assert_eq!(parsed.decision, MatchDecision::INCLUDE);
     assert_eq!(parsed.decision_source, DecisionSource::IntelligentLocal);
     assert_eq!(parsed.evaluation_status, EvaluationStatus::Completed);
-    assert_eq!(parsed.estimated_tokens, 138);
+    assert_eq!(parsed.estimated_tokens, 120);
     assert!(parsed.relevance_score > 0.8);
     assert!(parsed.decision_reason.contains("Laya"));
 
@@ -1734,6 +1752,7 @@ async fn intelligent_local_feed_never_uses_cloud_embeddings() {
             source_scope_config: SourceScopeConfig::default(),
             classification_mode: ClassificationMode::IntelligentLocal,
             curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: SmartFeedSortOrder::Relevance,
@@ -1783,4 +1802,839 @@ async fn intelligent_local_feed_never_uses_cloud_embeddings() {
 
     assert_eq!(metrics.total_scanned, 1);
     assert_eq!(metrics.embeddings_generated, 0);
+}
+
+#[tokio::test]
+async fn mid_batch_cancellation_halts_llm_calls_within_batch() {
+    let pool = setup_pool().await;
+    insert_feed(&pool, "f-cancel-llm", "Cancel LLM Feed").await;
+    for i in 0..25 {
+        sqlx::query(
+            "INSERT INTO rss_articles (id, feed_id, url, title, published_date, content, summary, date_added, categories)
+             VALUES (?1, 'f-cancel-llm', ?2, ?3, '2026-11-20T12:00:00Z', 'AI inference benchmark notes', 'AI notes', '2026-11-20T12:00:00Z', '[\"AI\"]')",
+        )
+        .bind(format!("art-cllm-{i}"))
+        .bind(format!("https://example.com/cllm/{i}"))
+        .bind(format!("AI inference benchmark #{i}"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let sf = repository::create_feed(
+        &pool,
+        CreateSmartFeedInput {
+            name: "AI".into(),
+            description: "AI research".into(),
+            inclusion_criteria: "AI, inference".into(),
+            exclusion_criteria: String::new(),
+            source_scope: SourceScope::All,
+            source_scope_config: SourceScopeConfig::default(),
+            classification_mode: ClassificationMode::Cloud,
+            curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
+            minimum_relevance: None,
+            freshness_window_days: None,
+            sort_order: SmartFeedSortOrder::Relevance,
+            group_similar_stories: true,
+            is_enabled: true,
+            cloud_consent_granted: true,
+            preferred_provider: None,
+            preferred_model: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    struct CountingCancellingLlm {
+        ws: SmartFeedWorkerState,
+        feed_id: String,
+        calls: Arc<AtomicUsize>,
+    }
+
+    #[async_trait]
+    impl SmartFeedDecisionLlm for CountingCancellingLlm {
+        async fn decide(
+            &self,
+            _request: LlmDecisionRequest,
+        ) -> std::result::Result<LlmRawResponse, LlmAdjudicationError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.ws.cancel_feed(&self.feed_id);
+            Ok(LlmRawResponse {
+                content: r#"{"decision":"INCLUDE","score":0.85,"reason":"AI","evidence":["AI"]}"#
+                    .into(),
+                estimated_tokens: 50,
+            })
+        }
+
+        fn provider_label(&self) -> String {
+            "mock:counting-cancel".to_string()
+        }
+    }
+
+    let ws = SmartFeedWorkerState::new();
+    let calls = Arc::new(AtomicUsize::new(0));
+    let llm: Arc<dyn SmartFeedDecisionLlm> = Arc::new(CountingCancellingLlm {
+        ws: ws.clone(),
+        feed_id: sf.id.clone(),
+        calls: Arc::clone(&calls),
+    });
+
+    let metrics = evaluate_smart_feed_with_deps(
+        &pool,
+        Some(&ws),
+        None,
+        &sf.id,
+        EvaluationOptions::default(),
+        Some(topic_semantic_backend()),
+        Some(llm),
+    )
+    .await
+    .unwrap();
+
+    assert!(metrics.cancelled);
+    // Must stop within the bounded concurrency window rather than calling the LLM for all 25 items.
+    assert!(
+        calls.load(Ordering::SeqCst) <= super::worker::MAX_LLM_CONCURRENCY,
+        "expected <= {} LLM calls after mid-batch cancel, got {}",
+        super::worker::MAX_LLM_CONCURRENCY,
+        calls.load(Ordering::SeqCst)
+    );
+}
+
+#[tokio::test]
+async fn background_ingestion_does_not_cloud_embed_intelligent_local_only_articles() {
+    let pool = setup_pool().await;
+    insert_feed(&pool, "f-cloud-src", "Cloud Source").await;
+    insert_feed(&pool, "f-local-src", "Local Source").await;
+
+    sqlx::query(
+        "INSERT INTO rss_articles (id, feed_id, url, title, published_date, content, summary, date_added, categories)
+         VALUES ('art-local-only', 'f-local-src', 'https://example.com/local', 'Rust MIR borrow checker', '2026-11-20T12:00:00Z', 'Rust compiler internals', 'Rust MIR', '2026-11-20T12:00:00Z', '[\"Rust\"]')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let _cloud_feed = repository::create_feed(
+        &pool,
+        CreateSmartFeedInput {
+            name: "Cloud Feed".into(),
+            description: "Cloud topic".into(),
+            inclusion_criteria: "Cloud".into(),
+            exclusion_criteria: String::new(),
+            source_scope: SourceScope::SelectedFeeds,
+            source_scope_config: SourceScopeConfig {
+                feed_ids: vec!["f-cloud-src".into()],
+                folder_ids: vec![],
+            },
+            classification_mode: ClassificationMode::Cloud,
+            curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
+            minimum_relevance: None,
+            freshness_window_days: None,
+            sort_order: SmartFeedSortOrder::Relevance,
+            group_similar_stories: true,
+            is_enabled: true,
+            cloud_consent_granted: true,
+            preferred_provider: None,
+            preferred_model: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let _local_feed = repository::create_feed(
+        &pool,
+        CreateSmartFeedInput {
+            name: "Local Feed".into(),
+            description: "Rust compiler".into(),
+            inclusion_criteria: "Rust".into(),
+            exclusion_criteria: String::new(),
+            source_scope: SourceScope::SelectedFeeds,
+            source_scope_config: SourceScopeConfig {
+                feed_ids: vec!["f-local-src".into()],
+                folder_ids: vec![],
+            },
+            classification_mode: ClassificationMode::IntelligentLocal,
+            curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
+            minimum_relevance: None,
+            freshness_window_days: None,
+            sort_order: SmartFeedSortOrder::Relevance,
+            group_similar_stories: true,
+            is_enabled: true,
+            cloud_consent_granted: false,
+            preferred_provider: None,
+            preferred_model: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let cloud_emb_cfg = EmbeddingConfigInput {
+        provider: crate::ai::embeddings::EmbeddingProviderType::OpenRouter,
+        openai_api_key: None,
+        openai_model: None,
+        cohere_api_key: None,
+        cohere_model: None,
+        openrouter_api_key: Some("sk-or-test".into()),
+        openrouter_model: Some("openai/text-embedding-3-small".into()),
+        ollama_base_url: None,
+        ollama_model: None,
+    };
+
+    let runs = evaluate_articles_for_enabled_feeds(
+        &pool,
+        None,
+        None,
+        &["art-local-only".to_string()],
+        Some(cloud_emb_cfg),
+        Some(true),
+        None,
+        false,
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(runs.len(), 1);
+    assert_eq!(runs[0].embeddings_generated, 0);
+}
+
+
+#[test]
+fn laya_budget_respects_token_limits_exclusions_and_multilingual_text() {
+    use super::laya_budget::{
+        build_compact_question_heads, build_token_safe_state, LayaBudgetConfig, LayaTokenizer,
+    };
+
+    let tok = LayaTokenizer::discover_global();
+    let cfg = LayaBudgetConfig::default();
+
+    let feed = SmartFeed {
+        id: "f-budget".into(),
+        name: "AI News".into(),
+        description: "Substantive coverage of foundation models, inference hardware, and ML research. ".repeat(15),
+        inclusion_criteria: "LLM releases, GPU/TPU accelerators, training architectures, alignment benchmarks. ".repeat(10),
+        exclusion_criteria: "Superficial ChatGPT listicles, sponsored ads, unrelated crypto hype, generic gadget reviews.".into(),
+        source_scope: SourceScope::All,
+        source_scope_config: SourceScopeConfig::default(),
+        classification_mode: ClassificationMode::IntelligentLocal,
+        curation_strictness: CurationStrictness::Strict,
+        evaluation_depth: EvaluationDepth::Adaptive,
+        minimum_relevance: None,
+        freshness_window_days: None,
+        sort_order: SmartFeedSortOrder::Relevance,
+        group_similar_stories: true,
+        is_enabled: true,
+        cloud_consent_granted: false,
+        preferred_provider: None,
+        preferred_model: None,
+        definition_revision: 1,
+        created_at: String::new(),
+        updated_at: String::new(),
+        last_evaluated_at: None,
+    };
+
+    let qset = build_compact_question_heads(&tok, &feed, &cfg, true);
+    assert!(qset.max_head_tokens <= cfg.head_max_len + 4);
+    assert!(qset.state_room >= 700, "state room was {}", qset.state_room);
+    assert!(qset.criteria_compacted);
+
+    // Exclusion criteria must NEVER be silently dropped
+    let dec_ins = qset.questions_json["decision"]["instructions"]
+        .as_str()
+        .unwrap();
+    assert!(dec_ins.contains("Exclude:"));
+    assert!(dec_ins.contains("listicles"));
+
+    // Multilingual + emoji + very long content must stay within state_room
+    let long_multilingual = format!(
+        "🚀 新型推論エンジンと半導体設計について。{} ",
+        "ModernBERT and transformer quantization benchmarks. ".repeat(400)
+    );
+    let budgeted = build_token_safe_state(
+        &tok,
+        &qset,
+        "日本語とEnglishのタイトル 🧠",
+        &long_multilingual,
+        Some("Short summary"),
+        &["AI".into(), "Hardware".into()],
+        "Very Long Redundant Publisher Name",
+        None,
+    );
+    assert!(
+        budgeted.state_tokens <= budgeted.state_room + 4,
+        "state_tokens {} exceeded state_room {}",
+        budgeted.state_tokens,
+        budgeted.state_room
+    );
+    assert!(budgeted.state_json.get("title").is_some());
+    assert!(budgeted.state_json.get("content").is_some());
+}
+
+#[test]
+fn normalize_preserves_structure_strips_boilerplate_and_tracks_provenance() {
+    let row = ScopedArticleRow {
+        id: "art-prov-1".into(),
+        feed_id: "f1".into(),
+        feed_title: "Tech Journal".into(),
+        url: "https://example.com/a1".into(),
+        guid: None,
+        title: "Semiconductor Fab Expansion".into(),
+        author: Some("Jane Doe".into()),
+        published_date: Some("2026-11-20T12:00:00Z".into()),
+        content: Some("<p>Short RSS teaser.</p>".into()),
+        summary: Some("Short RSS teaser.".into()),
+        image_url: None,
+        is_queued: false,
+        is_read: false,
+        date_added: "2026-11-20T12:00:00Z".into(),
+        full_content: Some(
+            "<h2>Manufacturing</h2><p>TSMC and ASML announced EUV lithography milestones for 2nm AI accelerators.</p><p>Subscribe to our newsletter for daily updates.</p><p>Cookie Policy: Accept all cookies.</p>"
+                .into(),
+        ),
+        full_content_fetched_at: Some("2026-11-20T12:05:00Z".into()),
+        categories: vec!["Semiconductors".into()],
+    };
+
+    let snap = build_article_snapshot(&row);
+    assert_eq!(snap.content_provenance, ContentProvenance::FullExtracted);
+    assert!(snap.structured_body_text.contains("## Manufacturing"));
+    assert!(snap.structured_body_text.contains("\n\n"));
+    assert!(!snap.structured_body_text.to_lowercase().contains("subscribe to our newsletter"));
+    assert!(!snap.structured_body_text.to_lowercase().contains("accept all cookies"));
+
+    // Content beyond 4000 chars changes content_hash
+    let mut row2 = row.clone();
+    let long_a = format!("<p>{}</p><p>Ending alpha.</p>", "word ".repeat(1200));
+    let long_b = format!("<p>{}</p><p>Ending beta.</p>", "word ".repeat(1200));
+    row2.full_content = Some(long_a);
+    let snap_a = build_article_snapshot(&row2);
+    row2.full_content = Some(long_b);
+    let snap_b = build_article_snapshot(&row2);
+    assert_ne!(snap_a.content_hash, snap_b.content_hash);
+}
+
+#[test]
+fn passages_chunk_long_article_and_dual_retrieval_finds_late_and_negative_evidence() {
+    use super::laya_budget::LayaTokenizer;
+    use super::passages::{chunk_article_snapshot, retrieve_passages_for_feed, PassageRole};
+
+    let tok = LayaTokenizer::discover_global();
+    let filler = "Municipal budget hearings and transit schedules dominated city council deliberations this week. ".repeat(80);
+    let late_ai = "In a major shift, the research lab unveiled a new sparse mixture-of-experts language model with 4-bit KV cache quantization for local inference.";
+    let excl_para = "Opinion: Why crypto token speculation and gadget hype distract from real engineering.";
+
+    let row = ScopedArticleRow {
+        id: "art-long-1".into(),
+        feed_id: "f1".into(),
+        feed_title: "Daily Digest".into(),
+        url: "https://example.com/long".into(),
+        guid: None,
+        title: "Weekly Roundup 🌍".into(),
+        author: None,
+        published_date: None,
+        content: None,
+        summary: Some("Weekly roundup of local and tech news.".into()),
+        image_url: None,
+        is_queued: false,
+        is_read: false,
+        date_added: "2026-11-20T12:00:00Z".into(),
+        full_content: Some(format!(
+            "<h2>Local</h2><p>{filler}</p><h2>AI Research</h2><p>{late_ai}</p><h2>Offers</h2><p>{excl_para}</p>"
+        )),
+        full_content_fetched_at: None,
+        categories: vec![],
+    };
+
+    let snap = build_article_snapshot(&row);
+    let passages = chunk_article_snapshot(&snap, &tok, 240, 32);
+    assert!(passages.len() >= 3, "expected >=3 passages, got {}", passages.len());
+    assert!(passages.iter().all(|p| !p.text.is_empty()));
+    assert!(passages.iter().any(|p| p.text.contains("mixture-of-experts")));
+
+    let feed = SmartFeed {
+        id: "f-ai".into(),
+        name: "AI News".into(),
+        description: "Machine learning models, sparse architectures, and inference".into(),
+        inclusion_criteria: "language model, quantization, local inference".into(),
+        exclusion_criteria: "crypto token, gadget hype".into(),
+        source_scope: SourceScope::All,
+        source_scope_config: SourceScopeConfig::default(),
+        classification_mode: ClassificationMode::IntelligentLocal,
+        curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
+        minimum_relevance: None,
+        freshness_window_days: None,
+        sort_order: SmartFeedSortOrder::Relevance,
+        group_similar_stories: true,
+        is_enabled: true,
+        cloud_consent_granted: false,
+        preferred_provider: None,
+        preferred_model: None,
+        definition_revision: 1,
+        created_at: String::new(),
+        updated_at: String::new(),
+        last_evaluated_at: None,
+    };
+
+    let profile = build_feed_query_profile(&feed, &[], &[]);
+    let vecs = vec![None; passages.len()];
+    let retrieved = retrieve_passages_for_feed(&profile, &passages, &vecs, 3);
+    assert!(!retrieved.is_empty());
+    assert!(
+        retrieved.iter().any(|r| r.passage.text.contains("mixture-of-experts")),
+        "late-article AI passage should be retrieved"
+    );
+    assert!(
+        retrieved
+            .iter()
+            .any(|r| r.role == PassageRole::Contradictory || r.negative_score >= 0.15),
+        "contradictory/exclusion passage should be retrieved"
+    );
+}
+
+#[test]
+fn routing_and_aggregation_enforce_topical_centrality_and_strictness() {
+    use super::classifier::{
+        aggregate_passage_decisions, should_escalate_to_laya, LayaPassageJudgment,
+    };
+    use super::passages::{ArticlePassage, PassageRole, RetrievedPassage};
+
+    let mut feed = SmartFeed {
+        id: "f-ai-strict".into(),
+        name: "AI News".into(),
+        description: "Substantive AI model and research reporting".into(),
+        inclusion_criteria: "LLM, transformer, ML research".into(),
+        exclusion_criteria: "incidental mention".into(),
+        source_scope: SourceScope::All,
+        source_scope_config: SourceScopeConfig::default(),
+        classification_mode: ClassificationMode::IntelligentLocal,
+        curation_strictness: CurationStrictness::Strict,
+        evaluation_depth: EvaluationDepth::Adaptive,
+        minimum_relevance: None,
+        freshness_window_days: None,
+        sort_order: SmartFeedSortOrder::Relevance,
+        group_similar_stories: true,
+        is_enabled: true,
+        cloud_consent_granted: false,
+        preferred_provider: None,
+        preferred_model: None,
+        definition_revision: 1,
+        created_at: String::new(),
+        updated_at: String::new(),
+        last_evaluated_at: None,
+    };
+
+    let snap = ArticleSnapshot {
+        article_id: "a1".into(),
+        feed_id: "f1".into(),
+        feed_title: "Politics Daily".into(),
+        url: "https://example.com/p".into(),
+        title: "National Election Debate".into(),
+        author: String::new(),
+        published_date: None,
+        categories: vec![],
+        summary_text: "Candidates debated taxes.".into(),
+        body_text: "word ".repeat(600),
+        best_text: "word ".repeat(600),
+        structured_body_text: "word ".repeat(600),
+        content_provenance: ContentProvenance::FullExtracted,
+        embedding_text: String::new(),
+        content_hash: "h1".into(),
+    };
+
+    // Routing escalates when candidate has long body + short summary even if fast_out != UNCERTAIN
+    let signals = CandidateSignals {
+        is_candidate: true,
+        positive_lexical_score: 0.72,
+        negative_lexical_score: 0.0,
+        positive_semantic_sim: Some(0.22),
+        negative_semantic_sim: None,
+        feedback_semantic_delta: None,
+        feedback_lexical_delta: 0.0,
+        fts_boost: 0.0,
+        matched_positive_terms: vec!["ai".into()],
+        matched_negative_terms: vec![],
+        distinct_positive_hits: 1,
+        title_positive_hits: 0,
+        semantic_available: true,
+    };
+    let fast_inc = DecisionOutput {
+        decision: MatchDecision::INCLUDE,
+        relevance_score: 0.62,
+        decision_reason: String::new(),
+        matched_evidence: vec![],
+        decision_source: DecisionSource::FastLocal,
+        evaluation_status: EvaluationStatus::Completed,
+        error_message: None,
+        estimated_tokens: 0,
+        evaluation_depth: EvaluationDepth::Adaptive,
+        content_provenance: ContentProvenance::FullExtracted,
+        passages_evaluated: 0,
+        passages_total: 0,
+        inference_calls: 0,
+        unexpected_truncation: false,
+        diagnostics: None,
+    };
+    assert!(should_escalate_to_laya(&feed, &signals, &fast_inc, &snap));
+
+    // Incidental mention in 1 passage + OFF_TOPIC in 2 passages must NOT be INCLUDE in Strict
+    let mk_p = |idx: usize, text: &str| RetrievedPassage {
+        passage: ArticlePassage {
+            id: format!("p{idx}"),
+            article_id: "a1".into(),
+            content_hash: "h1".into(),
+            passage_index: idx,
+            start_char: 0,
+            end_char: text.len(),
+            section_heading: None,
+            token_count: 20,
+            text: text.into(),
+            provenance: ContentProvenance::FullExtracted,
+        },
+        positive_score: 0.5,
+        negative_score: 0.0,
+        combined_score: 0.5,
+        role: PassageRole::Supporting,
+    };
+    let passages = vec![
+        mk_p(0, "Voters discussed healthcare and taxation."),
+        mk_p(1, "One campaign ad used an AI-generated image."),
+        mk_p(2, "Polling stations open at 7 AM."),
+    ];
+    let judgments = vec![
+        LayaPassageJudgment {
+            decision: MatchDecision::EXCLUDE,
+            relevance_score: 0.1,
+            confidence: 0.9,
+            noul_prob: 0.1,
+            centrality: "OFF_TOPIC".into(),
+            input_tokens: 100,
+            state_tokens: 40,
+            state_tokens_dropped: 0,
+            truncated: false,
+            truncated_questions: vec![],
+        },
+        LayaPassageJudgment {
+            decision: MatchDecision::INCLUDE,
+            relevance_score: 0.85,
+            confidence: 0.7,
+            noul_prob: 0.8,
+            centrality: "INCIDENTAL".into(),
+            input_tokens: 100,
+            state_tokens: 40,
+            state_tokens_dropped: 0,
+            truncated: false,
+            truncated_questions: vec![],
+        },
+        LayaPassageJudgment {
+            decision: MatchDecision::EXCLUDE,
+            relevance_score: 0.1,
+            confidence: 0.9,
+            noul_prob: 0.1,
+            centrality: "OFF_TOPIC".into(),
+            input_tokens: 100,
+            state_tokens: 40,
+            state_tokens_dropped: 0,
+            truncated: false,
+            truncated_questions: vec![],
+        },
+    ];
+
+    let agg_strict = aggregate_passage_decisions(
+        &feed,
+        &snap,
+        &passages,
+        &judgments,
+        3,
+        2,
+        300,
+        true,
+        false,
+        DecisionSource::IntelligentLocal,
+    );
+    assert_ne!(agg_strict.decision, MatchDecision::INCLUDE);
+    assert_eq!(agg_strict.passages_evaluated, 3);
+    assert_eq!(agg_strict.passages_total, 3);
+
+    // Primary centrality in Broad vs Strict
+    feed.curation_strictness = CurationStrictness::Broad;
+    let primary_judgments = vec![
+        LayaPassageJudgment {
+            decision: MatchDecision::INCLUDE,
+            relevance_score: 0.88,
+            confidence: 0.85,
+            noul_prob: 0.85,
+            centrality: "PRIMARY".into(),
+            input_tokens: 100,
+            state_tokens: 40,
+            state_tokens_dropped: 0,
+            truncated: false,
+            truncated_questions: vec![],
+        },
+        LayaPassageJudgment {
+            decision: MatchDecision::INCLUDE,
+            relevance_score: 0.76,
+            confidence: 0.80,
+            noul_prob: 0.75,
+            centrality: "SECONDARY".into(),
+            input_tokens: 100,
+            state_tokens: 40,
+            state_tokens_dropped: 0,
+            truncated: false,
+            truncated_questions: vec![],
+        },
+    ];
+    let agg_primary = aggregate_passage_decisions(
+        &feed,
+        &snap,
+        &passages[..2],
+        &primary_judgments,
+        2,
+        2,
+        200,
+        true,
+        false,
+        DecisionSource::IntelligentLocal,
+    );
+    assert_eq!(agg_primary.decision, MatchDecision::INCLUDE);
+    assert!(agg_primary.diagnostics.as_ref().unwrap().supporting_passages.len() >= 1);
+}
+
+#[tokio::test]
+async fn migration_161_persists_passages_embeddings_and_diagnostics() {
+    use super::passages::{ArticlePassage, CHUNKER_VERSION};
+
+    let pool = setup_pool().await;
+    insert_feed(&pool, "f-mig", "Tech Feed").await;
+    sqlx::query(
+        "INSERT INTO rss_articles (id, feed_id, url, title, published_date, content, summary, date_added, categories)
+         VALUES ('art-mig-1', 'f-mig', 'https://example.com/m1', 'Laya Diagnostics Test', '2026-11-20T12:00:00Z', 'Detailed body text', 'Summary', '2026-11-20T12:00:00Z', '[\"AI\"]')",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let feed = repository::create_feed(
+        &pool,
+        CreateSmartFeedInput {
+            name: "AI".into(),
+            description: "AI research".into(),
+            inclusion_criteria: String::new(),
+            exclusion_criteria: String::new(),
+            source_scope: SourceScope::All,
+            source_scope_config: SourceScopeConfig::default(),
+            classification_mode: ClassificationMode::IntelligentLocal,
+            curation_strictness: CurationStrictness::Balanced,
+            evaluation_depth: EvaluationDepth::Thorough,
+            minimum_relevance: None,
+            freshness_window_days: None,
+            sort_order: SmartFeedSortOrder::Relevance,
+            group_similar_stories: true,
+            is_enabled: true,
+            cloud_consent_granted: false,
+            preferred_provider: None,
+            preferred_model: None,
+        },
+    )
+    .await
+    .unwrap();
+    assert_eq!(feed.evaluation_depth, EvaluationDepth::Thorough);
+
+    let passage = ArticlePassage {
+        id: "p-mig-1".into(),
+        article_id: "art-mig-1".into(),
+        content_hash: "ch-1".into(),
+        passage_index: 0,
+        start_char: 0,
+        end_char: 18,
+        section_heading: Some("Intro".into()),
+        token_count: 5,
+        text: "Detailed body text".into(),
+        provenance: ContentProvenance::RssEmbedded,
+    };
+    repository::upsert_article_passages(&pool, "art-mig-1", "ch-1", CHUNKER_VERSION, &[passage])
+        .await
+        .unwrap();
+    let loaded_p = repository::load_article_passages(&pool, "art-mig-1", "ch-1", CHUNKER_VERSION)
+        .await
+        .unwrap();
+    assert_eq!(loaded_p.len(), 1);
+    assert_eq!(loaded_p[0].section_heading.as_deref(), Some("Intro"));
+
+    let emb = vec![0.1f32, 0.2, 0.3, 0.4];
+    repository::upsert_passage_embeddings(
+        &pool,
+        &[("p-mig-1", "mock", "mock-v1", "ch-1", emb.as_slice())],
+    )
+    .await
+    .unwrap();
+    let loaded_e = repository::load_passage_embeddings(
+        &pool,
+        &["p-mig-1".into()],
+        "mock",
+        "mock-v1",
+    )
+    .await
+    .unwrap();
+    assert_eq!(loaded_e.get("p-mig-1").unwrap().len(), 4);
+
+    let diag = SmartFeedMatchDiagnostics {
+        evaluation_depth: EvaluationDepth::Thorough,
+        content_provenance: ContentProvenance::RssEmbedded,
+        passages_evaluated: 1,
+        passages_total: 1,
+        inference_calls: 2,
+        token_usage: 210,
+        unexpected_truncation: false,
+        state_tokens_dropped: 0,
+        exact_tokenizer: true,
+        criteria_compacted: false,
+        model_id: Some("typed-decisions".into()),
+        pipeline_version: CLASSIFIER_VERSION.into(),
+        primary_centrality: Some("PRIMARY".into()),
+        supporting_passages: vec!["Detailed body text".into()],
+        contradictory_passages: vec![],
+        matched_inclusion: vec![],
+        matched_exclusion: vec![],
+        evidence_coverage: 1.0,
+    };
+    repository::upsert_matches_batch(
+        &pool,
+        &[SmartFeedMatch {
+            smart_feed_id: feed.id.clone(),
+            article_id: "art-mig-1".into(),
+            decision: MatchDecision::INCLUDE,
+            relevance_score: 0.91,
+            ranking_score: 0.91,
+            decision_reason: "Grounded match".into(),
+            matched_evidence: vec!["laya: INCLUDE".into()],
+            decision_source: DecisionSource::IntelligentLocal,
+            content_hash: "ch-1".into(),
+            definition_revision: feed.definition_revision,
+            classifier_version: CLASSIFIER_VERSION.into(),
+            embedding_provider: String::new(),
+            embedding_model: String::new(),
+            evaluation_status: EvaluationStatus::Completed,
+            error_message: None,
+            is_user_override: false,
+            evaluated_at: "2026-11-26T10:00:00Z".into(),
+            evaluation_depth: EvaluationDepth::Thorough,
+            content_provenance: ContentProvenance::RssEmbedded,
+            passages_evaluated: 1,
+            passages_total: 1,
+            inference_calls: 2,
+            unexpected_truncation: false,
+            diagnostics: Some(diag),
+        }],
+    )
+    .await
+    .unwrap();
+
+    let (items, _) = repository::query_feed_articles(
+        &pool,
+        &feed.id,
+        &SmartFeedArticlesFilter::default(),
+    )
+    .await
+    .unwrap();
+    assert_eq!(items.len(), 1);
+    assert_eq!(items[0].evaluation_depth, EvaluationDepth::Thorough);
+    assert_eq!(items[0].content_provenance, ContentProvenance::RssEmbedded);
+    assert_eq!(items[0].passages_evaluated, 1);
+    assert_eq!(
+        items[0].diagnostics.as_ref().unwrap().primary_centrality.as_deref(),
+        Some("PRIMARY")
+    );
+}
+
+#[tokio::test]
+async fn live_laya_token_aware_classification_smoke_if_running() {
+    use super::laya_budget::LayaTokenizer;
+    use super::passages::{chunk_article_snapshot, retrieve_passages_for_feed};
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_millis(800))
+        .build()
+        .unwrap();
+    let healthy = client
+        .get("http://127.0.0.1:8000/health")
+        .send()
+        .await
+        .is_ok_and(|r| r.status().is_success());
+    if !healthy {
+        return; // Gracefully skip when local Laya server is not running
+    }
+
+    let laya = LayaSystemOneLlm::new("http://127.0.0.1:8000".into(), Some(15_000));
+    let tok = LayaTokenizer::discover_global();
+    let feed = SmartFeed {
+        id: "f-live".into(),
+        name: "AI News".into(),
+        description: "Artificial intelligence, LLMs, and ML research".into(),
+        inclusion_criteria: "language model, neural network, inference".into(),
+        exclusion_criteria: "sponsored advertisement, crypto".into(),
+        source_scope: SourceScope::All,
+        source_scope_config: SourceScopeConfig::default(),
+        classification_mode: ClassificationMode::IntelligentLocal,
+        curation_strictness: CurationStrictness::Balanced,
+        evaluation_depth: EvaluationDepth::Adaptive,
+        minimum_relevance: None,
+        freshness_window_days: None,
+        sort_order: SmartFeedSortOrder::Relevance,
+        group_similar_stories: true,
+        is_enabled: true,
+        cloud_consent_granted: false,
+        preferred_provider: None,
+        preferred_model: None,
+        definition_revision: 1,
+        created_at: String::new(),
+        updated_at: String::new(),
+        last_evaluated_at: None,
+    };
+
+    let row = ScopedArticleRow {
+        id: "art-live-1".into(),
+        feed_id: "f1".into(),
+        feed_title: "ML Weekly".into(),
+        url: "https://example.com/live".into(),
+        guid: None,
+        title: "Sparse Attention Kernels for Local LLM Inference".into(),
+        author: None,
+        published_date: None,
+        content: None,
+        summary: Some("Short summary.".into()),
+        image_url: None,
+        is_queued: false,
+        is_read: false,
+        date_added: "2026-11-26T10:00:00Z".into(),
+        full_content: Some(format!(
+            "<p>{}</p><p>The researchers benchmarked 4-bit quantized transformer inference across consumer GPUs with 2.3x throughput gains.</p>",
+            "Background on systems engineering and compiler passes. ".repeat(120)
+        )),
+        full_content_fetched_at: None,
+        categories: vec!["AI".into()],
+    };
+    let snap = build_article_snapshot(&row);
+    let passages = chunk_article_snapshot(&snap, &tok, 380, 48);
+    let profile = build_feed_query_profile(&feed, &[], &[]);
+    let vecs = vec![None; passages.len()];
+    let retrieved = retrieve_passages_for_feed(&profile, &passages, &vecs, 3);
+
+    let out = laya
+        .adjudicate_article_adaptive(
+            &feed,
+            &snap,
+            &retrieved,
+            passages.len(),
+            DecisionSource::IntelligentLocal,
+        )
+        .await
+        .expect("live Laya adaptive adjudication should succeed");
+
+    assert!(!out.unexpected_truncation, "token-aware budgeting should prevent unexpected truncation");
+    assert!(out.passages_evaluated >= 1);
+    assert!(out.diagnostics.is_some());
 }

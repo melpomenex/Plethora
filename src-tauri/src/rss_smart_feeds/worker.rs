@@ -2,14 +2,19 @@
 //! concurrency, and deterministic feedback profile rebuilding.
 
 use super::classifier::{
-    adjudicate_with_llm, compute_ranking_score, evaluate_fast_local, validate_llm_policy_for_feed,
-    AiProviderDecisionLlm, DecisionOutput, LayaSystemOneLlm, LlmAdjudicationError,
-    SmartFeedDecisionLlm, CLASSIFIER_VERSION,
+    adjudicate_with_llm, compute_ranking_score, evaluate_fast_local, should_escalate_to_laya,
+    validate_llm_policy_for_feed, AiProviderDecisionLlm, DecisionOutput, LayaSystemOneLlm,
+    LlmAdjudicationError, SmartFeedDecisionLlm, CLASSIFIER_VERSION,
 };
+use super::laya_budget::{LayaBudgetConfig, LayaTokenizer};
 use super::models::*;
 use super::normalize::{
     build_article_snapshot, build_negative_definition_text, build_positive_definition_text,
     negative_definition_hash, positive_definition_hash, sha256_hex, ArticleSnapshot,
+};
+use super::passages::{
+    chunk_article_snapshot, retrieve_passages_for_feed, ArticlePassage, CHUNKER_VERSION,
+    DEFAULT_PASSAGE_OVERLAP_TOKENS, DEFAULT_PASSAGE_TARGET_TOKENS,
 };
 use super::repository;
 use super::retrieval::{
@@ -602,6 +607,12 @@ pub async fn evaluate_smart_feed_with_deps(
     llm_override: Option<Arc<dyn SmartFeedDecisionLlm>>,
 ) -> Result<SmartFeedRunMetrics> {
     let start = Instant::now();
+    if let Some(ws) = worker_state {
+        // Cancel any in-flight evaluation for this feed immediately, before
+        // waiting on `job_semaphore`, so a mode switch (e.g. Cloud -> IntelligentLocal)
+        // halts outbound cloud calls right away.
+        ws.cancel_feed(smart_feed_id);
+    }
     let _permit = if let Some(ws) = worker_state {
         Some(ws.job_semaphore.clone().acquire_owned().await.ok())
     } else {
@@ -807,6 +818,7 @@ async fn evaluate_inner(
                         && existing.evaluation_status != EvaluationStatus::CompletedLexical);
                 let cache_valid = !options.force_reevaluate
                     && existing.definition_revision == feed.definition_revision
+                    && existing.classifier_version == CLASSIFIER_VERSION
                     && existing.content_hash == snap.content_hash
                     && model_matches
                     && !matches!(
@@ -912,11 +924,12 @@ async fn evaluate_inner(
                 fts_boost,
                 active_feedback.contains_key(&snap.article_id),
             );
-            let fast_out = evaluate_fast_local(&feed, &signals);
+            let mut fast_out = evaluate_fast_local(&feed, &signals);
+            fast_out.content_provenance = snap.content_provenance;
             let needs_llm = match feed.classification_mode {
                 ClassificationMode::FastLocal => false,
                 ClassificationMode::IntelligentLocal | ClassificationMode::Hybrid => {
-                    fast_out.decision == MatchDecision::UNCERTAIN
+                    should_escalate_to_laya(&feed, &signals, &fast_out, snap)
                 }
                 ClassificationMode::Cloud => signals.is_candidate,
             };
@@ -929,7 +942,37 @@ async fn evaluate_inner(
 
         // Optional Stage F LLM adjudication with bounded concurrency and
         // non-destructive error recovery (errors NEVER map to EXCLUDE).
+        let mut skipped_cancelled: Vec<bool> = vec![false; fast_decisions.len()];
         if !llm_indices.is_empty() {
+            let laya_adaptive_client: Option<Arc<LayaSystemOneLlm>> =
+                if feed.classification_mode == ClassificationMode::IntelligentLocal {
+                    if let Some(laya) = options.laya_config.as_ref().filter(|c| c.enabled) {
+                        let base_url = laya
+                            .base_url
+                            .as_deref()
+                            .map(str::trim)
+                            .filter(|s| !s.is_empty())
+                            .unwrap_or(crate::laya_runtime::LAYA_ENDPOINT);
+                        if is_loopback_url(base_url) {
+                            Some(Arc::new(LayaSystemOneLlm::new(
+                                base_url.to_string(),
+                                laya.timeout_ms,
+                            )))
+                        } else {
+                            None
+                        }
+                    } else if crate::laya_runtime::is_managed_running() {
+                        Some(Arc::new(LayaSystemOneLlm::new(
+                            crate::laya_runtime::LAYA_ENDPOINT.to_string(),
+                            None,
+                        )))
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+
             match &llm_resolution {
                 Some(Ok(llm)) => {
                     let source_kind = match feed.classification_mode {
@@ -938,27 +981,165 @@ async fn evaluate_inner(
                         ClassificationMode::Cloud => DecisionSource::Cloud,
                         ClassificationMode::FastLocal => DecisionSource::FastLocal,
                     };
+                    let laya_tok = LayaTokenizer::discover_global();
+                    let laya_budget = LayaBudgetConfig::default();
+                    let max_passages = match feed.evaluation_depth {
+                        EvaluationDepth::Fast => 1usize,
+                        EvaluationDepth::Adaptive => 3usize,
+                        EvaluationDepth::Thorough => 5usize,
+                    };
+                    let target_passage_tokens = laya_budget
+                        .max_len
+                        .saturating_sub(laya_budget.head_max_len + 80)
+                        .clamp(220, DEFAULT_PASSAGE_TARGET_TOKENS);
+
                     let mut futs = Vec::with_capacity(llm_indices.len());
                     for &idx in &llm_indices {
                         let snap = fast_decisions[idx].0;
                         let llm_ref = Arc::clone(llm);
+                        let laya_ref = laya_adaptive_client.clone();
                         let feed_ref = &feed;
+                        let profile_ref = &profile;
+                        let backend_ref = &backend;
+                        let prov_ref = &provider_name;
+                        let mod_ref = &model_name;
+                        let tok_ref = &laya_tok;
+                        let token_ref = Arc::clone(cancel_token);
                         futs.push(async move {
+                            if token_ref.load(Ordering::Relaxed) {
+                                return (idx, None);
+                            }
+                            if let Some(laya) = laya_ref {
+                                // Load or chunk passages lazily only for escalated articles
+                                let mut passages: Vec<ArticlePassage> =
+                                    repository::load_article_passages(
+                                        pool,
+                                        &snap.article_id,
+                                        &snap.content_hash,
+                                        CHUNKER_VERSION,
+                                    )
+                                    .await
+                                    .unwrap_or_default();
+                                if passages.is_empty() {
+                                    passages = chunk_article_snapshot(
+                                        snap,
+                                        tok_ref,
+                                        target_passage_tokens,
+                                        DEFAULT_PASSAGE_OVERLAP_TOKENS,
+                                    );
+                                    if !passages.is_empty() {
+                                        let _ = repository::upsert_article_passages(
+                                            pool,
+                                            &snap.article_id,
+                                            &snap.content_hash,
+                                            CHUNKER_VERSION,
+                                            &passages,
+                                        )
+                                        .await;
+                                    }
+                                }
+
+                                // Lazy passage embeddings when backend is live
+                                let mut p_vecs: Vec<Option<Vec<f32>>> = vec![None; passages.len()];
+                                if backend_live && passages.len() > 1 {
+                                    let pids: Vec<String> =
+                                        passages.iter().map(|p| p.id.clone()).collect();
+                                    let mut cached = repository::load_passage_embeddings(
+                                        pool,
+                                        &pids,
+                                        prov_ref,
+                                        mod_ref,
+                                    )
+                                    .await
+                                    .unwrap_or_default();
+                                    let mut missing_idx = Vec::new();
+                                    let mut missing_texts = Vec::new();
+                                    for (i, p) in passages.iter().enumerate() {
+                                        if let Some(v) = cached.remove(&p.id) {
+                                            p_vecs[i] = Some(v);
+                                        } else {
+                                            missing_idx.push(i);
+                                            missing_texts.push(p.text.clone());
+                                        }
+                                    }
+                                    if !missing_texts.is_empty() {
+                                        if let Ok(new_vecs) =
+                                            backend_ref.embed_texts(&missing_texts).await
+                                        {
+                                            let mut to_store = Vec::new();
+                                            for (i, v) in
+                                                missing_idx.iter().copied().zip(new_vecs.into_iter())
+                                            {
+                                                if !v.is_empty() {
+                                                    p_vecs[i] = Some(v);
+                                                }
+                                            }
+                                            for &i in &missing_idx {
+                                                if let Some(ref v) = p_vecs[i] {
+                                                    to_store.push((
+                                                        passages[i].id.as_str(),
+                                                        prov_ref.as_str(),
+                                                        mod_ref.as_str(),
+                                                        passages[i].content_hash.as_str(),
+                                                        v.as_slice(),
+                                                    ));
+                                                }
+                                            }
+                                            let _ =
+                                                repository::upsert_passage_embeddings(pool, &to_store)
+                                                    .await;
+                                        }
+                                    }
+                                }
+
+                                let vec_refs: Vec<Option<ArticleVectorRef<'_>>> = p_vecs
+                                    .iter()
+                                    .map(|opt| {
+                                        opt.as_ref().map(|v| ArticleVectorRef {
+                                            provider: prov_ref.as_str(),
+                                            model: mod_ref.as_str(),
+                                            vector: v.as_slice(),
+                                        })
+                                    })
+                                    .collect();
+                                let retrieved = retrieve_passages_for_feed(
+                                    profile_ref,
+                                    &passages,
+                                    &vec_refs,
+                                    max_passages,
+                                );
+                                let res = laya
+                                    .adjudicate_article_adaptive(
+                                        feed_ref,
+                                        snap,
+                                        &retrieved,
+                                        passages.len(),
+                                        source_kind,
+                                    )
+                                    .await;
+                                return (idx, Some(res));
+                            }
+
                             let res =
                                 adjudicate_with_llm(llm_ref.as_ref(), feed_ref, snap, source_kind)
                                     .await;
-                            (idx, res)
+                            (idx, Some(res))
                         });
                     }
                     let settled: Vec<(
                         usize,
-                        std::result::Result<DecisionOutput, LlmAdjudicationError>,
+                        Option<std::result::Result<DecisionOutput, LlmAdjudicationError>>,
                     )> = stream::iter(futs)
                         .buffer_unordered(MAX_LLM_CONCURRENCY)
                         .collect()
                         .await;
 
-                    for (idx, res) in settled {
+                    for (idx, maybe_res) in settled {
+                        let Some(res) = maybe_res else {
+                            skipped_cancelled[idx] = true;
+                            metrics.cancelled = true;
+                            continue;
+                        };
                         metrics.provider_calls += 1;
                         match res {
                             Ok(llm_out) => {
@@ -1014,7 +1195,10 @@ async fn evaluate_inner(
         // Persist batch matches transactionally
         let evaluated_at = Utc::now().to_rfc3339();
         let mut to_persist = Vec::with_capacity(fast_decisions.len());
-        for (snap, out, _) in fast_decisions {
+        for (idx, (snap, out, _)) in fast_decisions.into_iter().enumerate() {
+            if skipped_cancelled[idx] {
+                continue;
+            }
             let fb_lift = match active_feedback.get(&snap.article_id) {
                 Some(FeedbackType::SHOULD_INCLUDE) => 1.0,
                 Some(FeedbackType::SHOULD_EXCLUDE) => 0.0,
@@ -1053,11 +1237,31 @@ async fn evaluate_inner(
                 error_message: out.error_message,
                 is_user_override: false,
                 evaluated_at: evaluated_at.clone(),
+                evaluation_depth: out.evaluation_depth,
+                content_provenance: snap.content_provenance,
+                passages_evaluated: out.passages_evaluated,
+                passages_total: out.passages_total,
+                inference_calls: out.inference_calls,
+                unexpected_truncation: out.unexpected_truncation,
+                diagnostics: out.diagnostics,
             });
         }
 
         repository::upsert_matches_batch(pool, &to_persist).await?;
-        processed_total += batch.len();
+        processed_total += to_persist.len();
+        if metrics.cancelled {
+            emit_progress(
+                "cancelled",
+                processed_total,
+                metrics.matched_count,
+                metrics.excluded_count,
+                metrics.uncertain_count,
+                metrics.cache_hits,
+                metrics.lexical_only,
+                Some("Evaluation cancelled".to_string()),
+            );
+            break;
+        }
         emit_progress(
             "running",
             processed_total,
@@ -1130,26 +1334,61 @@ pub async fn evaluate_articles_for_enabled_feeds(
         return Ok(Vec::new());
     }
 
-    let any_cloud_feed = enabled.iter().any(|f| {
-        matches!(
-            f.classification_mode,
-            ClassificationMode::Hybrid | ClassificationMode::Cloud
+    let mut feed_matches: Vec<(SmartFeed, Vec<String>)> = Vec::with_capacity(enabled.len());
+    let mut cloud_article_ids: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for feed in enabled {
+        let allowed = repository::resolve_allowed_feed_ids(
+            pool,
+            feed.source_scope,
+            &feed.source_scope_config,
         )
-    });
+        .await?;
+        let matching_ids: Vec<String> = articles
+            .iter()
+            .filter(|a| match &allowed {
+                Some(set) => set.contains(&a.feed_id),
+                None => true,
+            })
+            .map(|a| a.id.clone())
+            .collect();
+        if matching_ids.is_empty() {
+            continue;
+        }
+        if matches!(
+            feed.classification_mode,
+            ClassificationMode::Hybrid | ClassificationMode::Cloud
+        ) {
+            cloud_article_ids.extend(matching_ids.iter().cloned());
+        }
+        feed_matches.push((feed, matching_ids));
+    }
+
+    if feed_matches.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let any_cloud_article = !cloud_article_ids.is_empty();
     let backend = resolve_smart_feed_embedding_backend(
         embedding_config.as_ref(),
         paid_embeddings_enabled,
-        strict_local_only || !any_cloud_feed,
+        strict_local_only || !any_cloud_article,
     );
 
     // Pre-generate missing embeddings ONCE across all matching Smart Feeds.
+    // When using a cloud embedding backend, never embed articles that only
+    // belong to FastLocal or IntelligentLocal feeds.
     if backend.is_available() {
+        let is_cloud_backend =
+            backend.kind() == crate::ai_learning::embeddings_backend::EmbeddingBackendKind::Cloud;
         let provider_name = backend.kind_name().to_string();
         let model_name = backend.model_name();
         let cached = repository::load_article_embeddings_chunked(pool, article_ids).await?;
         let mut missing_snaps = Vec::new();
         let mut missing_texts = Vec::new();
         for art in &articles {
+            if is_cloud_backend && !cloud_article_ids.contains(&art.id) {
+                continue;
+            }
             let snap = build_article_snapshot(art);
             let valid = cached
                 .get(&snap.article_id)
@@ -1191,24 +1430,7 @@ pub async fn evaluate_articles_for_enabled_feeds(
     }
 
     let mut out = Vec::new();
-    for feed in enabled {
-        let allowed = repository::resolve_allowed_feed_ids(
-            pool,
-            feed.source_scope,
-            &feed.source_scope_config,
-        )
-        .await?;
-        let matching_ids: Vec<String> = articles
-            .iter()
-            .filter(|a| match &allowed {
-                Some(set) => set.contains(&a.feed_id),
-                None => true,
-            })
-            .map(|a| a.id.clone())
-            .collect();
-        if matching_ids.is_empty() {
-            continue;
-        }
+    for (feed, matching_ids) in feed_matches {
         let metrics = evaluate_smart_feed_with_deps(
             pool,
             worker_state,
@@ -1316,6 +1538,13 @@ pub async fn apply_smart_feed_feedback(
                     error_message: None,
                     is_user_override: true,
                     evaluated_at: now,
+                    evaluation_depth: feed.evaluation_depth,
+                    content_provenance: snap.content_provenance,
+                    passages_evaluated: 0,
+                    passages_total: 0,
+                    inference_calls: 0,
+                    unexpected_truncation: false,
+                    diagnostics: None,
                 }],
             )
             .await?;

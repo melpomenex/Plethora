@@ -109,6 +109,9 @@ pub async fn update_rss_smart_feed(
     let stats = repository::get_feed_with_stats(repo.pool(), &updated.id).await?;
 
     let should_eval = reevaluate_now.unwrap_or(policy_changed) && updated.is_enabled;
+    if policy_changed || !updated.is_enabled || should_eval {
+        worker.cancel_feed(&id);
+    }
     if should_eval {
         let pool = repo.pool().clone();
         let worker_clone = worker.inner().clone();

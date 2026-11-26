@@ -29,6 +29,36 @@ export type SmartFeedClassificationMode =
 
 export type SmartFeedStrictness = "broad" | "balanced" | "strict";
 
+export type SmartFeedEvaluationDepth = "fast" | "adaptive" | "thorough";
+
+export type SmartFeedContentProvenance =
+  | "headline_only"
+  | "summary_only"
+  | "rss_embedded"
+  | "full_extracted"
+  | "partial";
+
+export interface SmartFeedMatchDiagnostics {
+  evaluation_depth: SmartFeedEvaluationDepth;
+  content_provenance: SmartFeedContentProvenance;
+  passages_evaluated: number;
+  passages_total: number;
+  inference_calls: number;
+  token_usage: number;
+  unexpected_truncation: boolean;
+  state_tokens_dropped: number;
+  exact_tokenizer: boolean;
+  criteria_compacted: boolean;
+  model_id?: string | null;
+  pipeline_version: string;
+  primary_centrality?: string | null;
+  supporting_passages: string[];
+  contradictory_passages: string[];
+  matched_inclusion: string[];
+  matched_exclusion: string[];
+  evidence_coverage: number;
+}
+
 export type SmartFeedSortOrder = "relevance" | "newest" | "oldest" | "unread_first";
 
 export type SmartFeedMatchDecision = "INCLUDE" | "EXCLUDE" | "UNCERTAIN" | "PENDING";
@@ -65,6 +95,7 @@ export interface SmartFeed {
   source_scope_config: SmartFeedSourceScopeConfig;
   classification_mode: SmartFeedClassificationMode;
   curation_strictness: SmartFeedStrictness;
+  evaluation_depth?: SmartFeedEvaluationDepth;
   minimum_relevance?: number | null;
   freshness_window_days?: number | null;
   sort_order: SmartFeedSortOrder;
@@ -98,6 +129,7 @@ export interface CreateSmartFeedInput {
   source_scope_config?: SmartFeedSourceScopeConfig;
   classification_mode?: SmartFeedClassificationMode;
   curation_strictness?: SmartFeedStrictness;
+  evaluation_depth?: SmartFeedEvaluationDepth;
   minimum_relevance?: number | null;
   freshness_window_days?: number | null;
   sort_order?: SmartFeedSortOrder;
@@ -117,6 +149,7 @@ export interface UpdateSmartFeedInput {
   source_scope_config?: SmartFeedSourceScopeConfig;
   classification_mode?: SmartFeedClassificationMode;
   curation_strictness?: SmartFeedStrictness;
+  evaluation_depth?: SmartFeedEvaluationDepth;
   minimum_relevance?: number | null;
   freshness_window_days?: number | null;
   sort_order?: SmartFeedSortOrder;
@@ -176,6 +209,12 @@ export interface SmartFeedArticleItem {
   cluster_id?: string | null;
   cluster_size: number;
   cluster_members: SmartFeedClusterMember[];
+  evaluation_depth?: SmartFeedEvaluationDepth;
+  content_provenance?: SmartFeedContentProvenance;
+  passages_evaluated?: number;
+  passages_total?: number;
+  unexpected_truncation?: boolean;
+  diagnostics?: SmartFeedMatchDiagnostics | null;
 }
 
 export interface SmartFeedArticlesFilter {

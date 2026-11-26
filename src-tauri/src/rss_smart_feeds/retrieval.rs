@@ -429,7 +429,7 @@ pub struct ArticleVectorRef<'a> {
     pub vector: &'a [f32],
 }
 
-fn same_space_cosine(
+pub fn same_space_cosine(
     article: Option<&ArticleVectorRef<'_>>,
     target: Option<&SmartFeedEmbeddingRecord>,
 ) -> Option<f64> {

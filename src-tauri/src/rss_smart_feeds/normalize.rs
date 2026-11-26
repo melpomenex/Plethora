@@ -1,7 +1,7 @@
 //! Stage A: HTML stripping, metadata normalization, content hashing, and
 //! untrusted-content sanitization for prompt-injection defense.
 
-use super::models::{ScopedArticleRow, SmartFeed};
+use super::models::{ContentProvenance, ScopedArticleRow, SmartFeed};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone)]
@@ -17,6 +17,8 @@ pub struct ArticleSnapshot {
     pub summary_text: String,
     pub body_text: String,
     pub best_text: String,
+    pub structured_body_text: String,
+    pub content_provenance: ContentProvenance,
     pub embedding_text: String,
     pub content_hash: String,
 }
@@ -87,6 +89,149 @@ pub fn strip_html_to_text(raw: &str) -> String {
 
     let decoded = decode_basic_entities(&out);
     collapse_whitespace(&decoded)
+}
+
+/// Strip HTML tags while preserving paragraph breaks (`\n\n`) and headings (`## `),
+/// then suppress common RSS/webpage boilerplate lines.
+pub fn strip_html_preserving_structure(raw: &str) -> String {
+    if raw.is_empty() {
+        return String::new();
+    }
+
+    let mut out = String::with_capacity(raw.len());
+    let mut chars = raw.chars().peekable();
+    let mut in_tag = false;
+    let mut tag_buf = String::new();
+    let mut skip_tag: Option<&'static str> = None;
+
+    while let Some(ch) = chars.next() {
+        if let Some(target) = skip_tag {
+            if ch == '<' {
+                tag_buf.clear();
+                while let Some(&next) = chars.peek() {
+                    chars.next();
+                    if next == '>' {
+                        break;
+                    }
+                    if tag_buf.len() < 32 {
+                        tag_buf.push(next.to_ascii_lowercase());
+                    }
+                }
+                if tag_buf.trim().starts_with('/') && tag_buf.contains(target) {
+                    skip_tag = None;
+                }
+            }
+            continue;
+        }
+
+        if ch == '<' {
+            in_tag = true;
+            tag_buf.clear();
+            continue;
+        }
+        if in_tag {
+            if ch == '>' {
+                in_tag = false;
+                let trimmed = tag_buf.trim();
+                let is_closing = trimmed.starts_with('/');
+                let tag_name = trimmed
+                    .trim_start_matches('/')
+                    .split_whitespace()
+                    .next()
+                    .unwrap_or("")
+                    .trim_matches('/')
+                    .to_ascii_lowercase();
+                if !is_closing && (tag_name == "script" || tag_name == "style" || tag_name == "nav")
+                {
+                    skip_tag = Some(match tag_name.as_str() {
+                        "script" => "script",
+                        "style" => "style",
+                        _ => "nav",
+                    });
+                } else if matches!(
+                    tag_name.as_str(),
+                    "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
+                ) {
+                    if !is_closing {
+                        if !out.ends_with("\n\n") && !out.is_empty() {
+                            out.push_str("\n\n");
+                        }
+                        out.push_str("## ");
+                    } else if !out.ends_with('\n') {
+                        out.push_str("\n\n");
+                    }
+                } else if matches!(
+                    tag_name.as_str(),
+                    "p" | "div" | "li" | "blockquote" | "section" | "article" | "tr" | "br"
+                ) {
+                    if is_closing || tag_name == "br" || tag_name == "li" {
+                        if !out.ends_with("\n\n") && !out.is_empty() {
+                            out.push_str("\n\n");
+                        }
+                    } else if !out.ends_with(' ') && !out.ends_with('\n') && !out.is_empty() {
+                        out.push(' ');
+                    }
+                } else if !out.ends_with(' ') && !out.ends_with('\n') && !out.is_empty() {
+                    out.push(' ');
+                }
+            } else if tag_buf.len() < 64 {
+                tag_buf.push(ch);
+            }
+            continue;
+        }
+
+        out.push(ch);
+    }
+
+    let decoded = decode_basic_entities(&out);
+    strip_rss_boilerplate(&normalize_structured_whitespace(&decoded))
+}
+
+fn normalize_structured_whitespace(text: &str) -> String {
+    let mut paragraphs = Vec::new();
+    for raw_para in text.split('\n') {
+        let cleaned = collapse_whitespace(raw_para);
+        if !cleaned.is_empty() && cleaned != "##" {
+            paragraphs.push(cleaned);
+        }
+    }
+    paragraphs.join("\n\n")
+}
+
+/// Remove common RSS/webpage boilerplate blocks (newsletter prompts, cookie
+/// notices, related-article trailers, and social-share footers).
+pub fn strip_rss_boilerplate(text: &str) -> String {
+    if text.is_empty() {
+        return String::new();
+    }
+    const BOILERPLATE_PREFIXES: &[&str] = &[
+        "subscribe to our newsletter",
+        "sign up for our newsletter",
+        "accept all cookies",
+        "we use cookies",
+        "cookie policy",
+        "recommended reading:",
+        "related articles:",
+        "more from ",
+        "follow us on ",
+        "advertisement",
+        "sponsored content",
+        "continue reading below",
+    ];
+    let mut kept = Vec::new();
+    for para in text.split("\n\n") {
+        let lower = para.trim().to_ascii_lowercase();
+        if lower.is_empty() {
+            continue;
+        }
+        let is_boilerplate = BOILERPLATE_PREFIXES
+            .iter()
+            .any(|prefix| lower.starts_with(prefix) || (lower.len() < 160 && lower.contains(prefix)));
+        if !is_boilerplate {
+            kept.push(para.trim());
+        }
+    }
+    kept.join("\n\n")
 }
 
 fn decode_basic_entities(text: &str) -> String {
@@ -166,12 +311,19 @@ pub fn build_article_snapshot(row: &ScopedArticleRow) -> ArticleSnapshot {
         .as_deref()
         .map(strip_html_to_text)
         .unwrap_or_default();
+    let has_full_content = row
+        .full_content
+        .as_deref()
+        .is_some_and(|s| !s.trim().is_empty());
+    let has_rss_content = row.content.as_deref().is_some_and(|s| !s.trim().is_empty());
+
     let body_raw = row
         .full_content
         .as_deref()
         .filter(|s| !s.trim().is_empty())
         .or(row.content.as_deref())
         .unwrap_or("");
+    let structured_raw = strip_html_preserving_structure(body_raw);
     let body_text = strip_html_to_text(body_raw);
     let best_text = if !body_text.is_empty() && body_text.len() >= summary_text.len() {
         body_text.clone()
@@ -179,6 +331,26 @@ pub fn build_article_snapshot(row: &ScopedArticleRow) -> ArticleSnapshot {
         summary_text.clone()
     } else {
         body_text.clone()
+    };
+    let structured_body_text = if !structured_raw.is_empty() && structured_raw.len() >= summary_text.len()
+    {
+        structured_raw
+    } else if !summary_text.is_empty() {
+        strip_rss_boilerplate(&summary_text)
+    } else {
+        structured_raw
+    };
+
+    let content_provenance = if has_full_content && body_text.chars().count() >= 120 {
+        ContentProvenance::FullExtracted
+    } else if has_full_content {
+        ContentProvenance::Partial
+    } else if has_rss_content && body_text.len() > summary_text.len() {
+        ContentProvenance::RssEmbedded
+    } else if !summary_text.is_empty() {
+        ContentProvenance::SummaryOnly
+    } else {
+        ContentProvenance::HeadlineOnly
     };
 
     let categories_joined = row.categories.join(", ");
@@ -195,11 +367,12 @@ pub fn build_article_snapshot(row: &ScopedArticleRow) -> ArticleSnapshot {
     let embedding_text = truncate_chars(&emb_parts.join("\n"), 2000);
 
     let content_hash = sha256_hex(&[
+        "norm-v2",
         &title,
         &author,
         &categories_joined,
         &summary_text,
-        &truncate_chars(&best_text, 4000),
+        &best_text,
     ]);
 
     ArticleSnapshot {
@@ -214,6 +387,8 @@ pub fn build_article_snapshot(row: &ScopedArticleRow) -> ArticleSnapshot {
         summary_text,
         body_text,
         best_text,
+        structured_body_text,
+        content_provenance,
         embedding_text,
         content_hash,
     }
@@ -293,6 +468,7 @@ mod tests {
             source_scope_config: Default::default(),
             classification_mode: Default::default(),
             curation_strictness: Default::default(),
+            evaluation_depth: Default::default(),
             minimum_relevance: None,
             freshness_window_days: None,
             sort_order: Default::default(),

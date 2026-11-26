@@ -6426,6 +6426,52 @@ pub const MIGRATIONS: &[Migration] = &[
             ON study_plans(language_profile_id);
         "#,
     ),
+    Migration::new(
+        "161_smart_feed_passages_and_diagnostics",
+        r#"
+        ALTER TABLE rss_smart_feeds ADD COLUMN evaluation_depth TEXT NOT NULL DEFAULT 'adaptive'
+            CHECK(evaluation_depth IN ('fast', 'adaptive', 'thorough'));
+
+        ALTER TABLE rss_smart_feed_matches ADD COLUMN evaluation_depth TEXT NOT NULL DEFAULT 'adaptive';
+        ALTER TABLE rss_smart_feed_matches ADD COLUMN content_provenance TEXT NOT NULL DEFAULT 'summary_only';
+        ALTER TABLE rss_smart_feed_matches ADD COLUMN passages_evaluated INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE rss_smart_feed_matches ADD COLUMN passages_total INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE rss_smart_feed_matches ADD COLUMN inference_calls INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE rss_smart_feed_matches ADD COLUMN unexpected_truncation INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE rss_smart_feed_matches ADD COLUMN diagnostics_json TEXT;
+
+        CREATE TABLE IF NOT EXISTS rss_article_passages (
+            id TEXT PRIMARY KEY,
+            article_id TEXT NOT NULL REFERENCES rss_articles(id) ON DELETE CASCADE,
+            content_hash TEXT NOT NULL,
+            passage_index INTEGER NOT NULL,
+            start_char INTEGER NOT NULL,
+            end_char INTEGER NOT NULL,
+            section_heading TEXT,
+            token_count INTEGER NOT NULL,
+            text TEXT NOT NULL,
+            provenance TEXT NOT NULL,
+            chunker_version TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rss_article_passages_article_hash
+            ON rss_article_passages(article_id, content_hash, passage_index);
+
+        CREATE TABLE IF NOT EXISTS rss_article_passage_embeddings (
+            passage_id TEXT PRIMARY KEY REFERENCES rss_article_passages(id) ON DELETE CASCADE,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            dimension INTEGER NOT NULL,
+            embedding BLOB NOT NULL,
+            content_hash TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_rss_article_passage_embeddings_model
+            ON rss_article_passage_embeddings(provider, model, dimension);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

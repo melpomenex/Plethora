@@ -345,6 +345,12 @@ mod tests {
             cluster_id: None,
             cluster_size: 1,
             cluster_members: Vec::new(),
+            evaluation_depth: Default::default(),
+            content_provenance: Default::default(),
+            passages_evaluated: 0,
+            passages_total: 0,
+            unexpected_truncation: false,
+            diagnostics: None,
         }
     }
 
