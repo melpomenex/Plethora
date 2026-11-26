@@ -37,4 +37,5 @@ export { usePaywallStore } from "./paywallStore";
 export { useLanguageProfileStore } from "./languageProfileStore";
 export { useLanguageKnowledgeStore } from "./languageKnowledgeStore";
 export { useSavedQueueStore } from "./savedQueueStore";
+export { useSavedViewsStore } from "./savedViewsStore";
 

@@ -46,6 +46,13 @@ import {
   YoutubeLogo,
 } from "@phosphor-icons/react";
 import { useDocumentStore } from "../../stores/documentStore";
+import {
+  useSavedViewsStore,
+  isSavedViewModified,
+  type CompactDocumentFilter,
+  type SavedViewConfig,
+} from "../../stores/savedViewsStore";
+import { SavedViewsMenu } from "./SavedViewsMenu";
 import { useLibraryDocuments } from "../../hooks/useLibraryDocuments";
 import { useAudioEditionGenerationStore } from "../../stores/audioEditionGenerationStore";
 import { formatDuration } from "../../api/audiobooks";
@@ -145,9 +152,6 @@ const ItemStatsModal = lazy(() =>
 );
 
 const MODE_STORAGE_KEY = "documentsViewMode";
-const SAVED_VIEWS_KEY = "documentsSavedViews";
-
-type CompactDocumentFilter = "all" | "priority" | "recent" | "active" | "parked" | "suspended" | "highlights" | "cards";
 
 function extractYouTubeId(urlOrId: string): string {
   if (!urlOrId) return "";
@@ -200,20 +204,6 @@ function coverFallbackGradient(fileType: Document["fileType"]): string {
     default: return "bg-gradient-to-br from-slate-900/60 via-slate-800/30 to-transparent";
   }
 }
-
-type SavedView = {
-  id: string;
-  name: string;
-  query: string;
-  sortKey: DocumentSortKey;
-  sortDirection: DocumentSortDirection;
-  mode: DocumentViewMode;
-  compactDocumentsView?: boolean;
-  showNextAction: boolean;
-  fileTypeFilter: string;
-  categoryFilter?: string;
-  compactFilter?: CompactDocumentFilter;
-};
 
 const defaultSortByKey: Record<DocumentSortKey, DocumentSortDirection> = {
   priority: "desc",
@@ -395,18 +385,25 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
   const [ytdlpInstalling, setYtdlpInstalling] = useState(false);
   const [ytdlpInstallMessage, setYtdlpInstallMessage] = useState<string | null>(null);
 
-  const [savedViews, setSavedViews] = useState<SavedView[]>(() => {
-    if (typeof window === "undefined") return [];
-    const stored = window.localStorage.getItem(SAVED_VIEWS_KEY);
-    if (!stored) return [];
-    try {
-      const parsed = JSON.parse(stored) as SavedView[];
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
-    }
-  });
+  const savedViews = useSavedViewsStore((state) => state.savedViews);
+  const createSavedView = useSavedViewsStore((state) => state.createView);
+  const deleteSavedView = useSavedViewsStore((state) => state.deleteView);
+  const restoreSavedView = useSavedViewsStore((state) => state.restoreView);
+  const renameSavedView = useSavedViewsStore((state) => state.renameView);
+  const updateSavedView = useSavedViewsStore((state) => state.updateView);
+  const duplicateSavedView = useSavedViewsStore((state) => state.duplicateView);
+  const moveSavedView = useSavedViewsStore((state) => state.moveView);
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const activeViewIdRef = useRef<string | null>(null);
+  activeViewIdRef.current = activeViewId;
+
+  useEffect(() => {
+    if (activeViewId && !savedViews.some((view) => view.id === activeViewId)) {
+      // If the active view was deleted (here or in another tab), clear only the
+      // active view pointer and preserve the user's current filters/layout.
+      setActiveViewId(null);
+    }
+  }, [activeViewId, savedViews]);
 
   const searchRef = useRef<HTMLInputElement>(null);
 
@@ -441,12 +438,6 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
       window.localStorage.setItem(MODE_STORAGE_KEY, mode);
     }
   }, [mode]);
-
-  useEffect(() => {
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(savedViews));
-    }
-  }, [savedViews]);
 
   useEffect(() => {
     if (!showYouTubeImport) return;
@@ -1357,34 +1348,37 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     return () => window.removeEventListener("keydown", handler);
   }, [activeDocument, activeId, mode, onOpenDocument, selectedIds, sortedDocuments, updateDocument]);
 
+  const currentViewConfig: SavedViewConfig = {
+    query: searchInput,
+    sortKey,
+    sortDirection,
+    mode,
+    compactDocumentsView,
+    showNextAction,
+    fileTypeFilter: selectedFileType,
+    categoryFilter: selectedCategory,
+    compactFilter,
+  };
+
+  const activeSavedView = activeViewId
+    ? savedViews.find((view) => view.id === activeViewId) ?? null
+    : null;
+  const isActiveViewModified = activeSavedView
+    ? isSavedViewModified(activeSavedView, currentViewConfig)
+    : false;
+
   const handleSaveView = async () => {
     const name = (await modal.prompt(t("documentsView.nameViewPrompt")))?.trim();
     if (!name) return;
-    const view: SavedView = {
-      id: `${Date.now()}`,
-      name,
-      query: searchInput,
-      sortKey,
-      sortDirection,
-      mode,
-      compactDocumentsView,
-      showNextAction,
-      fileTypeFilter: selectedFileType,
-      categoryFilter: selectedCategory,
-      compactFilter,
-    };
-    setSavedViews((prev) => [...prev, view]);
-    setActiveViewId(view.id);
+    const view = createSavedView(name, currentViewConfig);
+    if (view) {
+      setActiveViewId(view.id);
+    }
   };
 
   const handleApplyView = (viewId: string) => {
     if (!viewId) {
       setActiveViewId(null);
-      setSelectedFileType("all");
-      setSelectedCategory("all");
-      setCompactFilter("all");
-      setSearchInput("");
-      setDebouncedSearch("");
       return;
     }
     const view = savedViews.find((item) => item.id === viewId);
@@ -1400,6 +1394,63 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
     setSelectedCategory(view.categoryFilter ?? "all");
     setCompactFilter(view.compactFilter ?? "all");
     setActiveViewId(view.id);
+  };
+
+  const handleClearActiveView = () => {
+    setActiveViewId(null);
+  };
+
+  const handleRenameView = async (viewId: string) => {
+    const existing = savedViews.find((item) => item.id === viewId);
+    if (!existing) return;
+    const nextName = (
+      await modal.prompt(t("documentsView.renameViewPrompt"), existing.name, t("documentsView.renameView"))
+    )?.trim();
+    if (!nextName || nextName === existing.name) return;
+    renameSavedView(viewId, nextName);
+  };
+
+  const handleUpdateView = (viewId: string) => {
+    const updated = updateSavedView(viewId, currentViewConfig);
+    if (updated) {
+      toast.success(t("documentsView.viewUpdated"));
+    }
+  };
+
+  const handleDuplicateView = (viewId: string) => {
+    const duplicated = duplicateSavedView(viewId, t("documentsView.copyLabel"));
+    if (duplicated) {
+      toast.success(t("documentsView.viewDuplicated"));
+    }
+  };
+
+  const handleMoveView = (viewId: string, direction: "up" | "down") => {
+    moveSavedView(viewId, direction);
+  };
+
+  const handleDeleteView = (viewId: string) => {
+    const wasActive = activeViewIdRef.current === viewId;
+    const result = deleteSavedView(viewId);
+    if (!result) return;
+    if (wasActive) {
+      // Clear only the active view ID; preserve current filters, search, sort, and layout.
+      setActiveViewId(null);
+    }
+    toast.success(
+      t("documentsView.viewDeleted", { name: result.deletedView.name }),
+      undefined,
+      {
+        action: {
+          label: t("documentsView.undo"),
+          onClick: () => {
+            const restored = restoreSavedView(result.deletedView, result.index);
+            if (restored && wasActive && activeViewIdRef.current === null) {
+              setActiveViewId(result.deletedView.id);
+            }
+          },
+        },
+      }
+    );
   };
 
   const handleViewModeChange = (nextMode: DocumentViewMode) => {
@@ -1554,11 +1605,19 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
               </button>
 
               {/* Saved Views */}
-              <MobileSavedViewsMenu
+              <SavedViewsMenu
+                variant="mobile"
                 savedViews={savedViews}
                 activeViewId={activeViewId}
+                isActiveViewModified={isActiveViewModified}
                 onApplyView={handleApplyView}
+                onClearActiveView={handleClearActiveView}
                 onSaveView={handleSaveView}
+                onRenameView={handleRenameView}
+                onUpdateView={handleUpdateView}
+                onDuplicateView={handleDuplicateView}
+                onMoveView={handleMoveView}
+                onDeleteView={handleDeleteView}
               />
             </div>
 
@@ -1657,43 +1716,20 @@ export function DocumentsView({ onOpenDocument, onViewExtracts, onReadAlong, ena
               </button>
 
               {/* Saved Views */}
-              <div className="flex items-center gap-2">
-                <div className="relative">
-                  <select
-                    value={activeViewId ?? ""}
-                    onChange={(event) => handleApplyView(event.target.value)}
-                    className="pl-3 pr-7 py-2.5 bg-background border border-border rounded-lg text-sm text-foreground appearance-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-primary focus:border-transparent"
-                  >
-                    <option value="">{t("documentsView.savedViews")}</option>
-                    {savedViews.map((view) => (
-                      <option key={view.id} value={view.id}>
-                        {view.name}
-                      </option>
-                    ))}
-                  </select>
-                  <div className="absolute right-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
-                    <svg
-                      className="w-4 h-4 text-muted-foreground"
-                      fill="none"
-                      stroke="currentColor"
-                      viewBox="0 0 24 24"
-                    >
-                      <path
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        strokeWidth={2}
-                        d="M19 9l-7 7-7-7"
-                      />
-                    </svg>
-                  </div>
-                </div>
-                <button
-                  onClick={handleSaveView}
-                  className="px-3 py-2.5 bg-muted text-foreground rounded-lg text-sm hover:bg-muted/80 transition-colors"
-                >
-                  {t("documentsView.saveView")}
-                </button>
-              </div>
+              <SavedViewsMenu
+                variant="desktop"
+                savedViews={savedViews}
+                activeViewId={activeViewId}
+                isActiveViewModified={isActiveViewModified}
+                onApplyView={handleApplyView}
+                onClearActiveView={handleClearActiveView}
+                onSaveView={handleSaveView}
+                onRenameView={handleRenameView}
+                onUpdateView={handleUpdateView}
+                onDuplicateView={handleDuplicateView}
+                onMoveView={handleMoveView}
+                onDeleteView={handleDeleteView}
+              />
             </div>
           </div>
         </div>
@@ -4671,147 +4707,6 @@ function MobileImportMenu({
                   <BookOpen className="w-4 h-4 text-purple-500" />
                 </div>
                 <span>{t("documentsView.annasArchive")}</span>
-              </button>
-            </>
-          )}
-        </div>
-      )}
-    </div>
-  );
-}
-
-/**
- * Mobile Saved Views Menu
- *
- * A compact dropdown for saved views on mobile devices.
- * Consolidates view selection and save functionality.
- */
-interface MobileSavedViewsMenuProps {
-  savedViews: SavedView[];
-  activeViewId: string | null;
-  onApplyView: (viewId: string) => void;
-  onSaveView: () => void;
-}
-
-function MobileSavedViewsMenu({
-  savedViews,
-  activeViewId,
-  onApplyView,
-  onSaveView,
-}: MobileSavedViewsMenuProps) {
-  const { t } = useI18n();
-  const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-  const activeView = savedViews.find((v) => v.id === activeViewId);
-
-  useEffect(() => {
-    function handleClickOutside(event: MouseEvent) {
-      if (menuRef.current && event.target instanceof Node && !menuRef.current.contains(event.target)) {
-        setIsOpen(false);
-      }
-    }
-    if (isOpen) {
-      document.addEventListener("mousedown", handleClickOutside);
-      return () => document.removeEventListener("mousedown", handleClickOutside);
-    }
-  }, [isOpen]);
-
-  return (
-    <div className="relative flex-1" ref={menuRef}>
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className={`w-full px-3 py-2.5 rounded-lg text-sm font-medium flex items-center justify-between gap-2 transition-colors min-h-[44px] ${
-          activeView
-            ? "bg-primary/10 text-primary border border-primary/20"
-            : "bg-background border border-border text-foreground hover:bg-muted/60"
-        }`}
-        aria-label={t("documentsView.savedViews")}
-        aria-expanded={isOpen}
-      >
-        <span className="truncate">{activeView?.name ?? t("documentsView.savedViews")}</span>
-        <svg
-          className={`w-4 h-4 flex-shrink-0 transition-transform ${isOpen ? "rotate-180" : ""}`}
-          fill="none"
-          stroke="currentColor"
-          viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-        </svg>
-      </button>
-
-      {isOpen && (
-        <div className="absolute right-0 top-full mt-1 w-56 bg-card border border-border rounded-xl shadow-lg z-50 py-1.5 animate-in fade-in slide-in-from-top-1">
-          <button
-            onClick={() => {
-              onSaveView();
-              setIsOpen(false);
-            }}
-            className="w-full px-3 py-2.5 flex items-center gap-3 text-sm text-primary hover:bg-primary/5 transition-colors"
-          >
-            <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-              <Plus className="w-4 h-4" />
-            </div>
-            <span className="font-medium">{t("documentsView.saveCurrentView")}</span>
-          </button>
-
-          {savedViews.length > 0 && <div className="my-1 border-t border-border" />}
-
-          <div className="max-h-48 overflow-y-auto">
-            {savedViews.length === 0 ? (
-              <div className="px-3 py-4 text-sm text-muted-foreground text-center">
-                {t("documentsView.noSavedViews")}
-              </div>
-            ) : (
-              savedViews.map((view) => (
-                <button
-                  key={view.id}
-                  onClick={() => {
-                    onApplyView(view.id);
-                    setIsOpen(false);
-                  }}
-                  className={`w-full px-3 py-2.5 flex items-center gap-3 text-sm transition-colors ${
-                    activeViewId === view.id
-                      ? "bg-primary/5 text-primary"
-                      : "text-foreground hover:bg-muted/60"
-                  }`}
-                >
-                  <div
-                    className={`w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 ${
-                      activeViewId === view.id ? "bg-primary/10" : "bg-muted"
-                    }`}
-                  >
-                    {view.compactDocumentsView ? (
-                      <Columns
-                        className={`w-4 h-4 ${activeViewId === view.id ? "text-primary" : "text-muted-foreground"}`}
-                      />
-                    ) : view.mode === "grid" ? (
-                      <GridFour
-                        className={`w-4 h-4 ${activeViewId === view.id ? "text-primary" : "text-muted-foreground"}`}
-                      />
-                    ) : (
-                      <List
-                        className={`w-4 h-4 ${activeViewId === view.id ? "text-primary" : "text-muted-foreground"}`}
-                      />
-                    )}
-                  </div>
-                  <span className="truncate">{view.name}</span>
-                  {activeViewId === view.id && <Check className="w-4 h-4 ml-auto flex-shrink-0" />}
-                </button>
-              ))
-            )}
-          </div>
-
-          {savedViews.length > 0 && (
-            <>
-              <div className="my-1 border-t border-border" />
-              <button
-                onClick={() => {
-                  onApplyView("");
-                  setIsOpen(false);
-                }}
-                className="w-full px-3 py-2 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/60 transition-colors"
-              >
-                {t("documentsView.resetToDefault")}
               </button>
             </>
           )}
