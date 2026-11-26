@@ -37,4 +37,12 @@ export interface DraftCard {
   durableDraftId?: string;
   /** Optional revision for CAS concurrency (Task 4.2). */
   durableRevision?: number;
+  /** Optional language learning source identity for resumed draft staleness checks. */
+  languageProvenance?: {
+    profileId: string;
+    languageTag: string;
+    sourceId?: string;
+    sourceFingerprint?: string;
+    stale?: boolean;
+  };
 }

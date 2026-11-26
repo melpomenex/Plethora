@@ -1253,7 +1253,22 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       return;
     }
     setMessages(Array.isArray(session.messages) ? session.messages : []);
-    setDraftCards(Array.isArray(session.draftCards) ? session.draftCards : []);
+    const resumedDrafts = Array.isArray(session.draftCards)
+      ? session.draftCards.map((card) => {
+          if (
+            card.languageProvenance?.sourceFingerprint &&
+            seed?.languageProvenance?.sourceFingerprint &&
+            card.languageProvenance.sourceFingerprint !== seed.languageProvenance.sourceFingerprint
+          ) {
+            return { ...card, languageProvenance: { ...card.languageProvenance, stale: true } };
+          }
+          return card;
+        })
+      : [];
+    setDraftCards(resumedDrafts);
+    if (resumedDrafts.some((card) => card.languageProvenance?.stale)) {
+      setLanguageSourceConfirmed(false);
+    }
     setSessionTargetOverride(session.flashcardTargetOverride);
     if (session.selectedProviderId) setSelectedProviderId(session.selectedProviderId);
     if (typeof session.selectedNotebookId === "string") setSelectedNotebookId(session.selectedNotebookId);
@@ -2064,6 +2079,14 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
           : seed.excerpt.trim();
       }
       nextCard.extractId = seed.linkedExtractId;
+      if (langProv) {
+        nextCard.languageProvenance = {
+          profileId: langProv.profileId,
+          languageTag: langProv.languageTag,
+          sourceId: seed.documentId ?? undefined,
+          sourceFingerprint: langProv.sourceFingerprint,
+        };
+      }
       if (seed.draftCardType === "image-occlusion" && seed.imageAssetId) {
         nextCard.imageOcclusionAssetId = seed.imageAssetId;
         setSelectedImageAssetIds([seed.imageAssetId]);
@@ -2554,7 +2577,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
   const handleSaveSelected = async () => {
     const selected = draftCards.filter((c) => c.selected);
     if (selected.length === 0 || isSaving || saveInFlightRef.current) return;
-    if (seed?.languageProvenance && !languageSourceConfirmed) {
+    if ((seed?.languageProvenance && !languageSourceConfirmed) || selected.some((c) => c.languageProvenance?.stale && !languageSourceConfirmed)) {
       toast.info("Confirm the language source before saving", "The source fingerprint and origin will be stored with these cards.");
       return;
     }
