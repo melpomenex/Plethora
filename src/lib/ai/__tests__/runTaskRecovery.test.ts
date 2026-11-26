@@ -147,4 +147,27 @@ describe("single corrective allowance and terminal cause", () => {
     expect(provider.requests).toHaveLength(2);
     vi.useRealTimers();
   });
+
+  it("raises maxOutputTokens on repair when policy allows more headroom after empty/reasoning-only", async () => {
+    const provider = new FakeAIProvider({
+      capabilities: { contextTokens: 32_000 },
+      responses: [
+        response("", { responseKind: "reasoning-only", finishReason: "length" }),
+        response(valid, { finishReason: "stop" }),
+      ],
+    });
+    const result = await runTask(task, "EVIDENCE", {
+      provider,
+      requestPolicy: {
+        configuredContextTokens: 32_000,
+        promptBudgetTokens: 24_000,
+        outputReserveTokens: 4096,
+        maxOutputTokens: 4096,
+      },
+    });
+    expect(result.output).toEqual({ ok: true });
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[0].maxOutputTokens).toBe(512);
+    expect(provider.requests[1].maxOutputTokens).toBeGreaterThan(512);
+  });
 });

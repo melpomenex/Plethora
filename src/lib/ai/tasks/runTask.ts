@@ -632,18 +632,45 @@ async function repairOnce<I, O>(
   task: AITaskDefinition<I, O>, input: I, ctx: GenerationContext,
   errors: string[], rejected: AIResponse
 ): Promise<CorrectionResult<O>> {
-  const truncationHint = rejected.finishReason === "length" || errors.some(e => /Unterminated string|Unexpected end|truncat/i.test(e))
+  const isEmptyOrReasoning =
+    rejected.responseKind === "reasoning-only" ||
+    (!rejected.text.trim() && rejected.structured == null);
+  const isTruncated =
+    rejected.finishReason === "length" ||
+    errors.some((e) => /Unterminated string|Unexpected end|truncat/i.test(e));
+  const truncationHint = isTruncated
     ? "\nYour previous output was CUT OFF at the output-token limit. Shorten the content (fewer or terser entries) so the JSON document completes within the limit."
-    : rejected.responseKind === "reasoning-only" ? "\nReturn a compact final JSON answer within the output limit." : "";
+    : isEmptyOrReasoning
+      ? "\nReturn a compact final JSON answer directly within the output limit."
+      : "";
   const excerpt = rejected.text.length > REPAIR_REJECTED_BOUND
     ? `${rejected.text.slice(0, REPAIR_REJECTED_BOUND)}\n…[truncated; ${rejected.text.length} chars total]`
     : rejected.text || "(empty response)";
   const suffix = `\n\n${REPAIR_PREAMBLE}\n${errors.slice(0, 8).map(e => `- ${e.slice(0, REPAIR_ERROR_BOUND)}`).join("\n")}${truncationHint}\n\nYour rejected response (bounded):\n${excerpt}\n${REPAIR_INSTRUCTION}`;
+  const repairSystemInstruction = structuredSystemInstruction(task.systemInstruction, task.schema?.json);
+  const repairText = ctx.built.text + suffix;
+  let repairMaxOutputTokens = ctx.maxOutputTokens;
+  if (ctx.policy && (isTruncated || isEmptyOrReasoning)) {
+    const repairInputTokens =
+      estimateTokens(repairText) +
+      estimateTokens(repairSystemInstruction) +
+      (ctx.built.image ? 258 : 0) +
+      32;
+    const contextLimit =
+      ctx.provider.kind === "cloud" && ctx.capabilities && ctx.capabilities.contextTokens > 0
+        ? Math.max(ctx.policy.configuredContextTokens, ctx.capabilities.contextTokens)
+        : ctx.capabilities && ctx.capabilities.contextTokens > 0
+          ? Math.min(ctx.policy.configuredContextTokens, ctx.capabilities.contextTokens)
+          : ctx.policy.configuredContextTokens;
+    const availableOutput = Math.max(ctx.maxOutputTokens, contextLimit - repairInputTokens);
+    const desiredCeiling = Math.min(Math.max(ctx.policy.maxOutputTokens, 8192), Math.max(ctx.maxOutputTokens * 2, 8192));
+    repairMaxOutputTokens = Math.min(desiredCeiling, availableOutput);
+  }
   const repairRequest: AIRequest = {
     requestId: makeRequestId(`${task.id}-repair`),
-    systemInstruction: structuredSystemInstruction(task.systemInstruction, task.schema?.json),
-    text: ctx.built.text + suffix,
-    image: ctx.built.image, maxOutputTokens: ctx.maxOutputTokens,
+    systemInstruction: repairSystemInstruction,
+    text: repairText,
+    image: ctx.built.image, maxOutputTokens: repairMaxOutputTokens,
     structured: false, taskManagedRecovery: true,
   };
   try {

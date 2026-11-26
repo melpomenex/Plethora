@@ -119,7 +119,8 @@ const MAX_DROPS = 4;
 export function repairTruncatedJson(raw: string): unknown | null {
   const trimmed = raw.trim();
   if (!trimmed) return null;
-  const candidate = FENCE.test(trimmed) ? FENCE.exec(trimmed)![1].trim() : trimmed;
+  const fenced = FENCE.exec(trimmed);
+  const candidate = (fenced ? fenced[1] : trimmed.replace(/^```(?:json)?\s*/, "")).trim();
 
   // Valid JSON parses immediately — nothing to repair.
   try {
