@@ -11,6 +11,8 @@ import { useContext, useEffect, useState, useRef, useCallback, useMemo } from "r
 import { QueryClientContext } from "@tanstack/react-query";
 import { useShallow } from "zustand/react/shallow";
 import { useI18n } from "../lib/i18n";
+import { dispatchLanguageHostAction } from "../lib/languageHost";
+import { queueVideoExtractTutorRequest } from "../lib/languageHost/queue";
 import { useTabsStore, type TabPane } from "../stores/tabsStore";
 import {
   ArrowsClockwise,
@@ -38,6 +40,7 @@ import { useCollectionStore } from "../stores/collectionStore";
 import type { QueueItem } from "../types/queue";
 import { useDocumentStore } from "../stores/documentStore";
 import { defaultSettings, useSettingsStore } from "../stores/settingsStore";
+import { useLanguageProfileStore } from "../stores/languageProfileStore";
 import { DocumentViewer } from "../components/viewer/DocumentViewerWrapper";
 import { AudiobookViewer } from "../components/viewer/AudiobookViewer";
 import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../services/audio/audioPlaybackRollout";
@@ -573,6 +576,8 @@ export function QueueScrollPage() {
     settings: s.settings,
     updateSettingsCategory: s.updateSettingsCategory,
   })));
+  const queueLanguageLearningEnabled = useSettingsStore((s) => s.settings.languageLearning.enabled);
+  const queueActiveLanguageProfile = useLanguageProfileStore((s) => s.activeProfile);
   const paneId = usePaneId();
 
   const isActiveTab = useIsActiveTab();
@@ -5033,23 +5038,45 @@ export function QueueScrollPage() {
           }}
         >
           {renderedItem?.type === "video-extract" && renderedItem.videoExtract ? (
-            <DocumentViewer
-              key={`video-extract-${renderedItem.videoExtract.id}`}
-              documentId={renderedItem.videoExtract.documentId}
-              focusedVideoExtractId={renderedItem.videoExtract.id}
-              openedFrom="queue"
-              embedded={true}
-              hideRatingOrbs={true}
-              onVideoContextChange={setLiveVideoContext}
-              onSelectionChange={setSelection}
-              onScrollPositionChange={setScrollState}
-              contextPageWindow={2}
-              onEnded={() => {
-                if (settings.scrollQueue.autoProceed) goToNext();
-              }}
-              onPriorityShortcut={openCurrentItemPriority}
-              onArchive={() => goToNext()}
-            />
+            <div className="relative h-full min-h-0">
+              <DocumentViewer
+                key={`video-extract-${renderedItem.videoExtract.id}`}
+                documentId={renderedItem.videoExtract.documentId}
+                focusedVideoExtractId={renderedItem.videoExtract.id}
+                openedFrom="queue"
+                embedded={true}
+                hideRatingOrbs={true}
+                onVideoContextChange={setLiveVideoContext}
+                onSelectionChange={setSelection}
+                onScrollPositionChange={setScrollState}
+                contextPageWindow={2}
+                onEnded={() => {
+                  if (settings.scrollQueue.autoProceed) goToNext();
+                }}
+                onPriorityShortcut={openCurrentItemPriority}
+                onArchive={() => goToNext()}
+              />
+              {queueLanguageLearningEnabled && queueActiveLanguageProfile && (
+                <button
+                  type="button"
+                  className="absolute right-3 top-3 z-20 inline-flex items-center gap-1.5 rounded-md border border-border bg-background/95 px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm hover:bg-muted"
+                  onClick={() => {
+                    const request = queueVideoExtractTutorRequest({
+                      extractId: renderedItem.videoExtract!.id,
+                      documentId: renderedItem.videoExtract!.documentId,
+                      title: renderedItem.videoExtract!.title,
+                      startTime: renderedItem.videoExtract!.startTime,
+                      endTime: renderedItem.videoExtract!.endTime,
+                      languageTag: queueActiveLanguageProfile.targetLanguage,
+                      profileId: queueActiveLanguageProfile.id,
+                    });
+                    if (request) dispatchLanguageHostAction(request);
+                  }}
+                >
+                  <ChatCircle className="h-3.5 w-3.5" aria-hidden="true" /> {t("languageLearning.tutor.queueAsk")}
+                </button>
+              )}
+            </div>
           ) : renderedItem?.type === "document" && scrollViewMode !== "document" ? (
             scrollViewMode === "extracts" ? (
               <QueueExtractsView documentId={renderedItem.documentId!} />

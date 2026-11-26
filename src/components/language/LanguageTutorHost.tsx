@@ -17,6 +17,8 @@ import { useAiAvailability } from "../../lib/ai/useAiAvailability";
 import { getActiveCloudConfig } from "../../lib/ai/providers/cloudProvider";
 import { useLLMProvidersStore } from "../../stores/llmProvidersStore";
 import { providerAllowsKeylessAccess } from "../../utils/llmProviderUtils";
+import { useTutorSessionsStore } from "../../stores/languageTutorSessionsStore";
+import { useI18n } from "../../lib/i18n";
 
 const LEXICON_PAGE_SIZE = 500;
 const MAX_LEXICON_ENTRIES = 5000;
@@ -68,12 +70,28 @@ async function loadPaginatedLearnerLexicon(
 
 /** Opens the existing bounded TutorSheet from reader/video/peek action events. */
 export function LanguageTutorHost() {
+  const { t } = useI18n();
   const { snapshot } = useLanguageLearningHost();
   const ai = useAiAvailability("prompt");
   const hasByoProvider = useLLMProvidersStore((state) =>
     state.providers.some((provider) => provider.enabled && (provider.apiKey ?? "").trim().length > 0),
   );
   const tutorService = useMemo(() => createProductionLanguageTutorService(), []);
+  const tutorSessions = useTutorSessionsStore((state) => state.entries);
+  const deleteTutorSession = useTutorSessionsStore((state) => state.deleteSession);
+  const clearTutorSessions = useTutorSessionsStore((state) => state.clearSessions);
+  const exportTutorSessions = useTutorSessionsStore((state) => state.exportSessions);
+
+  const handleExportTutorSessions = () => {
+    if (typeof URL === "undefined" || !URL.createObjectURL || typeof document === "undefined") return;
+    const blob = new Blob([exportTutorSessions()], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `tutor-sessions-${new Date().toISOString().slice(0, 10)}.json`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   const [request, setRequest] = useState<LanguageHostActionDetail | null>(null);
   const [context, setContext] = useState<ReturnType<typeof buildLearnerContext> | null>(null);
@@ -208,6 +226,14 @@ export function LanguageTutorHost() {
         });
         if (!controller.signal.aborted) {
           setModeResult(response);
+          useTutorSessionsStore.getState().addSession({
+            profileId: snapshot.profile.id,
+            mode: targetMode,
+            promptExcerpt: materialText,
+            responseExcerpt: response.text,
+            attribution: response.attribution,
+            privacyPath: response.privacyPath ?? (privacyPolicy.sendsMaterialOffDevice && privacyPolicy.consented ? "cloud" : "local"),
+          });
         }
       } catch (err) {
         if (!controller.signal.aborted) {
@@ -333,6 +359,45 @@ export function LanguageTutorHost() {
             <p className="mt-1 whitespace-pre-wrap">{modeResult.text}</p>
           </div>
         )}
+        <div className="mt-2 border-t border-border/50 pt-1.5" data-tutor-sessions="true">
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">{t("languageLearning.tutor.history")}</span>
+            {tutorSessions.length > 0 && (
+              <span className="flex gap-1.5">
+                <button type="button" className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-muted" onClick={handleExportTutorSessions}>
+                  {t("languageLearning.tutor.export")}
+                </button>
+                <button type="button" className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-muted" onClick={clearTutorSessions}>
+                  {t("languageLearning.tutor.clear")}
+                </button>
+              </span>
+            )}
+          </div>
+          {tutorSessions.length === 0 ? (
+            <p className="mt-1 text-[11px] text-muted-foreground">{t("languageLearning.tutor.historyEmpty")}</p>
+          ) : (
+            <ul className="mt-1 space-y-1">
+              {tutorSessions.slice(0, 5).map((session) => (
+                <li key={session.id} className="flex items-start justify-between gap-2 rounded border border-border/50 bg-muted/30 px-1.5 py-1 text-[11px]">
+                  <div className="min-w-0">
+                    <div className="truncate text-foreground">
+                      {TUTOR_MODE_METADATA.find((item) => item.mode === session.mode)?.label ?? session.mode} · {session.attribution} · {session.privacyPath}
+                    </div>
+                    <div className="truncate text-muted-foreground">{session.responseExcerpt}</div>
+                  </div>
+                  <button
+                    type="button"
+                    aria-label={t("languageLearning.tutor.delete")}
+                    className="shrink-0 rounded px-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+                    onClick={() => deleteTutorSession(session.id)}
+                  >
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </aside>
     </>
   );

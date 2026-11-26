@@ -13,7 +13,9 @@ export interface LanguageHostActionDetail {
   profileId?: string;
   languageTag?: string;
   practiceMode?: PracticeMode;
-  origin: "reader" | "video" | "tutor" | "practice";
+  /** Explicit original-media range for practice launches (video/audio sources). */
+  practiceSource?: { mediaId: string; startMs: number; endMs: number };
+  origin: "reader" | "video" | "tutor" | "practice" | "queue";
 }
 
 export function dispatchLanguageHostAction(detail: LanguageHostActionDetail): void {
