@@ -204,4 +204,58 @@ describe("Dashboard customization (OpenSpec: customize-dashboard-layout)", () =>
       container.querySelectorAll("[data-dashboard-section-id]").length,
     ).toBe(0);
   });
+
+  it("allows adding a toolbar action via Quick Actions Picker and removing it", () => {
+    render(<DashboardTab />);
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Quick Action" }));
+    const picker = screen.getByTestId("quick-actions-picker");
+    expect(picker).toBeInTheDocument();
+
+    const searchInput = within(picker).getByRole("textbox", { name: "Search quick actions" });
+    fireEvent.change(searchInput, { target: { value: "Knowledge Graph" } });
+
+    const kgButton = within(picker).getByRole("button", { name: /Knowledge Graph/i });
+    fireEvent.click(kgButton);
+
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.getByText("Knowledge Graph")).toBeInTheDocument();
+
+    // Remove the added action in Customize mode
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Knowledge Graph from Quick Actions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByText("Knowledge Graph")).not.toBeInTheDocument();
+  });
+
+  it("allows adding and removing interactive dashboard widgets via the Widget Gallery", () => {
+    render(<DashboardTab />);
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Widget" }));
+    expect(screen.getByTestId("dashboard-widget-gallery")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Add Focus Timer widget" }));
+    fireEvent.click(screen.getByRole("button", { name: "Add Quick Scratchpad widget" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    expect(screen.getByText("Focus Timer")).toBeInTheDocument();
+    expect(screen.getByLabelText("Quick Scratchpad")).toBeInTheDocument();
+
+    // Scratchpad persists input locally
+    fireEvent.change(screen.getByLabelText("Quick Scratchpad"), {
+      target: { value: "Review chapter 4 notes" },
+    });
+    expect(window.localStorage.getItem("plethora_dashboard_scratchpad_v1")).toBe(
+      "Review chapter 4 notes",
+    );
+
+    // Remove Focus Timer widget from its section header
+    fireEvent.click(screen.getByRole("button", { name: "Customize" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove Focus Timer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    expect(screen.queryByText("Focus Timer")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Quick Scratchpad")).toBeInTheDocument();
+  });
 });

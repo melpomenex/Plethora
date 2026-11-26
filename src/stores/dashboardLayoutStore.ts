@@ -14,7 +14,27 @@ export const DEFAULT_DASHBOARD_SECTION_ORDER = [
   "quick-review",
 ] as const;
 
-export type DashboardSectionId = (typeof DEFAULT_DASHBOARD_SECTION_ORDER)[number];
+export const ADDABLE_WIDGET_IDS = [
+  "widget-focus-timer",
+  "widget-streak-goals",
+  "widget-scratchpad",
+  "widget-up-next",
+  "widget-saved-queues",
+  "widget-pinned-docs",
+] as const;
+
+export type DashboardWidgetId = (typeof ADDABLE_WIDGET_IDS)[number];
+
+export const ALL_DASHBOARD_SECTION_IDS = [
+  ...DEFAULT_DASHBOARD_SECTION_ORDER,
+  ...ADDABLE_WIDGET_IDS,
+] as const;
+
+export type DashboardSectionId = (typeof ALL_DASHBOARD_SECTION_IDS)[number];
+
+export function isDashboardWidgetId(id: string): id is DashboardWidgetId {
+  return (ADDABLE_WIDGET_IDS as readonly string[]).includes(id);
+}
 
 export const DEFAULT_QUICK_ACTION_ORDER = [
   "continue-reading",
@@ -27,7 +47,33 @@ export const DEFAULT_QUICK_ACTION_ORDER = [
   "settings",
 ] as const;
 
-export type DashboardQuickActionId = (typeof DEFAULT_QUICK_ACTION_ORDER)[number];
+export const ALL_QUICK_ACTION_IDS = [
+  ...DEFAULT_QUICK_ACTION_ORDER,
+  "import-file",
+  "import-url",
+  "read-next",
+  "random-item",
+  "study-plans",
+  "learning-insights",
+  "language-learning",
+  "podcast",
+  "saved-queues",
+  "knowledge-graph",
+  "knowledge-sphere",
+  "web-browser",
+  "doc-qa",
+  "notebooklm",
+  "extracts",
+  "command-palette",
+  "workspace-switcher",
+  "scroll-mode",
+  "newsletters",
+  "image-registry",
+  "import-needs-review",
+  "refresh-dashboard",
+] as const;
+
+export type DashboardQuickActionId = (typeof ALL_QUICK_ACTION_IDS)[number];
 
 export interface DashboardLayoutConfig {
   sectionOrder: DashboardSectionId[];
@@ -48,6 +94,7 @@ export function createDefaultDashboardLayout(): DashboardLayoutConfig {
 function normalizeOrderedIds<T extends string>(
   candidate: unknown,
   allowed: readonly T[],
+  requiredFallback: readonly T[] = allowed,
 ): T[] {
   const allowedSet = new Set<string>(allowed);
   const seen = new Set<T>();
@@ -63,7 +110,7 @@ function normalizeOrderedIds<T extends string>(
     }
   }
 
-  for (const fallback of allowed) {
+  for (const fallback of requiredFallback) {
     if (!seen.has(fallback)) {
       result.push(fallback);
     }
@@ -99,10 +146,18 @@ export function normalizeDashboardLayout(raw: unknown): DashboardLayoutConfig {
   }
   const obj = raw as Record<string, unknown>;
   return {
-    sectionOrder: normalizeOrderedIds(obj.sectionOrder, DEFAULT_DASHBOARD_SECTION_ORDER),
-    hiddenSections: normalizeHiddenIds(obj.hiddenSections, DEFAULT_DASHBOARD_SECTION_ORDER),
-    quickActionOrder: normalizeOrderedIds(obj.quickActionOrder, DEFAULT_QUICK_ACTION_ORDER),
-    hiddenQuickActions: normalizeHiddenIds(obj.hiddenQuickActions, DEFAULT_QUICK_ACTION_ORDER),
+    sectionOrder: normalizeOrderedIds(
+      obj.sectionOrder,
+      ALL_DASHBOARD_SECTION_IDS,
+      DEFAULT_DASHBOARD_SECTION_ORDER,
+    ),
+    hiddenSections: normalizeHiddenIds(obj.hiddenSections, ALL_DASHBOARD_SECTION_IDS),
+    quickActionOrder: normalizeOrderedIds(
+      obj.quickActionOrder,
+      ALL_QUICK_ACTION_IDS,
+      DEFAULT_QUICK_ACTION_ORDER,
+    ),
+    hiddenQuickActions: normalizeHiddenIds(obj.hiddenQuickActions, ALL_QUICK_ACTION_IDS),
   };
 }
 
@@ -174,10 +229,14 @@ export interface DashboardLayoutState extends DashboardLayoutConfig {
   reorderSection: (fromId: DashboardSectionId, toIndex: number) => void;
   setSectionVisible: (id: DashboardSectionId, visible: boolean) => void;
   toggleSectionVisibility: (id: DashboardSectionId) => void;
+  addWidget: (id: DashboardWidgetId) => void;
+  removeWidget: (id: DashboardWidgetId) => void;
   moveQuickAction: (id: DashboardQuickActionId, direction: "left" | "right") => void;
   reorderQuickAction: (fromId: DashboardQuickActionId, toIndex: number) => void;
   setQuickActionVisible: (id: DashboardQuickActionId, visible: boolean) => void;
   toggleQuickActionVisibility: (id: DashboardQuickActionId) => void;
+  addQuickAction: (id: DashboardQuickActionId) => void;
+  removeQuickAction: (id: DashboardQuickActionId) => void;
   resetToDefault: () => void;
   reloadFromStorage: () => void;
 }
@@ -239,6 +298,23 @@ export const useDashboardLayoutStore = create<DashboardLayoutState>((set, get) =
       setSectionVisible(id, hiddenSections.includes(id));
     },
 
+    addWidget: (id) => {
+      const { sectionOrder, hiddenSections } = get();
+      const nextOrder = sectionOrder.includes(id) ? sectionOrder : [...sectionOrder, id];
+      const nextHidden = hiddenSections.filter((item) => item !== id);
+      if (nextOrder === sectionOrder && nextHidden.length === hiddenSections.length) return;
+      commit({ sectionOrder: nextOrder, hiddenSections: nextHidden });
+    },
+
+    removeWidget: (id) => {
+      const { sectionOrder, hiddenSections } = get();
+      if (!sectionOrder.includes(id) && !hiddenSections.includes(id)) return;
+      commit({
+        sectionOrder: sectionOrder.filter((item) => item !== id),
+        hiddenSections: hiddenSections.filter((item) => item !== id),
+      });
+    },
+
     moveQuickAction: (id, direction) => {
       const { quickActionOrder } = get();
       const idx = quickActionOrder.indexOf(id);
@@ -269,6 +345,27 @@ export const useDashboardLayoutStore = create<DashboardLayoutState>((set, get) =
     toggleQuickActionVisibility: (id) => {
       const { hiddenQuickActions, setQuickActionVisible } = get();
       setQuickActionVisible(id, hiddenQuickActions.includes(id));
+    },
+
+    addQuickAction: (id) => {
+      const { quickActionOrder, hiddenQuickActions } = get();
+      const nextOrder = quickActionOrder.includes(id) ? quickActionOrder : [...quickActionOrder, id];
+      const nextHidden = hiddenQuickActions.filter((item) => item !== id);
+      if (nextOrder === quickActionOrder && nextHidden.length === hiddenQuickActions.length) return;
+      commit({ quickActionOrder: nextOrder, hiddenQuickActions: nextHidden });
+    },
+
+    removeQuickAction: (id) => {
+      const { quickActionOrder, hiddenQuickActions, setQuickActionVisible } = get();
+      if ((DEFAULT_QUICK_ACTION_ORDER as readonly string[]).includes(id)) {
+        setQuickActionVisible(id, false);
+        return;
+      }
+      if (!quickActionOrder.includes(id) && !hiddenQuickActions.includes(id)) return;
+      commit({
+        quickActionOrder: quickActionOrder.filter((item) => item !== id),
+        hiddenQuickActions: hiddenQuickActions.filter((item) => item !== id),
+      });
     },
 
     resetToDefault: () => {

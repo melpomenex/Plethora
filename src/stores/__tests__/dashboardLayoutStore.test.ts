@@ -115,4 +115,45 @@ describe("dashboardLayoutStore", () => {
 
     expect(useDashboardLayoutStore.getState().hiddenSections).toEqual(["quick-tip"]);
   });
+
+  it("adds and removes toolbar/custom Quick Actions and persists", () => {
+    const store = useDashboardLayoutStore.getState();
+    store.addQuickAction("knowledge-graph");
+    expect(useDashboardLayoutStore.getState().quickActionOrder).toContain("knowledge-graph");
+    expect(isDefaultDashboardLayout(useDashboardLayoutStore.getState())).toBe(false);
+
+    const persisted = JSON.parse(
+      window.localStorage.getItem(DASHBOARD_LAYOUT_STORAGE_KEY) || "{}",
+    );
+    expect(persisted.quickActionOrder).toContain("knowledge-graph");
+
+    const normalized = normalizeDashboardLayout(persisted);
+    expect(normalized.quickActionOrder).toContain("knowledge-graph");
+
+    store.removeQuickAction("knowledge-graph");
+    expect(useDashboardLayoutStore.getState().quickActionOrder).not.toContain("knowledge-graph");
+    expect(isDefaultDashboardLayout(useDashboardLayoutStore.getState())).toBe(true);
+  });
+
+  it("adds and removes dashboard widgets and preserves them on normalize", () => {
+    const store = useDashboardLayoutStore.getState();
+    store.addWidget("widget-focus-timer");
+    store.addWidget("widget-scratchpad");
+
+    const state = useDashboardLayoutStore.getState();
+    expect(state.sectionOrder).toContain("widget-focus-timer");
+    expect(state.sectionOrder).toContain("widget-scratchpad");
+    expect(isDefaultDashboardLayout(state)).toBe(false);
+
+    const persisted = JSON.parse(
+      window.localStorage.getItem(DASHBOARD_LAYOUT_STORAGE_KEY) || "{}",
+    );
+    const normalized = normalizeDashboardLayout(persisted);
+    expect(normalized.sectionOrder).toContain("widget-focus-timer");
+    expect(normalized.sectionOrder).toContain("widget-scratchpad");
+
+    store.removeWidget("widget-focus-timer");
+    expect(useDashboardLayoutStore.getState().sectionOrder).not.toContain("widget-focus-timer");
+    expect(useDashboardLayoutStore.getState().sectionOrder).toContain("widget-scratchpad");
+  });
 });

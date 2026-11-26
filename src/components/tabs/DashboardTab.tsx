@@ -3,6 +3,8 @@ import {
   useTabsStore,
   useDashboardLayoutStore,
   isDefaultDashboardLayout,
+  isDashboardWidgetId,
+  DEFAULT_QUICK_ACTION_ORDER,
   type DashboardSectionId,
   type DashboardQuickActionId,
 } from "../../stores";
@@ -20,6 +22,7 @@ import { type DocumentWithProgress } from "../../types/position";
 import type { StartupProgressItem } from "../../types/startup";
 import {
   QueueTab,
+  QueueScrollPage,
   ReviewTab,
   DocumentsTab,
   ContinueReadingTab,
@@ -29,7 +32,24 @@ import {
   DocumentViewer,
   AudiobooksTab,
   ImportNeedsReviewTab,
+  PodcastTab,
+  ExtractsTab,
+  DocumentQATab,
+  NotebookLMTab,
+  WebBrowserTab,
+  NewsletterDirectoryTab,
+  ImageRegistryTab,
+  createCanonicalTab,
 } from "./TabRegistry";
+import { KnowledgeGraphPage } from "../../pages/KnowledgeGraphPage";
+import { KnowledgeSpherePage } from "../../pages/KnowledgeSpherePage";
+import { WebArticleImportDialog } from "../import/WebArticleImportDialog";
+import { useQueueStore } from "../../stores/queueStore";
+import { useReviewStore } from "../../stores/reviewStore";
+import { usePlatformCapability } from "../../hooks/usePlatformCapability";
+import { requestDestinationAction } from "../../commandPalette/destinationActions";
+import { executeCommand } from "../../commandPalette/executeCommand";
+import type { QueueItem } from "../../types/queue";
 import { getDashboardStats, type DashboardStats } from "../../api/analytics";
 import { getDueItems, submitReview, type LearningItem, type ReviewRating } from "../../api/review";
 import { cardMutationCoordinator } from "../../api/learningItemMutationCoordinator";
@@ -49,6 +69,17 @@ import { StudyPlansDashboardCard } from "../study-plans/StudyPlansDashboardCard"
 import { SleepLearningDashboardCard } from "../health/SleepLearningDashboardCard";
 import { TodaysHorizonBanner } from "../dashboard/TodaysHorizonBanner";
 import { DashboardCustomizeSectionFrame } from "../dashboard/DashboardCustomizeSectionFrame";
+import { QuickActionsPicker, type QuickActionCategory } from "../dashboard/QuickActionsPicker";
+import { WidgetGalleryPanel } from "../dashboard/WidgetGalleryPanel";
+import {
+  DASHBOARD_WIDGET_CATALOG,
+  FocusTimerWidget,
+  StreakGoalsWidget,
+  ScratchpadWidget,
+  UpNextQueueWidget,
+  SavedQueuesWidget,
+  PinnedDocsWidget,
+} from "../dashboard/widgets";
 import { Button, IconButton } from "../md3";
 import {
   QuickReviewWidget,
@@ -63,40 +94,65 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowSquareOut,
+  ArrowsLeftRight,
   BookOpen,
+  Bookmarks,
   Brain,
   CaretRight,
   ChartBar,
   Check,
+  ChatDots,
   Command,
+  Compass,
   Copy,
+  DiceFive,
   Eye,
   EyeSlash,
+  FileArrowUp,
   Files,
   FolderPlus,
   Gear,
+  GraduationCap,
+  Graph,
   Headphones,
+  Image as ImageIcon,
   Lightning,
+  Link as LinkIcon,
+  Microphone,
+  MoonStars,
+  Newspaper,
+  Planet,
+  Plus,
   Rss,
+  Scissors,
+  Scroll,
   SlidersHorizontal,
+  Sparkle,
+  Stack,
   Target,
+  Translate,
   TrendUp,
+  Tray,
+  X,
 } from "@phosphor-icons/react";
 import { cn } from "../../utils/cn";
 import { t as translateRecentFeature } from "../../lib/i18n";
 
 
 interface QuickAction {
-  id: string;
+  id: DashboardQuickActionId;
   title: string;
   description: string;
+  category: Exclude<QuickActionCategory, "all">;
+  shortcut?: string;
   icon: React.ElementType;
   iconBg: string;
-  tabType: TabType;
-  tabTitle: string;
-  content: React.ComponentType;
-  closable: boolean;
+  tabType?: TabType;
+  tabTitle?: string;
+  content?: React.ComponentType;
+  closable?: boolean;
   primary?: boolean;
+  onInvoke?: () => void;
 }
 
 // Zustand selectors must return a stable fallback while the startup snapshot
@@ -123,6 +179,9 @@ export function DashboardTab() {
   const { activity, captures, reload: reloadCaptureActivity } = useCaptureActivity(isActiveTab, captureSource);
   const toast = useToast();
   const [isCustomizing, setIsCustomizing] = useState(false);
+  const [showQuickActionPicker, setShowQuickActionPicker] = useState(false);
+  const [showWidgetGallery, setShowWidgetGallery] = useState(false);
+  const [showUrlImportDialog, setShowUrlImportDialog] = useState(false);
   const [liveAnnouncement, setLiveAnnouncement] = useState("");
   const [dragState, setDragState] = useState<{
     draggingId: DashboardSectionId;
@@ -140,7 +199,15 @@ export function DashboardTab() {
   const setSectionVisible = useDashboardLayoutStore((s) => s.setSectionVisible);
   const moveQuickAction = useDashboardLayoutStore((s) => s.moveQuickAction);
   const setQuickActionVisible = useDashboardLayoutStore((s) => s.setQuickActionVisible);
+  const addQuickAction = useDashboardLayoutStore((s) => s.addQuickAction);
+  const removeQuickAction = useDashboardLayoutStore((s) => s.removeQuickAction);
+  const addWidget = useDashboardLayoutStore((s) => s.addWidget);
+  const removeWidget = useDashboardLayoutStore((s) => s.removeWidget);
   const resetDashboardLayout = useDashboardLayoutStore((s) => s.resetToDefault);
+  const openFilePickerAndImport = useDocumentStore((s) => s.openFilePickerAndImport);
+  const queueFilterMode = useQueueStore((s) => s.queueFilterMode);
+  const healthInsightsAvailable = usePlatformCapability("tab_learning_insights").available;
+  const notebooklmAvailable = usePlatformCapability("tab_notebooklm").available;
   const isDefaultLayout = useMemo(
     () =>
       isDefaultDashboardLayout({
@@ -243,11 +310,122 @@ export function DashboardTab() {
     });
   };
 
+  const openQueueItem = async (item: QueueItem) => {
+    if (item.itemType === "document") {
+      addTab({
+        title: item.documentTitle,
+        icon: null,
+        type: "document-viewer",
+        content: DocumentViewer,
+        closable: true,
+        data: { documentId: item.documentId },
+      });
+      return;
+    }
+    if (item.itemType === "extract") {
+      addTab({
+        title: item.documentTitle,
+        icon: null,
+        type: "document-viewer",
+        content: DocumentViewer,
+        closable: true,
+        data: { documentId: item.documentId, initialViewMode: "extracts" },
+      });
+      return;
+    }
+    if (item.itemType === "learning-item") {
+      addTab({
+        title: translateRecentFeature("tabs.review"),
+        icon: null,
+        type: "review",
+        content: ReviewTab,
+        closable: true,
+      });
+      if (item.learningItemId || item.id) {
+        await useReviewStore.getState().startReviewAtItem(item.learningItemId || item.id);
+      }
+      return;
+    }
+    if (item.documentId) {
+      addTab({
+        title: item.documentTitle,
+        icon: null,
+        type: "document-viewer",
+        content: DocumentViewer,
+        closable: true,
+        data: { documentId: item.documentId },
+      });
+    }
+  };
+
+  const handleImportFileAction = async () => {
+    const imported = await openFilePickerAndImport();
+    if (imported.length > 0) {
+      addTab({
+        title: imported[0].title,
+        icon: null,
+        type: "document-viewer",
+        content: DocumentViewer,
+        closable: true,
+        data: { documentId: imported[0].id },
+      });
+    }
+  };
+
+  const loadQueueByFilterMode = async () => {
+    const { loadQueue, loadDueDocumentsOnly, loadDueQueueItems } = useQueueStore.getState();
+    switch (queueFilterMode) {
+      case "due-today":
+        await loadDueDocumentsOnly();
+        break;
+      case "due-all":
+        await loadDueQueueItems();
+        break;
+      case "all-items":
+      case "new-only":
+      default:
+        await loadQueue();
+        break;
+    }
+    const { filteredItems, items } = useQueueStore.getState();
+    return filteredItems.length > 0 ? filteredItems : items;
+  };
+
+  const handleReadNextAction = async () => {
+    try {
+      const queueItems = await loadQueueByFilterMode();
+      const nextItem = queueItems[0];
+      if (!nextItem) {
+        toast.info(t("toolbar.noItemsReady"), t("toolbar.noItemAvailable"));
+        return;
+      }
+      await openQueueItem(nextItem);
+    } catch (err) {
+      toast.error(t("toolbar.readNextFailed"), err instanceof Error ? err.message : t("toolbar.couldNotOpenNext"));
+    }
+  };
+
+  const handleRandomItemAction = async () => {
+    try {
+      const queueItems = await loadQueueByFilterMode();
+      if (queueItems.length === 0) {
+        toast.info(t("toolbar.noItemsReady"), t("toolbar.noItemAvailable"));
+        return;
+      }
+      const randomItem = queueItems[Math.floor(Math.random() * queueItems.length)];
+      await openQueueItem(randomItem);
+    } catch (err) {
+      toast.error(t("toolbar.randomItemFailed"), err instanceof Error ? err.message : t("toolbar.couldNotOpenRandom"));
+    }
+  };
+
   const quickActions: QuickAction[] = [
     {
       id: "continue-reading",
       title: t("continueReading.title"),
       description: t("dashboard.continueReading"),
+      category: "media",
+      shortcut: "Ctrl+2",
       icon: BookOpen,
       iconBg: "bg-primary/10 text-primary",
       tabType: "continue-reading",
@@ -259,6 +437,8 @@ export function DashboardTab() {
       id: "queue",
       title: t("dashboard.readingQueue"),
       description: t("dashboard.continueReading"),
+      category: "study",
+      shortcut: "Ctrl+3",
       icon: BookOpen,
       iconBg: "bg-blue-500/10 text-blue-500",
       tabType: "queue",
@@ -271,6 +451,7 @@ export function DashboardTab() {
       id: "review",
       title: t("dashboard.flashcards"),
       description: t("dashboard.reviewDueCards"),
+      category: "study",
       icon: Brain,
       iconBg: "bg-purple-500/10 text-purple-500",
       tabType: "review",
@@ -283,6 +464,7 @@ export function DashboardTab() {
       id: "documents",
       title: t("dashboard.library"),
       description: t("dashboard.browseDocuments"),
+      category: "media",
       icon: Files,
       iconBg: "bg-green-500/10 text-green-500",
       tabType: "documents",
@@ -294,6 +476,7 @@ export function DashboardTab() {
       id: "rss",
       title: t("dashboard.rssFeeds"),
       description: t("dashboard.latestArticles"),
+      category: "media",
       icon: Rss,
       iconBg: "bg-orange-500/10 text-orange-500",
       tabType: "rss",
@@ -305,6 +488,7 @@ export function DashboardTab() {
       id: "audiobooks",
       title: translateRecentFeature("i18nAudit.ui.audiobooks.0104e6dd"),
       description: translateRecentFeature("i18nAudit.ui.manage-and-listen-to-audiobo.94d92d5b"),
+      category: "media",
       icon: Headphones,
       iconBg: "bg-amber-500/10 text-amber-500",
       tabType: "audiobook",
@@ -316,6 +500,7 @@ export function DashboardTab() {
       id: "analytics",
       title: t("dashboard.analytics"),
       description: t("dashboard.trackProgress"),
+      category: "tools",
       icon: ChartBar,
       iconBg: "bg-cyan-500/10 text-cyan-500",
       tabType: "analytics",
@@ -327,6 +512,8 @@ export function DashboardTab() {
       id: "settings",
       title: t("nav.settings"),
       description: t("dashboard.appPreferences"),
+      category: "tools",
+      shortcut: "Ctrl+,",
       icon: Gear,
       iconBg: "bg-slate-500/10 text-slate-500",
       tabType: "settings",
@@ -334,9 +521,263 @@ export function DashboardTab() {
       content: SettingsTab,
       closable: true,
     },
+    // Toolbar actions
+    {
+      id: "import-file",
+      title: t("toolbar.importFile"),
+      description: "Import PDF, EPUB, or document",
+      category: "import",
+      shortcut: "Ctrl+O",
+      icon: FileArrowUp,
+      iconBg: "bg-indigo-500/10 text-indigo-500",
+      onInvoke: () => void handleImportFileAction(),
+    },
+    {
+      id: "import-url",
+      title: t("toolbar.importUrl"),
+      description: "Save a web article or URL",
+      category: "import",
+      shortcut: "Ctrl+Shift+O",
+      icon: LinkIcon,
+      iconBg: "bg-sky-500/10 text-sky-500",
+      onInvoke: () => setShowUrlImportDialog(true),
+    },
+    {
+      id: "read-next",
+      title: t("toolbar.readNext"),
+      description: "Open the next due item in queue",
+      category: "study",
+      icon: Bookmarks,
+      iconBg: "bg-blue-500/10 text-blue-500",
+      onInvoke: () => void handleReadNextAction(),
+    },
+    {
+      id: "random-item",
+      title: t("toolbar.randomItem"),
+      description: "Jump into a random queued item",
+      category: "study",
+      icon: DiceFive,
+      iconBg: "bg-fuchsia-500/10 text-fuchsia-500",
+      onInvoke: () => void handleRandomItemAction(),
+    },
+    {
+      id: "study-plans",
+      title: t("studyPlans.title"),
+      description: "Manage guided study plans",
+      category: "study",
+      icon: GraduationCap,
+      iconBg: "bg-emerald-500/10 text-emerald-500",
+      onInvoke: () => addTab(createCanonicalTab("study-plans")),
+    },
+    ...(healthInsightsAvailable
+      ? [{
+          id: "learning-insights" as const,
+          title: t("health.learningInsights"),
+          description: "Sleep & cognitive insights",
+          category: "study" as const,
+          icon: MoonStars,
+          iconBg: "bg-violet-500/10 text-violet-500",
+          onInvoke: () => addTab(createCanonicalTab("learning-insights")),
+        }]
+      : []),
+    {
+      id: "language-learning",
+      title: t("languageLearning.title"),
+      description: "Vocabulary & language practice",
+      category: "study",
+      icon: Translate,
+      iconBg: "bg-teal-500/10 text-teal-500",
+      onInvoke: () => addTab(createCanonicalTab("language-learning")),
+    },
+    {
+      id: "podcast",
+      title: t("toolbar.podcasts"),
+      description: "Listen & transcribe podcasts",
+      category: "media",
+      icon: Microphone,
+      iconBg: "bg-rose-500/10 text-rose-500",
+      tabType: "podcast",
+      tabTitle: translateRecentFeature("i18nAudit.ui.podcasts.8a64829c"),
+      content: PodcastTab,
+      closable: true,
+    },
+    {
+      id: "saved-queues",
+      title: t("savedQueues.title") || "Saved Queues",
+      description: "Manage filtered reading queues",
+      category: "study",
+      icon: Bookmarks,
+      iconBg: "bg-cyan-500/10 text-cyan-500",
+      onInvoke: () => {
+        void executeCommand({
+          id: "manage-saved-queues",
+          label: t("savedQueues.manageQueues"),
+          action: () => requestDestinationAction({ destination: "queue", action: "manage" }),
+        });
+      },
+    },
+    {
+      id: "knowledge-graph",
+      title: t("toolbar.knowledgeGraph"),
+      description: "Explore 2D concept connections",
+      category: "knowledge",
+      shortcut: "Ctrl+4",
+      icon: Graph,
+      iconBg: "bg-violet-500/10 text-violet-500",
+      tabType: "knowledge-network",
+      tabTitle: translateRecentFeature("i18nAudit.ui.knowledge-graph.94c23b23"),
+      content: KnowledgeGraphPage,
+      closable: true,
+    },
+    {
+      id: "knowledge-sphere",
+      title: t("toolbar.knowledgeSphere"),
+      description: "Explore 3D knowledge sphere",
+      category: "knowledge",
+      shortcut: "Ctrl+5",
+      icon: Planet,
+      iconBg: "bg-indigo-500/10 text-indigo-500",
+      tabType: "knowledge-sphere",
+      tabTitle: translateRecentFeature("i18nAudit.ui.knowledge-sphere.77a508a6"),
+      content: KnowledgeSpherePage,
+      closable: true,
+    },
+    {
+      id: "web-browser",
+      title: t("toolbar.webBrowser"),
+      description: "Browse & clip web pages",
+      category: "media",
+      shortcut: "Ctrl+6",
+      icon: Compass,
+      iconBg: "bg-blue-500/10 text-blue-500",
+      tabType: "web-browser",
+      tabTitle: translateRecentFeature("i18nAudit.ui.web-browser.e6cc7829"),
+      content: WebBrowserTab,
+      closable: true,
+    },
+    {
+      id: "doc-qa",
+      title: t("toolbar.documentQA"),
+      description: "Ask AI about your documents",
+      category: "knowledge",
+      icon: ChatDots,
+      iconBg: "bg-emerald-500/10 text-emerald-500",
+      tabType: "doc-qa",
+      tabTitle: translateRecentFeature("i18nAudit.ui.document-q-a.1e7a5150"),
+      content: DocumentQATab,
+      closable: true,
+    },
+    ...(notebooklmAvailable
+      ? [{
+          id: "notebooklm" as const,
+          title: t("toolbar.notebooklm"),
+          description: "Open NotebookLM workspace",
+          category: "knowledge" as const,
+          icon: Sparkle,
+          iconBg: "bg-amber-500/10 text-amber-500",
+          tabType: "notebooklm" as TabType,
+          tabTitle: translateRecentFeature("i18nAudit.ui.notebooklm.32ae2995"),
+          content: NotebookLMTab,
+          closable: true,
+        }]
+      : []),
+    {
+      id: "extracts",
+      title: t("toolbar.extracts"),
+      description: "Browse all saved extracts",
+      category: "knowledge",
+      icon: Scissors,
+      iconBg: "bg-pink-500/10 text-pink-500",
+      tabType: "extracts",
+      tabTitle: t("extractsTab.title"),
+      content: ExtractsTab,
+      closable: true,
+    },
+    {
+      id: "command-palette",
+      title: t("toolbar.commandPalette"),
+      description: "Run any command or search",
+      category: "tools",
+      shortcut: "Ctrl+K",
+      icon: Command,
+      iconBg: "bg-slate-500/10 text-slate-500",
+      onInvoke: () => useUIStore.getState().setCommandPaletteOpen(true),
+    },
+    {
+      id: "workspace-switcher",
+      title: t("workspace.switchWorkspace"),
+      description: "Switch or manage workspaces",
+      category: "tools",
+      icon: ArrowsLeftRight,
+      iconBg: "bg-slate-500/10 text-slate-500",
+      onInvoke: () => window.dispatchEvent(new CustomEvent("open-workspace-switcher")),
+    },
+    // Extra dashboard actions
+    {
+      id: "scroll-mode",
+      title: "Scroll Mode",
+      description: "Feed-style incremental reading",
+      category: "study",
+      icon: Scroll,
+      iconBg: "bg-violet-500/10 text-violet-500",
+      tabType: "queue-scroll",
+      tabTitle: "Scroll Mode",
+      content: QueueScrollPage,
+      closable: true,
+    },
+    {
+      id: "newsletters",
+      title: "Newsletters",
+      description: "Browse newsletter directory",
+      category: "media",
+      icon: Newspaper,
+      iconBg: "bg-orange-500/10 text-orange-500",
+      tabType: "newsletter",
+      tabTitle: "Newsletters",
+      content: NewsletterDirectoryTab,
+      closable: true,
+    },
+    {
+      id: "image-registry",
+      title: "Images",
+      description: "View saved images & screenshots",
+      category: "import",
+      icon: ImageIcon,
+      iconBg: "bg-teal-500/10 text-teal-500",
+      tabType: "image-registry",
+      tabTitle: "Images",
+      content: ImageRegistryTab,
+      closable: true,
+    },
+    {
+      id: "import-needs-review",
+      title: "Needs Review",
+      description: "Triage captured & imported items",
+      category: "import",
+      icon: Tray,
+      iconBg: "bg-amber-500/10 text-amber-500",
+      tabType: "import-needs-review",
+      tabTitle: translateRecentFeature("i18nAudit.ui.import-needs-review.fba4f59c"),
+      content: ImportNeedsReviewTab,
+      closable: true,
+    },
+    {
+      id: "refresh-dashboard",
+      title: "Refresh Dashboard",
+      description: "Reload stats, due cards & captures",
+      category: "tools",
+      icon: ArrowClockwise,
+      iconBg: "bg-sky-500/10 text-sky-500",
+      onInvoke: () => refreshDashboard(),
+    },
   ];
 
   const openTab = (action: QuickAction) => {
+    if (action.onInvoke) {
+      action.onInvoke();
+      return;
+    }
+    if (!action.tabType || !action.content || !action.tabTitle) return;
     if (action.tabType === "queue") {
       // "Queue" can mean either the list view or Scroll Mode — reactivate
       // whichever was more recently active instead of always the list.
@@ -353,13 +794,12 @@ export function DashboardTab() {
 
     addTab({
       title: action.tabTitle,
-      
       // TabBar derives the icon from `type` via getTabIcon(); this field is
       // kept for the store's ReactNode requirement but no longer rendered.
       icon: null,
       type: action.tabType,
       content: action.content,
-      closable: action.closable,
+      closable: action.closable ?? true,
     });
   };
 
@@ -506,12 +946,13 @@ export function DashboardTab() {
   const hasNoDocuments = (stats?.total_documents ?? documents.length) === 0;
 
   const openTabInBackground = (action: QuickAction) => {
+    if (!action.tabType || !action.content || !action.tabTitle) return;
     addTabInBackground({
       title: action.tabTitle,
       icon: null,
       type: action.tabType,
       content: action.content,
-      closable: action.closable,
+      closable: action.closable ?? true,
     });
   };
 
@@ -636,17 +1077,19 @@ export function DashboardTab() {
     const items: ContextMenuItem[] = [
       {
         id: "open",
-        label: t("contextMenu.open"),
+        label: action.tabType ? t("contextMenu.open") : action.title,
         icon: <ActionIcon className="h-4 w-4 text-primary" />,
         onClick: () => openTab(action),
       },
-      {
+    ];
+    if (action.tabType && action.content) {
+      items.push({
         id: "open-background",
         label: t("contextMenu.openInBackground"),
         icon: <ArrowSquareOut className="h-4 w-4 text-muted-foreground" />,
         onClick: () => openTabInBackground(action),
-      },
-    ];
+      });
+    }
     if (action.id === "documents") {
       items.push(
         { id: "sep:1", type: ContextMenuItemType.Separator, label: "" },
@@ -771,6 +1214,12 @@ export function DashboardTab() {
     progress: t("dashboard.progress"),
     "quick-tip": t("dashboard.quickTip"),
     "quick-review": t("dashboard.customize.section.quickReview"),
+    "widget-focus-timer": "Focus Timer",
+    "widget-streak-goals": "Streak & Daily Goal",
+    "widget-scratchpad": "Quick Scratchpad",
+    "widget-up-next": "Up Next in Queue",
+    "widget-saved-queues": "Saved Queues & Decks",
+    "widget-pinned-docs": "Pinned Documents",
   };
 
   const quickActionMap = useMemo(
@@ -964,18 +1413,33 @@ export function DashboardTab() {
 
       case "quick-actions": {
         const actionsToRender = isCustomizing ? orderedQuickActions : visibleQuickActions;
+        const defaultQuickActionSet = new Set<string>(DEFAULT_QUICK_ACTION_ORDER);
         return (
           <SummarySection title={t("dashboard.quickActions")}>
-            {isCustomizing && visibleQuickActions.length === 0 && (
-              <p className="mb-3 text-sm text-muted-foreground">
-                {t("dashboard.customize.quickAction.empty")}
-              </p>
+            {isCustomizing && (
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  {visibleQuickActions.length === 0
+                    ? t("dashboard.customize.quickAction.empty")
+                    : `${visibleQuickActions.length} of ${orderedQuickActions.length} actions shown`}
+                </p>
+                <Button
+                  type="button"
+                  variant="tonal"
+                  size="sm"
+                  onClick={() => setShowQuickActionPicker((prev) => !prev)}
+                >
+                  <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                  {showQuickActionPicker ? "Hide Action Picker" : "Add Quick Action"}
+                </Button>
+              </div>
             )}
             <div className={cn("grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-8 gap-3 md:gap-4", !isCustomizing && "mb-6 md:mb-8")}>
               {actionsToRender.map((action, actionIndex) => {
                 const Icon = action.icon;
                 const actionId = action.id as DashboardQuickActionId;
                 const isActionVisible = !hiddenQuickActions.includes(actionId);
+                const isDefaultAction = defaultQuickActionSet.has(actionId);
 
                 if (isCustomizing) {
                   return (
@@ -994,29 +1458,41 @@ export function DashboardTab() {
                           <div className={`${action.iconBg} rounded-lg p-2`}>
                             <Icon className="h-4 w-4" aria-hidden="true" />
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => setQuickActionVisible(actionId, !isActionVisible)}
-                            aria-pressed={isActionVisible}
-                            aria-label={t("dashboard.customize.quickAction.toggle", { action: action.title })}
-                            className={cn(
-                              "inline-flex min-h-8 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-                              isActionVisible
-                                ? "border-primary/40 bg-primary/10 text-primary"
-                                : "border-outline-variant bg-surface-container text-on-surface-variant",
+                          <div className="flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => setQuickActionVisible(actionId, !isActionVisible)}
+                              aria-pressed={isActionVisible}
+                              aria-label={t("dashboard.customize.quickAction.toggle", { action: action.title })}
+                              className={cn(
+                                "inline-flex min-h-8 items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                                isActionVisible
+                                  ? "border-primary/40 bg-primary/10 text-primary"
+                                  : "border-outline-variant bg-surface-container text-on-surface-variant",
+                              )}
+                            >
+                              {isActionVisible ? (
+                                <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                              ) : (
+                                <EyeSlash className="h-3.5 w-3.5" aria-hidden="true" />
+                              )}
+                              <span>
+                                {isActionVisible
+                                  ? t("dashboard.customize.quickAction.visible")
+                                  : t("dashboard.customize.quickAction.hidden")}
+                              </span>
+                            </button>
+                            {!isDefaultAction && (
+                              <button
+                                type="button"
+                                onClick={() => removeQuickAction(actionId)}
+                                aria-label={`Remove ${action.title} from Quick Actions`}
+                                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-on-surface-variant hover:bg-destructive/10 hover:text-destructive"
+                              >
+                                <X className="h-3.5 w-3.5" aria-hidden="true" />
+                              </button>
                             )}
-                          >
-                            {isActionVisible ? (
-                              <Eye className="h-3.5 w-3.5" aria-hidden="true" />
-                            ) : (
-                              <EyeSlash className="h-3.5 w-3.5" aria-hidden="true" />
-                            )}
-                            <span>
-                              {isActionVisible
-                                ? t("dashboard.customize.quickAction.visible")
-                                : t("dashboard.customize.quickAction.hidden")}
-                            </span>
-                          </button>
+                          </div>
                         </div>
                         <h3 className="line-clamp-1 text-xs font-semibold text-foreground">
                           {action.title}
@@ -1086,6 +1562,25 @@ export function DashboardTab() {
                 );
               })}
             </div>
+            {isCustomizing && showQuickActionPicker && (
+              <QuickActionsPicker
+                catalog={quickActions.map((a) => ({
+                  id: a.id,
+                  title: a.title,
+                  description: a.description,
+                  category: a.category,
+                  shortcut: a.shortcut,
+                  icon: a.icon,
+                  iconBg: a.iconBg,
+                  isDefault: (DEFAULT_QUICK_ACTION_ORDER as readonly string[]).includes(a.id),
+                }))}
+                activeOrder={quickActionOrder}
+                hiddenIds={hiddenQuickActions}
+                onAdd={(id) => addQuickAction(id)}
+                onRemove={(id) => removeQuickAction(id)}
+                onClose={() => setShowQuickActionPicker(false)}
+              />
+            )}
           </SummarySection>
         );
       }
@@ -1339,6 +1834,59 @@ export function DashboardTab() {
             />
           </div>
         );
+
+      case "widget-focus-timer":
+        return (
+          <div className={isCustomizing ? "" : "mb-6 md:mb-8"}>
+            <FocusTimerWidget />
+          </div>
+        );
+
+      case "widget-streak-goals":
+        return (
+          <div className={isCustomizing ? "" : "mb-6 md:mb-8"}>
+            <StreakGoalsWidget
+              stats={stats}
+              isLoading={isLoading}
+              onStartReview={() => openTab(quickActions.find((a) => a.id === "review")!)}
+              onOpenAnalytics={() => openTab(quickActions.find((a) => a.id === "analytics")!)}
+            />
+          </div>
+        );
+
+      case "widget-scratchpad":
+        return (
+          <div className={isCustomizing ? "" : "mb-6 md:mb-8"}>
+            <ScratchpadWidget />
+          </div>
+        );
+
+      case "widget-up-next":
+        return (
+          <div className={isCustomizing ? "" : "mb-6 md:mb-8"}>
+            <UpNextQueueWidget
+              onOpenQueue={() => openTab(quickActions.find((a) => a.id === "queue")!)}
+              onOpenScrollMode={() => openTab(quickActions.find((a) => a.id === "scroll-mode")!)}
+              onOpenItem={(item) => void openQueueItem(item)}
+            />
+          </div>
+        );
+
+      case "widget-saved-queues":
+        return (
+          <div className={isCustomizing ? "" : "mb-6 md:mb-8"}>
+            <SavedQueuesWidget
+              onOpenQueue={() => openTab(quickActions.find((a) => a.id === "queue")!)}
+            />
+          </div>
+        );
+
+      case "widget-pinned-docs":
+        return (
+          <div className={isCustomizing ? "" : "mb-6 md:mb-8"}>
+            <PinnedDocsWidget onOpenDocument={openSourceDocumentById} />
+          </div>
+        );
     }
   };
 
@@ -1399,13 +1947,40 @@ export function DashboardTab() {
             className="mb-6 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-outline-variant bg-surface-container-low px-4 py-3 text-sm text-on-surface"
           >
             <span>{t("dashboard.customize.banner")}</span>
-            <span className="rounded-full bg-surface-container px-2.5 py-0.5 text-xs font-medium text-on-surface-variant">
-              {t("dashboard.customize.visibleCount", {
-                visible: visibleSectionsCount,
-                total: sectionOrder.length,
-              })}
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="rounded-full bg-surface-container px-2.5 py-0.5 text-xs font-medium text-on-surface-variant">
+                {t("dashboard.customize.visibleCount", {
+                  visible: visibleSectionsCount,
+                  total: sectionOrder.length,
+                })}
+              </span>
+              <Button
+                type="button"
+                variant="tonal"
+                size="sm"
+                onClick={() => setShowWidgetGallery((prev) => !prev)}
+              >
+                <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+                {showWidgetGallery ? "Hide Widgets" : "Add Widget"}
+              </Button>
+            </div>
           </div>
+        )}
+
+        {isCustomizing && showWidgetGallery && (
+          <WidgetGalleryPanel
+            sectionOrder={sectionOrder}
+            hiddenSections={hiddenSections}
+            onAddWidget={(id) => {
+              addWidget(id);
+              const meta = DASHBOARD_WIDGET_CATALOG.find((w) => w.id === id);
+              if (meta) {
+                setLiveAnnouncement(`Added ${meta.title} widget to Dashboard`);
+              }
+            }}
+            onRemoveWidget={(id) => removeWidget(id)}
+            onClose={() => setShowWidgetGallery(false)}
+          />
         )}
 
         <div className="sr-only" aria-live="polite">
@@ -1466,6 +2041,8 @@ export function DashboardTab() {
                   onMoveUp={() => handleMoveSection(sectionId, "up")}
                   onMoveDown={() => handleMoveSection(sectionId, "down")}
                   onToggleVisible={(visible) => setSectionVisible(sectionId, visible)}
+                  onRemove={isDashboardWidgetId(sectionId) ? () => removeWidget(sectionId) : undefined}
+                  removeLabel={isDashboardWidgetId(sectionId) ? `Remove ${label}` : undefined}
                   onDragHandlePointerDown={(event) => handleSectionDragStart(sectionId, event)}
                   moveUpLabel={t("dashboard.customize.moveUp", { section: label })}
                   moveDownLabel={t("dashboard.customize.moveDown", { section: label })}
@@ -1486,6 +2063,20 @@ export function DashboardTab() {
         visible={dashboardMenu.visible}
         position={dashboardMenu.position}
         onClose={dashboardMenu.closeToTrigger}
+      />
+      <WebArticleImportDialog
+        isOpen={showUrlImportDialog}
+        onClose={() => setShowUrlImportDialog(false)}
+        onOpenDocument={(doc) => {
+          addTab({
+            title: doc.title,
+            icon: null,
+            type: "document-viewer",
+            content: DocumentViewer,
+            closable: true,
+            data: { documentId: doc.id },
+          });
+        }}
       />
     </SafeScrollContainer>
   );

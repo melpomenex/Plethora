@@ -1,5 +1,5 @@
 import type { PointerEvent as ReactPointerEvent, ReactNode } from "react";
-import { ArrowDown, ArrowUp, DotsSixVertical, EyeSlash } from "@phosphor-icons/react";
+import { ArrowDown, ArrowUp, DotsSixVertical, EyeSlash, Trash } from "@phosphor-icons/react";
 import { IconButton } from "../md3";
 import { Switch } from "../common/Switch";
 import { cn } from "../../utils/cn";
@@ -17,6 +17,8 @@ export interface DashboardCustomizeSectionFrameProps {
   onMoveUp: () => void;
   onMoveDown: () => void;
   onToggleVisible: (visible: boolean) => void;
+  onRemove?: () => void;
+  removeLabel?: string;
   onDragHandlePointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
   moveUpLabel: string;
   moveDownLabel: string;
@@ -38,6 +40,8 @@ export function DashboardCustomizeSectionFrame({
   onMoveUp,
   onMoveDown,
   onToggleVisible,
+  onRemove,
+  removeLabel,
   onDragHandlePointerDown,
   moveUpLabel,
   moveDownLabel,
@@ -127,6 +131,17 @@ export function DashboardCustomizeSectionFrame({
             aria-label={visibilityLabel}
             touchTarget
           />
+          {onRemove && (
+            <IconButton
+              type="button"
+              variant="standard"
+              size="md"
+              icon={Trash}
+              aria-label={removeLabel || `Remove ${label}`}
+              onClick={onRemove}
+              className="text-on-surface-variant hover:text-destructive"
+            />
+          )}
         </div>
       </div>
 
