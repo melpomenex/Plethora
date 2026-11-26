@@ -12,7 +12,7 @@
 import { bench } from "vitest";
 import { buildTimeline, sampleTimeline } from "./timeline";
 
-const sink: number[] = [];
+let sink = 0;
 
 const desktop = buildTimeline("knowledge-peck", "desktop");
 const phone = buildTimeline("knowledge-peck", "phone");
@@ -24,10 +24,12 @@ for (let t = 0; t <= desktop.script.revealEnd; t += 1000 / 60) {
 }
 
 bench("kp-timeline/build", () => {
+  let fold = 0;
   for (let i = 0; i < 200; i++) {
     const tl = buildTimeline("knowledge-peck", i % 2 === 0 ? "desktop" : "phone");
-    sink.push(tl.phases.length);
+    fold += tl.phases.length;
   }
+  sink += fold;
 });
 
 bench("kp-timeline/sample-sweep-desktop", () => {
@@ -39,7 +41,7 @@ bench("kp-timeline/sample-sweep-desktop", () => {
       fold += state.opacity;
     }
   }
-  sink.push(fold);
+  sink += fold;
 });
 
 bench("kp-timeline/sample-sweep-phone", () => {
@@ -55,5 +57,5 @@ bench("kp-timeline/sample-sweep-phone", () => {
       fold += state.opacity;
     }
   }
-  sink.push(fold);
+  sink += fold;
 });

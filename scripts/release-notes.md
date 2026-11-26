@@ -1,21 +1,24 @@
 ### Added
 
-- **PDF Reader Overhaul: Thumbnails, Spread Layouts, Rotation & Navigation History** — Added a virtualized page thumbnail sidebar (`PdfPageThumbnails`), view controls (`PdfViewControls`) for continuous, single-page, two-page spread, and cover-spread layouts with LTR/RTL reading order and view rotation, persistent zoom mode/scale, embedded PDF link navigation, and verified back/forward navigation history (`PdfNavigationHistory`) across fixed and reflow modes.
-- **PDF Annotations Panel & Text/Region Markup** — Added `PdfAnnotationsPanel` and `pdfTextMarks` supporting highlight, underline, strikethrough, note, rectangle, ellipse, ink, free-text, and stamp markups with customizable colors, inline editing, and visual regression coverage.
-- **PDF File Operations, Export & Print** — Added `PdfFileActions` and backend `lopdf` structural operations to export selected or reordered pages, crop margins, rotate pages into a saved copy (`PdfSaveRotatedCopyButton`), extract text or HTML, and print pages, alongside mobile PDF backend commands.
-- **PDF Semantic Indexing & Grounded Assistant Citations** — Integrated PDF semantic projection, chunking, and FTS/embedding indexing with outline- and page-grounded assistant context (`pdfOutlineContext`, `pdfAssistantEvidence`) and clickable verified page citations (`PdfAssistantCitations`) that jump directly to the cited page.
-- **Animated Image Theme Backgrounds** — Import GIFs as animated theme backgrounds using a dedicated Rust/WASM GIF decoder (`gif-decoder.wasm`), frame composition, flash-risk preflight checks, desktop theme persistence, and smooth animated playback.
-- **AI Smart RSS Feeds & Local Laya Decision Runtime** — Added AI-curated Smart RSS Feeds supporting local, hybrid, and cloud curation with Laya typed classification decisions, managed local Laya server setup in Settings, pinned tokenizer/checkpoint integrity verification, and benchmarked local decision models.
-- **Streaming LLM Responses & Generation Stages** — Streamed LLM responses token-by-token with live generation stage indicators across chat surfaces and reliable final-chunk flushing on completion.
-- **Zoomable Embedded Image Viewer** — Click embedded images in documents and RSS article views (`RSSReader`, `RSSFullContentView`, `RSSScrollMode`, `StoryView`) to open a zoomable `EmbeddedImageViewer` modal with system-color-adaptive controls and backdrop/Escape dismissal.
-- **YouTube Playlist Import, Transcript Export & Persistent Podcast Chat** — Select specific videos from YouTube playlists in the command palette, perform block-level transcript actions with multi-format export, and preserve podcast transcript assistant conversations across navigation and app reloads.
-- **Dashboard Quick Review, Split-Screen Toolbar & Queue Audio Feedback** — Powered dashboard quick review with due cards, added middle-click on toolbar buttons to open items in split screen, added rating confirmation sounds in the study queue, and refined desktop/dashboard interactions.
-- **Mobile RSS Pull-to-Refresh** — Added pull-to-refresh gestures with haptic feedback to mobile RSS feeds and articles.
-- **Plethora Capture 1.17.0** — Hardened link and page saving in the browser extension with queued fallbacks and status toasts.
+- **Customizable dashboard** — configure a personal widget layout and quick actions, with focus timer, streak goals, queue, pinned documents, saved queues, and scratchpad widgets.
+- **Sleep and health export imports** — import Apple Health, Garmin, Oura, WHOOP, Google/Fitbit, Samsung Health, Withings, RingConn, Polar, Plethora JSON, and mapped CSV exports or supported archives. Imports include provider detection, preview, progress and cancellation, provenance, safe reimport/reconciliation, and optional watched folders; aggregate-only sleep stages remain aggregate data and new records flow into sleep and learning insights.
+- **Language Learning workspace** — discover the new guided workspace with onboarding, vocabulary management, assessments, content recommendations, language packs, practice, and analytics; surfaces use shared theme tokens and support six languages.
+- **Language practice in readers and media** — add multilingual adapters, dictionary Peek and lookup history, translation, reading assistance, sentence-aligned original-audio replay, and practice entry points across supported readers, queues, transcripts, and video. Preserve original-media ranges when sending language material to flashcard creation and practice.
+- **Learner-aware tutoring and speaking** — personalize tutor guidance from learner context, add capability-gated voice conversations, and manage durable tutor sessions with resume, delete, clear, and export actions.
+- **Language-linked study plans** — optionally connect a language profile to a study plan and generate evidence-based gap recommendations.
+- **Library and review workflows** — search extracts across libraries, manage saved views with delete and undo plus cross-tab sync, and pin or highlight source context in review before creating an extract.
+- **Smarter RSS curation** — add local Laya decision controls and token-aware multi-passage classification for Smart Feeds.
+- **Podcast ad skipping** — detect ad intervals and skip them during playback.
+- **Scroll-mode editing and navigation** — insert images into extracts and configure horizontal-wheel page navigation.
+- **Progressive transcript rendering** — render long transcripts incrementally so large media sessions remain responsive.
 
 ### Fixed & Improved
 
-- **PDF Selection Menu, Reading Position & Translations** — Enabled the text-selection action menu on PDFs, retained reading position across reloads, and added PDF viewer and annotation translations across all 6 locales (`en`, `de`, `es`, `fr`, `ja`, `zh`).
-- **Search & Command Palette Extract Retrieval** — Added scored `LIKE` fallback with primary hits for extract search, included unassigned documents in collection filters, and returned standalone extract results in the command palette's in-memory fallback.
-- **Stability, Tab Preloading & Database Integrity** — Recovered lazy-loaded views on failure, isolated reader stats, preloaded tab chunks earlier for faster tab switching, and kept extract graph writes transactional.
-- **Build & Documentation** — Relocated Cargo temporary files in Linux build scripts when needed, refreshed the README for v3.12+ features, and documented Socket Firewall (`sfw`) usage in `AGENTS.md`.
+- **Review and scheduling consistency** — synchronize scheduled-review state and undo across review modes; preserve scroll-mode ratings, bulk deletion, and tags; persist interval modifiers and item identity; and validate language-source provenance when saving.
+- **Saved views and PDF highlights** — repair saved-view handling and align PDF highlights with the correct source text; keep saved-view updates synchronized across tabs.
+- **Import, indexing, and model diagnostics** — persist EPUB import paths, harden AI indexing, stabilize curriculum preflight and Mirage Vision FFI probing, and explain missing or unpulled embedding models with an Ollama warning.
+- **Reading and assistant rendering** — unify rich-text list indentation and fix assistant math rendering.
+- **Language privacy and playback** — require consent before cloud speech recognition and improve subtitle controls and replay reliability.
+- **Command-palette actions** — keep Study Plan selection actions unique and in a stable order; include the Language Learning destination.
+- **Startup and build reliability** — use one lazy-view cache with bounded boot prefetch, share the Cargo job policy in Tauri development builds, and provision the macOS Cactus library with the required loading entitlement.
+- **Benchmark stability** — fold startup-timeline benchmark results into a scalar sink so repeated measurements do not grow an allocation array or incur avoidable garbage-collection noise.
