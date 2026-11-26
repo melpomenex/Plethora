@@ -85,8 +85,14 @@ import { getFiniteMediaDuration } from "./localMediaSources";
 import { KaraokeText } from "../media/KaraokeText";
 import { findActiveWordIndex, type WordTiming } from "../../utils/wordTimings";
 import { ResponsiveDialogSheet } from "../adaptive/ResponsiveDialogSheet";
-import { getEpisodeChapters, getEpisodeAdIntervals } from "../../api/podcastAd";
-import type { PodcastChapter, PodcastAdInterval } from "../../types/podcastAd";
+import {
+  getEpisodeChapters,
+  getEpisodeAdIntervals,
+  getPodcastAdSettings,
+  detectEpisodeAds,
+  filterAdIntervalsBySettings,
+} from "../../api/podcastAd";
+import type { PodcastChapter, PodcastAdInterval, PodcastAdSettings } from "../../types/podcastAd";
 import { PodcastChapterSheet } from "../podcast/PodcastChapterSheet";
 import { AdIntervalEditor } from "../podcast/AdIntervalEditor";
 import { AdSkipToast } from "../podcast/AdSkipToast";
@@ -463,6 +469,11 @@ function AudiobookViewerSurface({
   const isPodcast = !!episodeId;
   const [podcastChapters, setPodcastChapters] = useState<PodcastChapter[]>([]);
   const [adIntervals, setAdIntervals] = useState<PodcastAdInterval[]>([]);
+  const [podcastAdSettings, setPodcastAdSettings] = useState<PodcastAdSettings | null>(null);
+  const activePodcastPolicyIntervals = useMemo(
+    () => filterAdIntervalsBySettings(adIntervals, podcastAdSettings),
+    [adIntervals, podcastAdSettings]
+  );
   const [showAdEditor, setShowAdEditor] = useState(false);
   const [adSkipToastInfo, setAdSkipToastInfo] = useState<{
     intervalId: string;
@@ -472,45 +483,77 @@ function AudiobookViewerSurface({
     toSec: number;
   } | null>(null);
 
-  // Load podcast chapters and ad intervals from backend repository via Tauri IPC
+  // Load podcast chapters, ad intervals, and settings; trigger detection if missing
   useEffect(() => {
     if (isPodcast && episodeId) {
       let isMounted = true;
-      getEpisodeChapters(episodeId)
-        .then((chaps) => {
-          if (!isMounted) return;
-          if (Array.isArray(chaps)) {
-            setPodcastChapters(chaps);
-            if (chaps.length > 0) {
-              setChapters(
-                chaps.map((c) => ({
-                  id: c.chapterIndex + 1,
-                  title: c.title,
-                  startTime: c.startMs / 1000,
-                  endTime: c.endMs / 1000,
-                  duration: Math.max(0, (c.endMs - c.startMs) / 1000),
-                }))
-              );
-            }
+      const loadChaptersAndAds = async (triggerDetectionIfEmpty: boolean) => {
+        const [chaps, intervals, adSettings] = await Promise.all([
+          getEpisodeChapters(episodeId).catch((err) => {
+            console.warn("[AudiobookViewer] Failed to load episode chapters:", err);
+            return [] as PodcastChapter[];
+          }),
+          getEpisodeAdIntervals(episodeId).catch((err) => {
+            console.warn("[AudiobookViewer] Failed to load ad intervals:", err);
+            return [] as PodcastAdInterval[];
+          }),
+          getPodcastAdSettings().catch(() => null),
+        ]);
+        if (!isMounted) return;
+        if (adSettings) setPodcastAdSettings(adSettings);
+        if (Array.isArray(chaps)) {
+          setPodcastChapters(chaps);
+          if (chaps.length > 0) {
+            setChapters(
+              chaps.map((c) => ({
+                id: c.chapterIndex + 1,
+                title: c.title,
+                startTime: c.startMs / 1000,
+                endTime: c.endMs / 1000,
+                duration: Math.max(0, (c.endMs - c.startMs) / 1000),
+              }))
+            );
           }
-        })
-        .catch((err) => {
-          console.warn("[AudiobookViewer] Failed to load episode chapters:", err);
-        });
+        }
+        if (Array.isArray(intervals)) {
+          setAdIntervals(intervals);
+          if (
+            triggerDetectionIfEmpty &&
+            intervals.length === 0 &&
+            (adSettings?.autoDetectAds ?? true)
+          ) {
+            void detectEpisodeAds(episodeId).catch(() => undefined);
+          }
+        }
+      };
 
-      getEpisodeAdIntervals(episodeId)
-        .then((intervals) => {
-          if (!isMounted) return;
-          if (Array.isArray(intervals)) {
-            setAdIntervals(intervals);
+      void loadChaptersAndAds(true);
+
+      let unlistenAdComplete: (() => void) | undefined;
+      let unlistenTxComplete: (() => void) | undefined;
+      if (isTauri()) {
+        void listen<{ episodeId?: string }>("podcast://ad-detection-complete", (event) => {
+          if (event.payload?.episodeId === episodeId && isMounted) {
+            void loadChaptersAndAds(false);
           }
-        })
-        .catch((err) => {
-          console.warn("[AudiobookViewer] Failed to load ad intervals:", err);
+        }).then((fn) => {
+          if (isMounted) unlistenAdComplete = fn;
+          else fn();
         });
+        void listen<{ episodeId?: string }>("podcast://transcription-complete", (event) => {
+          if (event.payload?.episodeId === episodeId && isMounted) {
+            void loadChaptersAndAds(false);
+          }
+        }).then((fn) => {
+          if (isMounted) unlistenTxComplete = fn;
+          else fn();
+        });
+      }
 
       return () => {
         isMounted = false;
+        unlistenAdComplete?.();
+        unlistenTxComplete?.();
       };
     }
   }, [isPodcast, episodeId]);
@@ -1157,15 +1200,9 @@ function AudiobookViewerSurface({
       startSec: segment.segment[0],
       endSec: segment.segment[1],
     }));
-    const podcastIntervals = adIntervals.map(ad => ({
-      id: ad.id,
-      category: ad.category,
-      startSec: ad.startMs / 1000,
-      endSec: ad.endMs / 1000,
-    }));
-    const combined = [...sponsorIntervals, ...podcastIntervals];
+    const combined = [...sponsorIntervals, ...activePodcastPolicyIntervals];
     void runAudioAction(owner => { owner.setPolicyIntervals?.(combined); });
-  }, [controllerBacked, isOwnerSource, sponsorBlockSegments, adIntervals]);
+  }, [controllerBacked, isOwnerSource, sponsorBlockSegments, activePodcastPolicyIntervals]);
 
   useEffect(() => {
     if (!controllerBacked || !ownerPolicySkip) return;
@@ -1184,10 +1221,49 @@ function AudiobookViewerSurface({
         owner.seekTo?.(fromSec);
       });
     } else if (audioRef.current) {
+      temporarilyDisabledSegmentsRef.current.add(intervalId);
       audioRef.current.currentTime = fromSec;
+      setCurrentTime(fromSec);
+      currentTimeRef.current = fromSec;
     }
     setAdSkipToastInfo(null);
   };
+
+  const skipPodcastAdAtTime = useCallback(
+    (audio: HTMLAudioElement, time: number, lookaheadSec: number): boolean => {
+      if (activePodcastPolicyIntervals.length === 0) return false;
+      for (const interval of activePodcastPolicyIntervals) {
+        if (
+          time + lookaheadSec >= interval.startSec &&
+          time < interval.endSec &&
+          !skippedSegmentsRef.current.has(interval.id) &&
+          !temporarilyDisabledSegmentsRef.current.has(interval.id)
+        ) {
+          skippedSegmentsRef.current.add(interval.id);
+          const target = Math.max(0, interval.endSec + 0.05);
+          audio.currentTime = target;
+          setCurrentTime(target);
+          currentTimeRef.current = target;
+          setAdSkipToastInfo({
+            intervalId: interval.id,
+            category: interval.category,
+            fromSec: interval.startSec,
+            toSec: interval.endSec,
+          });
+          return true;
+        }
+      }
+      return false;
+    },
+    [activePodcastPolicyIntervals]
+  );
+
+  // In legacy (!controllerBacked) mode, immediately skip if playhead is already inside an ad
+  // when intervals arrive or update (e.g. pre-roll at 0:00).
+  useEffect(() => {
+    if (controllerBacked || !audioRef.current || audioRef.current.readyState < 1) return;
+    skipPodcastAdAtTime(audioRef.current, audioRef.current.currentTime, 0.120);
+  }, [controllerBacked, skipPodcastAdAtTime]);
   /** Sections kept live ahead of the playhead (working set, task 5.6). */
 const WORKING_SET_AHEAD = 2;
 
@@ -1908,6 +1984,10 @@ const editionSectionIdsRef = useRef<string[]>([]);
       }
     }
 
+    if (!controllerBacked && audioRef.current && skipPodcastAdAtTime(audioRef.current, time, 0.120)) {
+      return;
+    }
+
     if (allSegments.length > 0) {
       const checkTime = sponsorBlockCuts.length > 0
         ? mapCutTimeToOriginalTime(time, sponsorBlockCuts)
@@ -1943,6 +2023,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
     audioRef,
     controllerBacked,
     showTranscript,
+    skipPodcastAdAtTime,
     sponsorBlock.canSkip,
     sponsorBlockCuts,
     sponsorBlockSegments,
@@ -2262,6 +2343,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
         elapsedMs: Number.isFinite(audio.duration) ? Math.round(audio.duration * 1000) : undefined,
       });
       attemptPendingSeek();
+      skipPodcastAdAtTime(audio, audio.currentTime, 0);
 
       if (
         (autoPlayOnOpen && appliedInitialSeekRef.current === `${document.id}:${initialSeekTime}`) ||

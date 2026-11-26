@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { GlobalAudioController } from "../services/audio/globalAudioController";
 import { AudioPlaybackPersistence } from "../services/audio/audioPlaybackPersistence";
+import { filterAdIntervalsBySettings } from "../api/podcastAd";
 import type { AudioSourceKey, ResolvedAudioItem } from "../types/audioEdition";
 import type { AudioEngine, AudioEngineEvents } from "../services/audio/htmlAudioEngine";
+import type { PodcastAdInterval, PodcastAdSettings } from "../types/podcastAd";
 import { withAudioBoundaries } from "../services/audio/audioCoordinates";
 
 const key = (sourceId: string): AudioSourceKey => ({ sourceId, kind: "podcast", profileKey: "test" });
@@ -133,5 +135,76 @@ describe("Podcast Ad Playback & Lookahead Integration", () => {
     // Subsequent playback inside the bypassed ad interval is not re-skipped
     ev.sample({ timeInPart: 125.0, durationSec: 600, paused: false, seekable: true });
     expect(h.engine.seek).not.toHaveBeenCalledWith(180.05);
+  });
+
+  it("immediately skips pre-roll ad when setPolicyIntervals is called while already playing at 0:00", async () => {
+    const h = setup();
+    await h.controller.load(key("ep-1"), { intent: "play", explicitPosition: 0.0 });
+    expect(h.engine.seek).toHaveBeenCalledWith(0);
+
+    h.controller.setPolicyIntervals([
+      {
+        id: "ad-preroll-late",
+        category: "external_ad",
+        startSec: 0,
+        endSec: 45.0,
+      },
+    ]);
+
+    await vi.waitFor(() => {
+      expect(h.engine.seek).toHaveBeenCalledWith(45.0);
+    });
+    expect(h.controller.getSnapshot()?.policySkip?.id).toBe("ad-preroll-late");
+  });
+
+  it("filters ad intervals according to PodcastAdSettings", () => {
+    const intervals: PodcastAdInterval[] = [
+      {
+        id: "ext-1",
+        episodeId: "ep-1",
+        mediaRevision: "v1",
+        startMs: 0,
+        endMs: 30_000,
+        category: "external_ad",
+        confidence: 0.9,
+        origin: "classifier_llm",
+      },
+      {
+        id: "self-1",
+        episodeId: "ep-1",
+        mediaRevision: "v1",
+        startMs: 60_000,
+        endMs: 90_000,
+        category: "host_self_promo",
+        confidence: 0.95,
+        origin: "classifier_llm",
+      },
+      {
+        id: "manual-1",
+        episodeId: "ep-1",
+        mediaRevision: "v1",
+        startMs: 120_000,
+        endMs: 125_000,
+        category: "external_ad",
+        confidence: 1.0,
+        origin: "manual_user",
+      },
+    ];
+    const settings: PodcastAdSettings = {
+      id: "default",
+      autoDetectAds: true,
+      skipExternalAds: true,
+      skipCrossPromo: true,
+      skipSelfPromo: false,
+      minConfidence: 0.85,
+      minAdDurationSeconds: 10,
+      mobileChargingOnly: true,
+      processingMode: "smart",
+    };
+
+    const filtered = filterAdIntervalsBySettings(intervals, settings);
+    expect(filtered.map((i) => i.id)).toEqual(["ext-1", "manual-1"]);
+
+    expect(filterAdIntervalsBySettings(intervals, { ...settings, autoDetectAds: false })).toEqual([]);
   });
 });

@@ -8,6 +8,50 @@ import type {
   PodcastAdSettings,
   PodcastChapter,
 } from "../types/podcastAd";
+import type { AudioPolicyInterval } from "../types/audioEdition";
+
+/**
+ * Filter persisted podcast ad intervals according to the user's PodcastAdSettings.
+ * Manual user-marked intervals are always honored unless ad removal is globally disabled.
+ */
+export function filterAdIntervalsBySettings(
+  intervals: readonly PodcastAdInterval[],
+  settings: PodcastAdSettings | null | undefined
+): AudioPolicyInterval[] {
+  if (settings && !settings.autoDetectAds) {
+    return [];
+  }
+  const minConfidence = settings?.minConfidence ?? 0.85;
+  const minDurationMs = (settings?.minAdDurationSeconds ?? 10) * 1000;
+  const skipExternal = settings?.skipExternalAds ?? true;
+  const skipCrossPromo = settings?.skipCrossPromo ?? true;
+  const skipSelfPromo = settings?.skipSelfPromo ?? false;
+
+  return intervals
+    .filter((ad) => {
+      if (!Number.isFinite(ad.startMs) || !Number.isFinite(ad.endMs) || ad.endMs <= ad.startMs) {
+        return false;
+      }
+      if (ad.origin === "manual_user") {
+        return true;
+      }
+      if (ad.endMs - ad.startMs < minDurationMs) {
+        return false;
+      }
+      if (ad.confidence < minConfidence) {
+        return false;
+      }
+      if (ad.category === "podcast_cross_promo") return skipCrossPromo;
+      if (ad.category === "host_self_promo") return skipSelfPromo;
+      return skipExternal;
+    })
+    .map((ad) => ({
+      id: ad.id,
+      category: ad.category,
+      startSec: ad.startMs / 1000,
+      endSec: ad.endMs / 1000,
+    }));
+}
 
 export async function getEpisodeChapters(
   episodeId: string

@@ -2,10 +2,11 @@
 
 use tauri::{AppHandle, State};
 
+use crate::commands::podcast::PodcastTranscriptionTokens;
 use crate::database::Repository;
 use crate::error::Result;
 use crate::models::{
-    PodcastAdCorrection, PodcastAdInterval, PodcastAdSettings, PodcastChapter, PodcastProcessingJob,
+    PodcastAdInterval, PodcastAdSettings, PodcastChapter, PodcastProcessingJob,
 };
 
 #[tauri::command]
@@ -55,7 +56,8 @@ pub async fn update_podcast_ad_settings(
 pub async fn detect_episode_ads(
     episode_id: String,
     repo: State<'_, Repository>,
-    _app: AppHandle,
+    tokens: State<'_, PodcastTranscriptionTokens>,
+    app: AppHandle,
 ) -> Result<String> {
     let job_id = uuid::Uuid::new_v4().to_string();
     let job = PodcastProcessingJob {
@@ -70,6 +72,24 @@ pub async fn detect_episode_ads(
     };
     repo.upsert_podcast_processing_job(&job).await?;
     repo.update_episode_ad_status(&episode_id, "queued").await?;
+
+    let bg_repo = repo.inner().clone();
+    let bg_tokens = tokens.inner().clone();
+    tokio::spawn(async move {
+        if let Err(e) = crate::podcast::ad::pipeline::run_episode_ad_detection(
+            episode_id.clone(),
+            app,
+            bg_repo,
+            bg_tokens,
+            true,
+            true,
+        )
+        .await
+        {
+            eprintln!("[podcast-ad] detect_episode_ads failed for {}: {}", episode_id, e);
+        }
+    });
+
     Ok(job_id)
 }
 

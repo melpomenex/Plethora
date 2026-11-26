@@ -431,7 +431,7 @@ pub async fn transcribe_podcast_episode(
 
 /// Shared transcription logic used by both manual invocation and auto-transcribe.
 /// Downloads audio, runs Whisper, stores transcript, creates Document + Extract records.
-async fn run_transcription_job(
+pub(crate) async fn run_transcription_job(
     episode_id: String,
     model: Option<String>,
     language: Option<String>,
@@ -783,6 +783,23 @@ async fn run_transcription_job(
     );
 
     cleanup(&tokens, &episode_id);
+
+    // 12. Run ad detection on the newly transcribed segments
+    let ad_repo = repo.clone();
+    let ad_app = app_handle.clone();
+    let ad_tokens = tokens.clone();
+    let ad_ep_id = episode_id.clone();
+    tokio::spawn(async move {
+        let _ = crate::podcast::ad::pipeline::run_episode_ad_detection(
+            ad_ep_id,
+            ad_app,
+            ad_repo,
+            ad_tokens,
+            false,
+            false,
+        )
+        .await;
+    });
     Ok(())
 }
 
@@ -2529,6 +2546,24 @@ pub async fn save_podcast_transcript_segments(
         "[podcast-transcribe] save_podcast_transcript_segments: SAVED OK for episode {}",
         episode_id
     );
+
+    // Run ad detection on the newly saved transcript segments
+    let ad_repo = repo.inner().clone();
+    let ad_tokens = app_handle.state::<PodcastTranscriptionTokens>().inner().clone();
+    let ad_app = app_handle.clone();
+    let ad_ep_id = episode_id.clone();
+    tokio::spawn(async move {
+        let _ = crate::podcast::ad::pipeline::run_episode_ad_detection(
+            ad_ep_id,
+            ad_app,
+            ad_repo,
+            ad_tokens,
+            false,
+            false,
+        )
+        .await;
+    });
+
     Ok(())
 }
 
@@ -2719,7 +2754,7 @@ pub(crate) fn resolve_podcast_audio_ext(
 }
 
 /// Find existing downloaded file for an episode (checks common extensions)
-fn find_existing_download(app_handle: &AppHandle, episode_id: &str) -> Option<PathBuf> {
+pub(crate) fn find_existing_download(app_handle: &AppHandle, episode_id: &str) -> Option<PathBuf> {
     let dir = podcast_audio_dir(app_handle).ok()?;
     for entry in std::fs::read_dir(&dir).ok()? {
         let entry = entry.ok()?;
@@ -2906,6 +2941,23 @@ pub async fn download_podcast_episode(
         "podcast://download-complete",
         serde_json::json!({ "episodeId": &episode_id, "path": dest_path.to_string_lossy() }),
     );
+
+    // Trigger chapter ingestion + ad detection for the downloaded episode
+    let ad_repo = repo.inner().clone();
+    let ad_tokens = app_handle.state::<PodcastTranscriptionTokens>().inner().clone();
+    let ad_app = app_handle.clone();
+    let ad_ep_id = episode_id.clone();
+    tokio::spawn(async move {
+        let _ = crate::podcast::ad::pipeline::run_episode_ad_detection(
+            ad_ep_id,
+            ad_app,
+            ad_repo,
+            ad_tokens,
+            false,
+            true,
+        )
+        .await;
+    });
 
     Ok(dest_path.to_string_lossy().to_string())
 }

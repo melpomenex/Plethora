@@ -1,4 +1,4 @@
-import type { AudioSourceKey, ResolvedAudioItem, ResolvedAudioPart } from "../../types/audioEdition";
+import type { AudioPolicyInterval, AudioSourceKey, ResolvedAudioItem, ResolvedAudioPart } from "../../types/audioEdition";
 import { withAudioBoundaries, locateAudioPosition } from "./audioCoordinates";
 import { AudioPlaybackException, classifyAudioPlaybackError } from "./audioErrors";
 import { getFiniteMediaDuration } from "../../components/viewer/localMediaSources";
@@ -16,6 +16,7 @@ export interface AudioSourceDescription {
   complete: boolean;
   resume?: { partIndex: number; timeInPart: number };
   resumeGlobalSec?: number;
+  policyIntervals?: readonly AudioPolicyInterval[];
 }
 
 export interface AudioSourceResolverDependencies {
@@ -79,7 +80,7 @@ export async function resolveAudioSource(key: AudioSourceKey, signal: AbortSigna
     for (const part of description.parts) parts.push(await resolvePart(part, signal, deps, releases));
     const manifest = withAudioBoundaries(parts);
     const resume = description.resume ?? (description.resumeGlobalSec !== undefined ? locateAudioPosition(manifest, Math.max(0, description.resumeGlobalSec)) ?? undefined : undefined);
-    return { sourceKey: { ...key }, title: description.title, artist: description.artist, artworkUrl: description.artworkUrl, documentId: description.documentId, editionId: description.editionId, mediaRevision: description.mediaRevision, complete: description.complete, parts: manifest, resume, release };
+    return { sourceKey: { ...key }, title: description.title, artist: description.artist, artworkUrl: description.artworkUrl, documentId: description.documentId, editionId: description.editionId, mediaRevision: description.mediaRevision, complete: description.complete, parts: manifest, resume, policyIntervals: description.policyIntervals, release };
   } catch (error) { release(); throw error; }
 }
 
@@ -154,6 +155,20 @@ async function describePodcast(id: string): Promise<AudioSourceDescription> {
   } catch {
     // Standalone podcast episodes remain playable even when document lookup is unavailable.
   }
+  let policyIntervals: AudioPolicyInterval[] | undefined;
+  try {
+    const { getEpisodeAdIntervals, getPodcastAdSettings, filterAdIntervalsBySettings } = await import("../../api/podcastAd");
+    const [rawIntervals, adSettings] = await Promise.all([
+      getEpisodeAdIntervals(id).catch(() => []),
+      getPodcastAdSettings().catch(() => null),
+    ]);
+    const filtered = filterAdIntervalsBySettings(rawIntervals, adSettings);
+    if (filtered.length > 0) {
+      policyIntervals = filtered;
+    }
+  } catch {
+    // Non-fatal: playback proceeds without preloaded ad intervals
+  }
   return {
     title: episode.title,
     artworkUrl: episode.imageUrl ?? undefined,
@@ -163,6 +178,7 @@ async function describePodcast(id: string): Promise<AudioSourceDescription> {
     complete: true,
     parts: [{ id, path, fallbackPath: episode.audioUrl, durationSec: getFiniteMediaDuration(episode.duration ?? NaN), revision: episode.guid || id }],
     resumeGlobalSec: Math.max(0, episode.playbackPosition),
+    policyIntervals,
   };
 }
 

@@ -16,14 +16,14 @@ static SELF_PROMO_REGEX: OnceLock<Regex> = OnceLock::new();
 
 fn intro_regex() -> &'static Regex {
     INTRO_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:sponsored\s+by|brought\s+to\s+you\s+by|support\s+(?:for|from)\s+this\s+podcast|a\s+word\s+from\s+our\s+sponsors?|thanks\s+to\s+our\s+sponsors?|special\s+thanks\s+to|today's\s+episode\s+is\s+supported\s+by|a\s+quick\s+break\s+from\s+our\s+sponsor)\b")
+        Regex::new(r"(?i)\b(?:sponsored\s+by|brought\s+to\s+you\s+by|presented\s+by|made\s+possible\s+by|support\s+(?:for|from)\s+this\s+(?:podcast|show)|a\s+word\s+from\s+our\s+sponsors?|thanks\s+to\s+our\s+sponsors?|thank\s+you\s+to\s+our\s+(?:partner|sponsor)|special\s+thanks\s+to|today's\s+(?:episode|show)\s+is\s+(?:supported|brought\s+to\s+you|sponsored)\s+by|this\s+(?:episode|show|podcast)\s+is\s+(?:supported|brought\s+to\s+you|sponsored)\s+by|a\s+quick\s+break\s+from\s+our\s+sponsor|our\s+(?:presenting\s+)?sponsor)\b")
             .expect("Valid intro regex")
     })
 }
 
 fn promo_regex() -> &'static Regex {
     PROMO_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:promo\s+code|use\s+(?:the\s+)?code|discount\s+code|coupon\s+code|at\s+checkout|for\s+\d+%\s+off|free\s+shipping|enter\s+code)\b")
+        Regex::new(r"(?i)\b(?:promo\s+code|use\s+(?:the\s+)?code|discount\s+code|coupon\s+code|at\s+checkout|for\s+\d+%\s+off|free\s+shipping|enter\s+code|money[- ]back\s+guarantee|risk[- ]free\s+trial)\b")
             .expect("Valid promo regex")
     })
 }
@@ -31,7 +31,7 @@ fn promo_regex() -> &'static Regex {
 fn url_regex() -> &'static Regex {
     URL_REGEX.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:(?:dot\s+com\s+slash|\.com/|https?://[^\s]+|\.org/|\.co/)[a-zA-Z0-9_\-]+)\b",
+            r"(?i)\b(?:(?:dot\s+com\s+slash|\.com/|https?://[^\s]+|\.org/|\.co/)[a-zA-Z0-9_\-]+|[a-zA-Z0-9\-]+\.(?:com|org|co|io)(?:/[a-zA-Z0-9_\-]+)?)\b",
         )
         .expect("Valid URL regex")
     })

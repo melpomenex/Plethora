@@ -663,6 +663,9 @@ export class GlobalAudioController {
       .map(interval => ({ id: String(interval.id), category: String(interval.category ?? "sponsor"), startSec: Math.max(0, interval.startSec), endSec: Math.max(0, interval.endSec) }))
       .sort((left, right) => left.startSec - right.startSec);
     this.skippedPolicy.clear();
+    if (this.snapshot?.playIntent && this.ready && this.engine) {
+      this.enforcePolicyInterval(this.engine.sample());
+    }
   };
 
   clampPositionPastAdIntervals = (globalPosition: number): number => {
