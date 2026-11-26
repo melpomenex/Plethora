@@ -5,7 +5,7 @@
  * navigating routes.
  */
 
-import { useEffect, useMemo, lazy } from "react";
+import { useEffect, useMemo } from "react";
 import {
   type DocumentWithProgress,
   getProgressGroup,
@@ -19,18 +19,8 @@ import { formatRelativeTime } from "../../utils/relativeTime";
 import { useIsActiveTab } from "../common/Tabs";
 import { useStartupStore } from "../../stores/startupStore";
 import { useCollectionStore } from "../../stores/collectionStore";
-import { importWithRetry } from "../../utils/importWithRetry";
+import { DocumentViewer } from "./TabRegistry";
 import type { StartupProgressItem } from "../../types/startup";
-
-// Open a document from Continue Reading goes through the same timeout+retry
-// lazy wrapper as every other document-viewer tab (TabRegistry.debugLazy):
-// a cold WebView chunk stall must self-heal in place instead of leaving the
-// viewer spinning until the user navigates away and back.
-const DocumentViewer = lazy(() =>
-  importWithRetry("ContinueReadingTab/DocumentViewer", () =>
-    import("../viewer/DocumentViewerWrapper").then((m) => ({ default: m.DocumentViewer }))
-  )
-);
 
 interface GroupedDocuments {
   group: ProgressGroup;
@@ -56,7 +46,28 @@ export function ContinueReadingTab() {
   const error = startupStatus === "error" ? startupError : null;
 
   useEffect(() => {
-    if (isActiveTab) void ensureStartup("continue-reading");
+    if (!isActiveTab) return;
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryDelay = 3_000;
+
+    const attempt = () => {
+      if (cancelled) return;
+      void ensureStartup("continue-reading").then((snapshot) => {
+        if (cancelled) return;
+        const status = useStartupStore.getState().status;
+        if (snapshot == null && status !== "ready" && status !== "error") {
+          retryTimer = setTimeout(attempt, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 15_000);
+        }
+      });
+    };
+
+    attempt();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+    };
   }, [activeCollectionId, ensureStartup, isActiveTab]);
 
   const groups: GroupedDocuments[] = useMemo(() => {

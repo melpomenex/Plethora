@@ -79,6 +79,24 @@ const SECONDARY_TAB_COMPONENTS: ReadonlyArray<RetryableLazyComponent> = [
   LanguageLearningTab,
 ];
 
+const TERTIARY_TAB_COMPONENTS: ReadonlyArray<RetryableLazyComponent> = [
+  DocumentViewer,
+  QueueScrollPage,
+  ExtractReader,
+  DocumentExtractsTab,
+  AudiobooksTab,
+  DocumentQATab,
+  KnowledgeSphereTab,
+  KnowledgeNetworkTab,
+  RssTab,
+  NewsletterDirectoryTab,
+  ImageRegistryTab,
+  WebBrowserTab,
+  NotebookLMTab,
+  AudiobookEpubSyncView,
+  ImportNeedsReviewTab,
+];
+
 async function preloadBatch(
   components: ReadonlyArray<RetryableLazyComponent>,
   concurrency = 2
@@ -104,6 +122,9 @@ export function prefetchCommonTabs(): void {
   setTimeout(() => {
     void preloadBatch(SECONDARY_TAB_COMPONENTS, 2);
   }, 400);
+  setTimeout(() => {
+    void preloadBatch(TERTIARY_TAB_COMPONENTS, 1);
+  }, 1_000);
 }
 
 export const TAB_TYPE_ICONS: Record<string, string> = {

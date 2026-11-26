@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useRef } from "react";
+import { Suspense, useEffect, useRef } from "react";
 import type { AudioSourceKey } from "../../types/audioEdition";
 import { useAudioPlaybackStore } from "../../stores/audioPlaybackStore";
 import { useI18n } from "../../lib/i18n";
 import { runAudioAction, audioTime } from "./audioPlayerActions";
 import { AudioTransport } from "./MiniAudioPlayer";
+import { createRetryableLazy } from "../../utils/retryableLazy";
 
 /** Structural source-identity comparison shared by source views and the EPUB sync view. */
 export function sameAudioSourceKey(left: AudioSourceKey | undefined | null, right: AudioSourceKey | undefined | null): boolean {
@@ -77,7 +78,7 @@ export function AudioSourceControls({ sourceKey, title, initialSeekTime, autoPla
   </section>;
 }
 
-const LazyAudiobookViewer = lazy(() =>
+const LazyAudiobookViewer = createRetryableLazy("AudiobookViewer", () =>
   import("../viewer/AudiobookViewer").then((mod) => ({ default: mod.AudiobookViewer })),
 );
 

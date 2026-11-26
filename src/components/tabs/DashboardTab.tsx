@@ -236,17 +236,36 @@ export function DashboardTab() {
   useEffect(() => {
     if (!isActiveTab) return;
     // The tab can remain mounted while its parent/store updates. Keep the
-    // startup effect one-shot per collection so loading stats cannot create a
-    // render/effect feedback loop on slower WebViews.
+    // startup effect one-shot per collection once settled so loading stats
+    // cannot create a render/effect feedback loop on slower WebViews, while
+    // still retrying if the startup watchdog timed out (null snapshot).
     const startupKey = activeCollectionId || "default";
     if (startupLoadedForCollection.current === startupKey) return;
-    startupLoadedForCollection.current = startupKey;
-    void ensureStartup("dashboard").finally(() => {
-      if (isActiveTab) {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let retryDelay = 3_000;
+
+    const attempt = () => {
+      if (cancelled) return;
+      void ensureStartup("dashboard").then((snapshot) => {
+        if (cancelled) return;
+        const status = useStartupStore.getState().status;
+        if (snapshot == null && status !== "ready" && status !== "error") {
+          retryTimer = setTimeout(attempt, retryDelay);
+          retryDelay = Math.min(retryDelay * 2, 15_000);
+          return;
+        }
+        startupLoadedForCollection.current = startupKey;
         void loadStats();
         void loadDueQuickReviewItems();
-      }
-    });
+      });
+    };
+
+    attempt();
+    return () => {
+      cancelled = true;
+      if (retryTimer !== undefined) clearTimeout(retryTimer);
+    };
   }, [activeCollectionId, ensureStartup, isActiveTab]);
   // eslint-disable-next-line react-hooks/exhaustive-deps
 
