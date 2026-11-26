@@ -8,6 +8,7 @@ import {
 import * as api from '../../../api/study-plans';
 
 vi.mock('../../../api/study-plans', () => ({
+  StudyApiError: class StudyApiError extends Error {},
   importLegacyStudyPlans: vi.fn(),
 }));
 

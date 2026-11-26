@@ -13,7 +13,7 @@ export class AudioAlignmentRegistry {
 
   add(alignment: SentenceAudioAlignment): void {
     const key = `${alignment.sourceId}\u001f${alignment.sentenceId}`;
-    const current = this.alignments.get(key) ?? [];
+    const current = (this.alignments.get(key) ?? []).filter((item) => item.id !== alignment.id);
     current.push(alignment);
     current.sort((left, right) => right.confidence - left.confidence || left.id.localeCompare(right.id));
     this.alignments.set(key, current);

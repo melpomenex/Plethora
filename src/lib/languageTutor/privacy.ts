@@ -18,12 +18,13 @@ export function resolveTutorPrivacyPolicy(input: {
   aiPath: "ondevice" | "cloud" | "none";
   cloudConsent: boolean | null;
   hasByoProvider?: boolean;
+  isLocalEndpoint?: boolean;
   persistTranscript?: boolean;
 }): TutorPrivacyPolicy {
   const path: TutorProviderPath = input.aiPath === "ondevice"
     ? "local"
     : input.aiPath === "cloud"
-      ? (input.hasByoProvider ? "byo-cloud" : "managed-cloud")
+      ? (input.isLocalEndpoint ? "local" : input.hasByoProvider ? "byo-cloud" : "managed-cloud")
       : "none";
   const sendsMaterialOffDevice = path === "byo-cloud" || path === "managed-cloud";
   return {

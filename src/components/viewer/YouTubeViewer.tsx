@@ -1065,6 +1065,45 @@ export function YouTubeViewer({
     return () => window.removeEventListener("plethora:assistant-seek", seek);
   }, [documentId, handleSeek]);
 
+  useEffect(() => {
+    const onLanguageRangeReplay = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        documentId?: string;
+        mediaId?: string;
+        startMs?: number;
+        endMs?: number;
+      }>).detail;
+      if (!detail || typeof detail.startMs !== "number" || typeof detail.endMs !== "number") return;
+      const matchesTarget = detail.documentId
+        ? detail.documentId === documentId || detail.mediaId === normalizedVideoId
+        : Boolean(detail.mediaId && (detail.mediaId === normalizedVideoId || detail.mediaId === documentId));
+      if (!matchesTarget) return;
+      const startSec = Math.max(0, detail.startMs / 1000);
+      const endSec = Math.max(startSec, detail.endMs / 1000);
+      handleSeek(startSec, endSec > startSec ? endSec : undefined);
+    };
+    window.addEventListener("plethora-language-original-audio-range", onLanguageRangeReplay);
+    return () => window.removeEventListener("plethora-language-original-audio-range", onLanguageRangeReplay);
+  }, [documentId, handleSeek, normalizedVideoId]);
+
+  const handlePauseFromLanguageHost = useCallback(() => {
+    try {
+      playerRef.current?.pauseVideo?.();
+    } catch {
+      // Ignore cross-origin / unready player errors.
+    }
+  }, []);
+
+  const handlePlaybackRateFromLanguageHost = useCallback((rate: number) => {
+    if (!Number.isFinite(rate) || rate <= 0) return;
+    setPlaybackRate(rate);
+    try {
+      playerRef.current?.setPlaybackRate?.(rate);
+    } catch {
+      // Ignore cross-origin / unready player errors.
+    }
+  }, []);
+
 
   // Format time for display
   const formatTime = (seconds: number) => {
@@ -1615,6 +1654,10 @@ export function YouTubeViewer({
           segments={transcript}
           currentTime={currentTime}
           onSeek={handleSeek}
+          onPause={handlePauseFromLanguageHost}
+          onPlaybackRateChange={handlePlaybackRateFromLanguageHost}
+          playbackRate={playbackRate}
+          frameCaptureAvailable={false}
         />
       )}
 

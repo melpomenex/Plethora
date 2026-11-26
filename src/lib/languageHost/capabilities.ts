@@ -1,5 +1,5 @@
 import { isGroqConfigured } from "../../api/groqTranscription";
-import { hasCloudProvider } from "../ai/provider";
+import { type AiPath } from "../ai/provider";
 import { createConfiguredShadowingProviders } from "../languageShadowing/providers";
 import type { ShadowingRecognitionProvider } from "../languageShadowing";
 import { createAiWritingProvider } from "../languageWriting/aiWritingProvider";
@@ -9,7 +9,11 @@ import { createProductionReadingAssistRegistry, hasProductionReadingAssistProvid
 import { createTranslationProviderRegistry } from "../languageTranslation/registry";
 import { createMlKitTranslationProvider } from "../languageTranslation/mlkitTranslate";
 import { createAppleTranslationProvider } from "../languageTranslation/appleTranslate";
-import { createAiTranslationProvider } from "../languageTranslation/aiTranslate";
+import {
+  createAiTranslationProvider,
+  getEffectiveAiPathSync,
+  isAiLocalExecutionSync,
+} from "../languageTranslation/aiTranslate";
 import { isNativeMobile, isTauri, nativePlatform } from "../tauri";
 import type {
   LanguageHostCapability,
@@ -36,20 +40,23 @@ function available(name: LanguageHostCapabilityName, offline: boolean, detail?: 
 export interface LanguageHostCapabilityInput {
   surface: LanguageHostSurface;
   profile?: LanguageProfile | null;
+  aiPath?: AiPath;
 }
 
-function translationAvailable(profile?: LanguageProfile | null): LanguageHostCapability {
+function translationAvailable(profile?: LanguageProfile | null, aiPath?: AiPath): LanguageHostCapability {
+  const effectiveAiPath = getEffectiveAiPathSync(aiPath);
   const registry = createTranslationProviderRegistry([
     createMlKitTranslationProvider(),
     createAppleTranslationProvider(),
-    createAiTranslationProvider(),
+    createAiTranslationProvider({ aiPath: effectiveAiPath }),
   ]);
   const source = profile?.targetLanguage ?? "es";
   const target = profile?.baseLanguage ?? "en";
+  const isOffline = typeof navigator !== "undefined" && navigator.onLine === false;
   const selection = registry.select({
     sourceLanguage: source,
     targetLanguage: target,
-    policy: { privacy: "allow-cloud", offline: false },
+    policy: { privacy: "allow-cloud", offline: isOffline },
   });
   if (selection.provider) {
     return available("translation", selection.provider.capabilities.offlineAvailable, selection.provider.id);
@@ -86,11 +93,13 @@ export function createProductionPronunciationManifest(
 export function resolveLanguageHostCapabilities(
   input: LanguageHostCapabilityInput,
 ): Partial<Record<LanguageHostCapabilityName, LanguageHostCapability>> {
-  const aiAvailable = hasCloudProvider();
+  const effectiveAiPath = getEffectiveAiPathSync(input.aiPath);
+  const aiAvailable = effectiveAiPath !== "none";
+  const aiOffline = isAiLocalExecutionSync(effectiveAiPath);
   const shadowingProviders = createProductionShadowingProviders();
-  const writingProvider = createAiWritingProvider();
+  const writingProvider = createAiWritingProvider({ aiPath: effectiveAiPath });
   const readingAssist = hasProductionReadingAssistProvider();
-  const translation = translationAvailable(input.profile);
+  const translation = translationAvailable(input.profile, effectiveAiPath);
   const practiceDetail = [
     "dictation",
     shadowingProviders.length > 0 ? "stt" : null,
@@ -114,7 +123,7 @@ export function resolveLanguageHostCapabilities(
             : unavailable("readingAssist", "unsupported-capability", "No reading-assist provider is configured.")];
         case "tutor":
           return [name, aiAvailable
-            ? available("tutor", false, "configured-ai")
+            ? available("tutor", aiOffline, effectiveAiPath === "ondevice" ? "ondevice-ai" : "configured-ai")
             : unavailable("tutor", "unsupported-capability", "Configure an AI provider to use the language tutor.")];
         case "practice":
           return [name, available(
@@ -135,11 +144,12 @@ export function resolveLanguageHostCapabilities(
   return map;
 }
 
-export function createProductionLanguageHostBindings() {
+export function createProductionLanguageHostBindings(aiPath?: AiPath) {
+  const effectiveAiPath = getEffectiveAiPathSync(aiPath);
   const shadowingProviders = createProductionShadowingProviders();
   return {
     shadowingProviders,
-    writingProvider: createAiWritingProvider(),
+    writingProvider: createAiWritingProvider({ aiPath: effectiveAiPath }),
     pronunciationManifest: createProductionPronunciationManifest(shadowingProviders),
     readingAssistRegistry: createProductionReadingAssistRegistry(),
     defaultSttRoute: shadowingProviders.some((provider) => provider.route === "local")

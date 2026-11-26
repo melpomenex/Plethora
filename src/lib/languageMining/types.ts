@@ -14,18 +14,27 @@ export interface MiningProviderProvenance {
 export interface LanguageMiningPayload {
   payloadVersion: 1;
   profileId?: string;
+  lexicalEntryId?: string;
+  phraseId?: string;
+  sentenceId?: string;
+  languageTag?: string;
   sourceType: MiningSourceType;
   sourceId: string;
   documentId?: string;
   text: string;
   sentenceText?: string;
+  translatedSentence?: string;
   selectedText?: string;
+  reading?: string;
+  pos?: string;
+  lemma?: string;
   sourceAnchor?: SourceAnchor;
   sourceFingerprint?: string;
   mediaId?: string;
   mediaStartMs?: number;
   mediaEndMs?: number;
   frameTimestampMs?: number;
+  frameDataUrl?: string;
   frameAvailable: boolean;
   originalAudioAvailability: MiningAvailability;
   translationAvailability: MiningAvailability;

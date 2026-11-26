@@ -55,7 +55,13 @@ import { useLanguageProfileStore } from "../../../stores/languageProfileStore";
 import { useLanguageKnowledgeStore } from "../../../stores/languageKnowledgeStore";
 import { LanguageKnowledgeStateSelector } from "../../common/LanguageKnowledgeStateSelector";
 import type { LanguageKnowledgeStateSnapshot } from "../../../types/languageKnowledge";
+import { listLanguageOccurrences, upsertLanguageLexicalEntry } from "../../../api/languageLexicon";
 import { memorizeLanguageDraft } from "../../../api/languageSrs";
+import {
+  createLanguageMiningPayload,
+  miningPayloadCanCreateDraft,
+  type MiningSourceType,
+} from "../../../lib/languageMining";
 import { createExtract } from "../../../api/extracts";
 import { useUndoableOperations } from "../../../api/undoable";
 import { useToast } from "../../common/Toast";
@@ -78,6 +84,11 @@ import type {
 } from "../../../lib/languagePeek";
 import type { SourceAnchor } from "../../../types/languageLexicon";
 
+export interface PeekDisplayAnalysisContext extends PeekAnalysisContext {
+  reading?: string;
+  transliteration?: string;
+}
+
 /** What the peek looks up — derived from a READY selection or a menu row. */
 export interface DictionaryPeekTarget {
   /** Raw selected text (normalized through the shared resolver inside). */
@@ -87,14 +98,52 @@ export interface DictionaryPeekTarget {
   /** Optional active language context supplied by a profile-aware reader. */
   profileId?: string;
   languageTag?: string;
-  analysis?: PeekAnalysisContext;
+  analysis?: PeekDisplayAnalysisContext;
   phrase?: PeekPhraseContext;
   sentence?: PeekSentenceContext;
   sourceAnchor?: SourceAnchor;
+  allowAiFallback?: boolean;
   /** Surface anchor (EPUB CFI / PDF canonical / text offsets / null). */
   selectionContext?: unknown;
   /** Viewport-space geometry for anchoring; null → bottom-anchored card. */
   geometry: SelectionGeometry | null;
+}
+
+const RTL_LANGUAGE_SUBTAGS = new Set(["ar", "he", "iw", "fa", "ur", "ps", "sd", "yi", "ji", "ug", "dv", "ckb", "syr", "nqo"]);
+
+export function isRtlTag(languageTag?: string | null): boolean {
+  if (!languageTag) return false;
+  const parts = languageTag.trim().toLowerCase().split(/[-_]/);
+  const primary = parts[0];
+  if (primary && RTL_LANGUAGE_SUBTAGS.has(primary)) return true;
+  return parts.some((part) => part === "arab" || part === "hebr" || part === "syrc" || part === "thaa" || part === "nkoo");
+}
+
+function provenanceBadgeLabel(
+  provenance?: "local" | "dedicated" | "ai",
+  providerId?: string,
+): string | null {
+  if (!provenance) return null;
+  if (provenance === "local") return "Local offline pack";
+  if (provenance === "ai") return "AI definition";
+  if (providerId === "jisho.org") return "Online · Jisho";
+  if (providerId === "wiktionary-rest") return "Online · Wiktionary";
+  return providerId ? `Online · ${providerId}` : "Online";
+}
+
+function toMiningSourceType(sourceType?: SourceAnchor["sourceType"]): MiningSourceType {
+  if (sourceType === "media") return "video";
+  if (
+    sourceType === "epub" ||
+    sourceType === "pdf" ||
+    sourceType === "html" ||
+    sourceType === "markdown" ||
+    sourceType === "transcript" ||
+    sourceType === "text"
+  ) {
+    return sourceType;
+  }
+  return "text";
 }
 
 export interface DictionaryPeekProps {
@@ -148,11 +197,12 @@ export function DictionaryPeek({
   const isEink = useIsEink();
   const reducedMotion = presentation.reducedMotion || isEink;
   const compact = presentation.pointer === "coarse" || presentation.isMobileShell;
-  const tts = useTTS();
+  const tts = useTTS({ lang: target?.languageTag });
   const toast = useToast();
   const haptics = useHapticFeedback();
   const { deleteLearningItem } = useUndoableOperations();
   const activeProfileId = useLanguageProfileStore((state) => state.activeProfileId);
+  const effectiveProfileId = target?.profileId ?? activeProfileId ?? undefined;
 
   const cardRef = useRef<HTMLDivElement>(null);
   const [size, setSize] = useState(DEFAULT_PEEK_SIZE);
@@ -162,12 +212,13 @@ export function DictionaryPeek({
 
   const open = Boolean(target);
   const lookup = useDictionaryEntry(target?.text, documentId, target ? {
-    profileId: activeProfileId ?? target.profileId,
+    profileId: effectiveProfileId,
     languageTag: target.languageTag,
     analysis: target.analysis,
     phrase: target.phrase,
     sentence: target.sentence,
     sourceAnchor: target.sourceAnchor,
+    allowAiFallback: target.allowAiFallback,
   } : undefined);
 
   // Resolve the display word through the shared resolver (never a local
@@ -175,6 +226,7 @@ export function DictionaryPeek({
   const resolved = useMemo(() => (target ? resolveSelectionIntent(target.text) : null), [target]);
   const displayWord = resolved?.kind === "word" ? resolved.word : target?.text.trim() ?? "";
   const [knowledgeState, setKnowledgeState] = useState<LanguageKnowledgeStateSnapshot | null>(null);
+  const [encounterCount, setEncounterCount] = useState<number | null>(null);
   const entry = lookup.data?.ok ? lookup.data.entry : null;
   const failure = lookup.data?.ok === false ? lookup.data.failure : null;
   const loading = lookup.isPending;
@@ -182,21 +234,71 @@ export function DictionaryPeek({
   useEffect(() => {
     let cancelled = false;
     setKnowledgeState(null);
-    if (activeProfileId && displayWord) {
-      void useLanguageKnowledgeStore.getState().resolveSurface(activeProfileId, displayWord).then((snapshot) => {
+    if (effectiveProfileId && displayWord) {
+      void useLanguageKnowledgeStore.getState().resolveSurface(effectiveProfileId, displayWord).then((snapshot) => {
         if (!cancelled) setKnowledgeState(snapshot);
       }).catch(() => {
         if (!cancelled) setKnowledgeState(null);
       });
     }
     return () => { cancelled = true; };
-  }, [activeProfileId, displayWord]);
+  }, [effectiveProfileId, displayWord]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEncounterCount(null);
+    const entryId = knowledgeState?.lexicalEntryId;
+    if (effectiveProfileId && entryId) {
+      void listLanguageOccurrences(effectiveProfileId, { entryId, limit: 1 })
+        .then((page) => {
+          if (!cancelled) {
+            setEncounterCount(typeof page?.total === "number" ? page.total : page?.items?.length ?? 0);
+          }
+        })
+        .catch(() => {
+          if (!cancelled) setEncounterCount(null);
+        });
+    }
+    return () => { cancelled = true; };
+  }, [effectiveProfileId, knowledgeState?.lexicalEntryId]);
 
   const handleKnowledgeStateChange = useCallback(async (state: LanguageKnowledgeStateSnapshot["state"]) => {
-    if (!activeProfileId || !knowledgeState) return;
-    const next = await useLanguageKnowledgeStore.getState().setState({ profileId: activeProfileId, entryId: knowledgeState.lexicalEntryId, state });
+    if (!effectiveProfileId || !displayWord) return;
+    let entryId = knowledgeState?.lexicalEntryId;
+    if (!entryId) {
+      const languageTag =
+        target?.languageTag ||
+        useLanguageProfileStore
+          .getState()
+          .profiles.find((profile) => profile.id === effectiveProfileId)?.targetLanguage ||
+        "und";
+      let normalizedForm = displayWord.normalize("NFC");
+      try {
+        normalizedForm = languageTag !== "und"
+          ? normalizedForm.toLocaleLowerCase(languageTag)
+          : normalizedForm.toLowerCase();
+      } catch {
+        normalizedForm = normalizedForm.toLowerCase();
+      }
+      const created = await upsertLanguageLexicalEntry({
+        profileId: effectiveProfileId,
+        languageTag,
+        normalizedForm,
+        canonicalForm: displayWord,
+        lemma: target?.analysis?.lemma,
+        partOfSpeech: target?.analysis?.partOfSpeech,
+        meanings: entry?.senses.map((sense) => sense.definition).filter(Boolean),
+        pronunciation: entry?.phonetic,
+      });
+      entryId = created.id;
+    }
+    const next = await useLanguageKnowledgeStore.getState().setState({
+      profileId: effectiveProfileId,
+      entryId,
+      state,
+    });
     setKnowledgeState(next);
-  }, [activeProfileId, knowledgeState]);
+  }, [effectiveProfileId, displayWord, knowledgeState, target?.languageTag, target?.analysis?.lemma, target?.analysis?.partOfSpeech, entry]);
 
   // Reset per-target transient state (explanation stream, saving flag).
   useEffect(() => {
@@ -364,7 +466,7 @@ export function DictionaryPeek({
         documentId: documentId ?? undefined,
         provenance: {
           origin: target.phrase ? "phrase" : "dictionary-peek",
-          profileId: activeProfileId ?? target.profileId ?? "local",
+          profileId: effectiveProfileId ?? "local",
           lexicalEntryId: knowledgeState?.lexicalEntryId,
           sourceAnchor: target.sourceAnchor,
           createdAt: Date.now(),
@@ -394,7 +496,40 @@ export function DictionaryPeek({
     } finally {
       setFlashcardSaving(false);
     }
-  }, [target, entry, displayWord, documentId, flashcardSaving, toast, t, deleteLearningItem, activeProfileId, knowledgeState]);
+  }, [target, entry, displayWord, documentId, flashcardSaving, toast, t, deleteLearningItem, effectiveProfileId, knowledgeState]);
+
+  const handleMineSentence = useCallback(() => {
+    if (!target || !effectiveProfileId) return;
+    const sentenceText = target.sentence?.text?.trim() || target.passage?.trim() || displayWord;
+    const text = displayWord || sentenceText;
+    if (!text) return;
+
+    const payload = createLanguageMiningPayload({
+      profileId: effectiveProfileId,
+      sourceType: toMiningSourceType(target.sourceAnchor?.sourceType),
+      sourceId: target.sourceAnchor?.sourceId ?? documentId ?? "reader",
+      documentId: documentId ?? undefined,
+      text,
+      sentenceText,
+      selectedText: displayWord || undefined,
+      surroundingContext: target.passage ?? sentenceText,
+      sourceAnchor: target.sourceAnchor,
+      sourceFingerprint: target.sourceAnchor?.contentFingerprint,
+      originalAudioAvailability: onReplayOriginalAudio && target.sourceAnchor ? "available" : "missing",
+      translationAvailability: target.sentence?.translation ? "available" : "missing",
+      analysisAvailability: target.analysis ? "available" : "missing",
+      provenance: lookup.data?.ok
+        ? { providerId: lookup.data.providerId, providerVersion: lookup.data.providerVersion }
+        : undefined,
+      origin: "mining",
+    });
+
+    if (!miningPayloadCanCreateDraft(payload)) return;
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new CustomEvent("plethora-language-mining-draft", { detail: payload }));
+    }
+    emitUserInteraction("reader.annotation-saved");
+  }, [target, effectiveProfileId, displayWord, documentId, onReplayOriginalAudio, lookup.data]);
 
   if (!open || !target) return null;
 
@@ -493,22 +628,67 @@ export function DictionaryPeek({
     </div>
   );
 
+  const provenanceLabel = lookup.data?.ok
+    ? provenanceBadgeLabel(lookup.data.provenance, lookup.data.providerId)
+    : null;
+  const effectiveAnalysis: PeekDisplayAnalysisContext | undefined =
+    target.analysis ?? (lookup.data?.ok ? lookup.data.analysis : undefined);
+
   const renderLanguageContext = () => {
-    if (!target.analysis && !target.phrase && !target.sentence) return null;
+    const reading =
+      effectiveAnalysis?.reading ??
+      (typeof effectiveAnalysis?.morphology?.reading === "string"
+        ? effectiveAnalysis.morphology.reading
+        : undefined);
+    const transliteration =
+      effectiveAnalysis?.transliteration ??
+      (typeof effectiveAnalysis?.morphology?.transliteration === "string"
+        ? effectiveAnalysis.morphology.transliteration
+        : undefined);
+
+    if (
+      !effectiveAnalysis &&
+      !target.phrase &&
+      !target.sentence &&
+      encounterCount === null &&
+      !provenanceLabel
+    ) {
+      return null;
+    }
+
     return (
       <div className="space-y-1.5 border-t border-border/70 pt-2" data-testid="language-peek-context">
-        {target.analysis && (
-          <details open={Boolean(target.analysis.morphology)} className="text-[12px] text-muted-foreground">
+        {(provenanceLabel || encounterCount !== null) && (
+          <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
+            {provenanceLabel && (
+              <span
+                className="rounded-full border border-border px-2 py-0.5 font-medium text-foreground"
+                data-testid="language-peek-provenance"
+              >
+                {provenanceLabel}
+              </span>
+            )}
+            {encounterCount !== null && (
+              <span data-testid="language-peek-encounters">
+                Previous encounters: {encounterCount}
+              </span>
+            )}
+          </div>
+        )}
+        {effectiveAnalysis && (
+          <details open={Boolean(effectiveAnalysis.morphology)} className="text-[12px] text-muted-foreground">
             <summary className="cursor-pointer select-none">
-              {target.analysis.lemma ? `Lemma: ${target.analysis.lemma}` : "Language analysis"}
+              {effectiveAnalysis.lemma ? `Lemma: ${effectiveAnalysis.lemma}` : "Language analysis"}
             </summary>
             <div className="mt-1 space-y-0.5">
-              {target.analysis.partOfSpeech && <p>Part of speech: {target.analysis.partOfSpeech}</p>}
-              {target.analysis.confidence !== undefined && (
-                <p>Analysis confidence: {Math.round(target.analysis.confidence * 100)}%</p>
+              {effectiveAnalysis.partOfSpeech && <p>Part of speech: {effectiveAnalysis.partOfSpeech}</p>}
+              {reading && <p>Reading: {reading}</p>}
+              {transliteration && <p>Transliteration: {transliteration}</p>}
+              {effectiveAnalysis.confidence !== undefined && (
+                <p>Analysis confidence: {Math.round(effectiveAnalysis.confidence * 100)}%</p>
               )}
-              {target.analysis.morphology && (
-                <p className="whitespace-pre-wrap">{JSON.stringify(target.analysis.morphology)}</p>
+              {effectiveAnalysis.morphology && (
+                <p className="whitespace-pre-wrap">{JSON.stringify(effectiveAnalysis.morphology)}</p>
               )}
             </div>
           </details>
@@ -530,13 +710,15 @@ export function DictionaryPeek({
     );
   };
 
+  const canMineSentence = Boolean(effectiveProfileId && (target.sentence || displayWord));
+
   return createPortal(
     <div
       {...{ [SELECTION_INTERACTION_UI_ATTR]: "true" }}
       ref={cardRef}
       role="dialog"
       aria-label={t("viewer.dictionaryPeek.title", { word: displayWord })}
-      dir="ltr"
+      dir={isRtlTag(target?.languageTag) ? "rtl" : "ltr"}
       data-eink={isEink ? "true" : undefined}
       className={`fixed z-[var(--md-z-critical)] flex flex-col overflow-y-auto rounded-2xl p-3 ${surfaceClass} ${
         reducedMotion ? "" : "animate-in fade-in-0 zoom-in-95 duration-150"
@@ -571,6 +753,13 @@ export function DictionaryPeek({
       </div>
 
       <div className="mt-1 min-h-0 flex-1 space-y-2" aria-busy={loading} aria-live="polite">
+        {effectiveProfileId && (
+          <LanguageKnowledgeStateSelector
+            value={knowledgeState?.state ?? "new"}
+            onChange={handleKnowledgeStateChange}
+          />
+        )}
+
         {loading && (
           <div className="space-y-1.5 py-1">
             <div className="h-3 w-3/4 animate-pulse rounded bg-muted" />
@@ -583,12 +772,6 @@ export function DictionaryPeek({
 
         {!loading && entry && (
           <>
-            {knowledgeState && (
-              <LanguageKnowledgeStateSelector
-                value={knowledgeState.state}
-                onChange={handleKnowledgeStateChange}
-              />
-            )}
             <div>
               {entry.senses[0]?.partOfSpeech && (
                 <span className="mr-2 text-[11px] font-medium italic text-muted-foreground">
@@ -628,11 +811,11 @@ export function DictionaryPeek({
               </p>
             )}
 
-            {renderLanguageContext()}
-
             {aiAvailable && explain.state !== "idle" && renderExplain()}
           </>
         )}
+
+        {!loading && renderLanguageContext()}
       </div>
 
       <div className="mt-2 flex flex-wrap items-center gap-1 border-t border-border/70 pt-2">
@@ -659,6 +842,12 @@ export function DictionaryPeek({
             "Practice",
             <GraduationCap className="h-4 w-4" />,
             () => onPractice(displayWord),
+          )}
+        {canMineSentence &&
+          actionButton(
+            "Mine sentence",
+            <BookOpen className="h-4 w-4" />,
+            handleMineSentence,
           )}
         {actionButton(
           t("viewer.dictionaryPeek.flashcard"),

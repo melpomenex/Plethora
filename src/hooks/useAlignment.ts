@@ -6,6 +6,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import type { AlignmentResult, AlignmentWorkerInput, AlignmentWorkerOutput } from "../types/alignment";
 import { cacheAlignment, getCachedAlignment } from "../api/alignmentCache";
+import { alignmentsFromWorkerResult, bridgeAlignmentToLanguageStore } from "../lib/languageAudioAlignment";
+import { useSettingsStore } from "../stores/settingsStore";
+import { useLanguageProfileStore } from "../stores/languageProfileStore";
 
 export type AlignmentState =
   | { status: "idle" }
@@ -13,6 +16,27 @@ export type AlignmentState =
   | { status: "aligning"; progress: number }
   | { status: "ready"; result: AlignmentResult }
   | { status: "error"; message: string };
+
+async function syncWorkerAlignmentToLanguageLayer(result: AlignmentResult): Promise<void> {
+  try {
+    const languageLearningEnabled = useSettingsStore.getState().settings.languageLearning?.enabled === true;
+    let profileId: string | undefined;
+    if (languageLearningEnabled) {
+      const profileStore = useLanguageProfileStore.getState();
+      const resolved = await profileStore.resolveContext("document", result.epubDocId).catch(() => null);
+      profileId = resolved?.profile.id ?? profileStore.activeProfileId ?? undefined;
+    }
+    const alignments = alignmentsFromWorkerResult(result, { profileId });
+    await bridgeAlignmentToLanguageStore({
+      alignments,
+      mediaFingerprint: result.audioDocId,
+      profileId,
+      persist: languageLearningEnabled && Boolean(profileId),
+    });
+  } catch {
+    // Language layer bridging is best-effort and must never disrupt reader alignment.
+  }
+}
 
 export function useAlignment(
   audioDocId: string | null,
@@ -38,6 +62,7 @@ export function useAlignment(
     try {
       const cached = await getCachedAlignment(audioDocId, epubDocId);
       if (cached) {
+        void syncWorkerAlignmentToLanguageLayer(cached);
         setState({ status: "ready", result: cached });
         return;
       }
@@ -64,6 +89,7 @@ export function useAlignment(
         };
 
         cacheAlignment(result).catch(() => {});
+        void syncWorkerAlignmentToLanguageLayer(result);
         setState({ status: "ready", result });
         worker.terminate();
         workerRef.current = null;

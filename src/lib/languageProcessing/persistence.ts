@@ -1,3 +1,4 @@
+import { invokeCommand, isTauri } from "../tauri";
 import type {
   AnalysisChunk,
   AnalysisPage,
@@ -298,7 +299,104 @@ export class IndexedDbLanguageProcessingStore implements LanguageProcessingStore
   }
 }
 
+/**
+ * Durable Tauri SQLite store backed by migration 092 (`language_processing_*`).
+ * Falls back cleanly to IndexedDB or Memory outside Tauri.
+ */
+export class SqliteLanguageProcessingStore implements LanguageProcessingStore {
+  async getJob(jobId: string): Promise<ProcessingJobCheckpoint | null> {
+    const row = await invokeCommand<Record<string, unknown> | null>("get_language_processing_job", { jobId });
+    if (!row) return null;
+    return {
+      jobId: String(row.jobId),
+      processingKey: String(row.processingKey),
+      state: row.state as JobState,
+      nextChunkIndex: Number(row.nextChunkIndex ?? 0),
+      totalChunks: Number(row.totalChunks ?? 0),
+      completedChunks: Number(row.completedChunks ?? 0),
+      retryCount: Number(row.retryCount ?? 0),
+      error: (row.errorCode as ProcessingJobCheckpoint["error"]) ?? undefined,
+      message: (row.errorMessage as string | undefined) ?? undefined,
+      updatedAt: Number(row.updatedAt ?? Date.now()),
+    };
+  }
+
+  async putJob(checkpoint: ProcessingJobCheckpoint): Promise<void> {
+    await invokeCommand("put_language_processing_job", {
+      job: {
+        jobId: checkpoint.jobId,
+        processingKey: checkpoint.processingKey,
+        state: checkpoint.state,
+        nextChunkIndex: checkpoint.nextChunkIndex,
+        totalChunks: checkpoint.totalChunks,
+        completedChunks: checkpoint.completedChunks,
+        retryCount: checkpoint.retryCount,
+        errorCode: checkpoint.error ?? null,
+        errorMessage: checkpoint.message ?? null,
+        updatedAt: checkpoint.updatedAt,
+      },
+    });
+  }
+
+  async getChunks(processingKey: string): Promise<AnalysisChunk[]> {
+    const rows = await invokeCommand<Array<{ chunkIndex: number; chunk: AnalysisChunk }>>(
+      "get_language_processing_chunks",
+      { processingKey },
+    );
+    return rows.sort((a, b) => a.chunkIndex - b.chunkIndex).map((r) => r.chunk);
+  }
+
+  async putChunk(processingKey: string, chunk: AnalysisChunk): Promise<void> {
+    await invokeCommand("put_language_processing_chunk", {
+      chunk: {
+        processingKey,
+        chunkIndex: chunk.chunkIndex,
+        sourceStart: chunk.sourceStart,
+        sourceEnd: chunk.sourceEnd,
+        chunk,
+        updatedAt: Date.now(),
+      },
+    });
+  }
+
+  async getResult(processingKey: string): Promise<ProcessingResultRecord | null> {
+    const row = await invokeCommand<ProcessingResultRecord | null>(
+      "get_language_processing_result",
+      { processingKey },
+    );
+    return row ?? null;
+  }
+
+  async putResult(result: ProcessingResultRecord): Promise<void> {
+    await invokeCommand("put_language_processing_result", { record: result });
+  }
+
+  async pageTokens(processingKey: string, offset: number, limit: number): Promise<AnalysisPage | null> {
+    const result = await this.getResult(processingKey);
+    if (!result) return null;
+    const chunks = await this.getChunks(processingKey);
+    const tokens = chunks.flatMap((c) => c.tokens).sort((a, b) => a.start - b.start || a.end - b.end);
+    const safeOffset = Math.max(0, Math.floor(offset));
+    const safeLimit = Math.max(1, Math.floor(limit));
+    const page = tokens.slice(safeOffset, safeOffset + safeLimit);
+    return {
+      processingKey,
+      offset: safeOffset,
+      limit: safeLimit,
+      total: tokens.length,
+      tokens: page,
+      hasMore: safeOffset + page.length < tokens.length,
+      version: result.version,
+    };
+  }
+
+  async cleanup(): Promise<number> {
+    return 0;
+  }
+}
+
 export function createLanguageProcessingStore(): LanguageProcessingStore {
+  if (isTauri()) return new SqliteLanguageProcessingStore();
   if (typeof indexedDB !== "undefined") return new IndexedDbLanguageProcessingStore();
   return new MemoryLanguageProcessingStore();
 }

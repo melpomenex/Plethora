@@ -1,3 +1,8 @@
+import {
+  getLanguageTranslationCache,
+  putLanguageTranslationCache,
+  type LanguageTranslationCacheRecord,
+} from "../../api/languageEcosystem";
 import type { TranslationCacheKey } from "./cacheKey";
 import type { StoredTranslationResult } from "./result";
 
@@ -21,14 +26,24 @@ export interface TranslationCacheEntry {
   accessSequence: number;
 }
 
+export interface TranslationDurableStore {
+  get(cacheKey: string): Promise<LanguageTranslationCacheRecord | null>;
+  put(record: LanguageTranslationCacheRecord): Promise<unknown>;
+}
+
 export interface TranslationCacheOptions {
   maxEntries?: number;
   maxBytes?: number;
   now?: () => number;
+  durableStore?: TranslationDurableStore | false;
 }
 
 const DEFAULT_MAX_ENTRIES = 128;
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
+const DEFAULT_DURABLE_STORE: TranslationDurableStore = {
+  get: getLanguageTranslationCache,
+  put: putLanguageTranslationCache,
+};
 
 function utf8Size(value: string): number {
   return new TextEncoder().encode(value).byteLength;
@@ -39,14 +54,16 @@ function estimateSize(result: StoredTranslationResult): number {
 }
 
 /**
- * Small deterministic LRU cache. Entries are complete provenance records so a
- * future durable store can persist them without making readers provider-aware.
+ * Small deterministic LRU cache backed optionally by SQLite (`language_translation_cache`).
+ * In-memory methods stay synchronous for fast lookups and backwards compatibility.
  */
 export class TranslationCache {
   private readonly entries = new Map<TranslationCacheKey, TranslationCacheEntry>();
   private readonly maxEntries: number;
   private readonly maxBytes: number;
   private readonly now: () => number;
+  private readonly durableStore: TranslationDurableStore | false;
+  private readonly pendingDurableGets = new Map<string, Promise<LanguageTranslationCacheRecord | null>>();
   private totalBytes = 0;
   private accessSequence = 0;
 
@@ -54,6 +71,7 @@ export class TranslationCache {
     this.maxEntries = Math.max(1, Math.floor(options.maxEntries ?? DEFAULT_MAX_ENTRIES));
     this.maxBytes = Math.max(1, Math.floor(options.maxBytes ?? DEFAULT_MAX_BYTES));
     this.now = options.now ?? Date.now;
+    this.durableStore = options.durableStore === undefined ? DEFAULT_DURABLE_STORE : options.durableStore;
   }
 
   get(key: TranslationCacheKey): StoredTranslationResult | undefined {
@@ -63,6 +81,38 @@ export class TranslationCache {
     entry.metadata.hitCount += 1;
     entry.accessSequence = ++this.accessSequence;
     return entry.result;
+  }
+
+  async getPersisted(
+    key: TranslationCacheKey,
+    rehydrate: (record: LanguageTranslationCacheRecord) => StoredTranslationResult,
+  ): Promise<StoredTranslationResult | undefined> {
+    const memHit = this.get(key);
+    if (memHit) return memHit;
+    if (this.durableStore === false) return undefined;
+
+    let lookup = this.pendingDurableGets.get(key);
+    if (!lookup) {
+      const store = this.durableStore;
+      lookup = Promise.resolve()
+        .then(() => store.get(key))
+        .catch(() => null)
+        .finally(() => {
+          if (this.pendingDurableGets.get(key) === lookup) {
+            this.pendingDurableGets.delete(key);
+          }
+        });
+      this.pendingDurableGets.set(key, lookup);
+    }
+
+    const record = await lookup;
+    if (!record) return undefined;
+    const nowSeconds = Math.floor(this.now() / 1000);
+    if (record.expiresAt != null && record.expiresAt <= nowSeconds) return undefined;
+
+    const stored = rehydrate(record);
+    this.set(stored);
+    return stored;
   }
 
   set(result: StoredTranslationResult): boolean {
@@ -93,6 +143,33 @@ export class TranslationCache {
     this.totalBytes += sizeBytes;
     this.evictIfNeeded();
     return this.entries.has(result.cacheKey);
+  }
+
+  async setPersisted(result: StoredTranslationResult, ttlSeconds?: number): Promise<boolean> {
+    const stored = this.set(result);
+    if (this.durableStore === false) return stored;
+
+    const createdAtSeconds = Math.floor(this.now() / 1000);
+    const expiresAt =
+      ttlSeconds && ttlSeconds > 0 ? createdAtSeconds + Math.floor(ttlSeconds) : undefined;
+    try {
+      await this.durableStore.put({
+        cacheKey: result.cacheKey,
+        profileId: result.profileId,
+        sourceLang: result.sourceLanguage,
+        targetLang: result.targetLanguage,
+        sourceHash: result.sourceFingerprint,
+        providerId: result.providerId,
+        providerVersion: result.providerVersion,
+        translationText: result.translatedText,
+        confidence: result.confidence ?? undefined,
+        createdAt: createdAtSeconds,
+        expiresAt,
+      });
+    } catch {
+      // Durable persistence failure must never break sentence translation.
+    }
+    return stored;
   }
 
   has(key: TranslationCacheKey): boolean {

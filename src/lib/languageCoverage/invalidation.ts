@@ -1,3 +1,4 @@
+import { invalidateLanguageCoverageForEntry } from "../../api/languageEcosystem";
 import type {
   CoverageChunkReference,
   CoverageInvalidationPlan,
@@ -72,4 +73,31 @@ export class CoverageReverseIndex {
   clear(): void {
     this.byEntry.clear();
   }
+}
+
+/** Shared in-memory reverse index updated by persistence/calculation bridges. */
+export const coverageReverseIndex = new CoverageReverseIndex();
+
+export interface InvalidateCoverageOptions {
+  reverseIndex?: CoverageReverseIndex;
+  invalidatePersisted?: typeof invalidateLanguageCoverageForEntry;
+}
+
+/**
+ * Mark persisted coverage results referencing `entryId` as stale and update
+ * the in-memory reverse index with the invalidated chunk plan.
+ */
+export async function invalidateCoverageOnKnowledgeChange(
+  profileId: string,
+  entryId: string,
+  options: InvalidateCoverageOptions = {},
+): Promise<{ invalidatedCount: number; plan: CoverageInvalidationPlan }> {
+  const index = options.reverseIndex ?? coverageReverseIndex;
+  const invalidatePersisted = options.invalidatePersisted ?? invalidateLanguageCoverageForEntry;
+  const plan = index.invalidate(entryId, profileId);
+  for (const chunk of plan.chunks) {
+    index.removeChunk(chunk);
+  }
+  const invalidatedCount = await invalidatePersisted(profileId, entryId);
+  return { invalidatedCount, plan };
 }

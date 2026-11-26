@@ -195,9 +195,8 @@ function resolveUnitState(
   });
   const exactOverrideExists = input.exactFormState !== undefined || input.state !== undefined;
   if (!exactOverrideExists && isLowConfidence(input.confidence, policy)) {
-    if (policy.lowConfidenceTreatment === "exclude") {
-      return { state: "unresolved", source: "fallback", unresolvedReason: "low-confidence" };
-    }
+    // `unitFromToken`/`unitFromPhrase` excludes this unit when `lowConfidenceTreatment === "exclude"`,
+    // or counts it under `stateCounts.unresolved` when `lowConfidenceTreatment === "unresolved"`.
     return { state: "unresolved", source: "fallback", unresolvedReason: "low-confidence" };
   }
   if (resolved.state) {
@@ -309,20 +308,25 @@ export function calculateCoverageChunk(
   const excluded = emptyExclusions();
   excluded.invalidPhrases = phraseSelection.invalidCount;
   const unresolvedReasons: Partial<Record<UnresolvedReason, number>> = {};
+  const ignoredKeys: string[] = [];
 
   for (const phrase of phraseSelection.selected) {
     const result = unitFromPhrase(phrase, tokenMap, policy);
     if (result.exclusion) excluded[result.exclusion] += 1;
     if (result.unit) addUnit(units, stateCounts, unresolvedReasons, result.unit, result.reason);
-    if (result.reason === "low-confidence") excluded.lowConfidence += 1;
   }
 
   for (const token of chunk.tokens) {
     if (selectedTokenIds.has(token.id)) continue;
     const result = unitFromToken(token, policy);
-    if (result.exclusion) excluded[result.exclusion] += 1;
+    if (result.exclusion) {
+      excluded[result.exclusion] += 1;
+      if (result.exclusion === "ignored") {
+        const key = token.lemma || token.normalized || token.surface.toLowerCase();
+        if (key) ignoredKeys.push(key);
+      }
+    }
     if (result.unit) addUnit(units, stateCounts, unresolvedReasons, result.unit, result.reason);
-    if (result.reason === "low-confidence") excluded.lowConfidence += 1;
   }
 
   const orderedUnits = units.sort((left, right) => {
@@ -335,6 +339,7 @@ export function calculateCoverageChunk(
     ...phraseSelection.selected.flatMap(entryIdsForPhrase),
   ]);
   const uniqueLemmaKeys = unique(orderedUnits.map((unit) => unit.lemma || unit.normalized));
+  const uniqueIgnoredKeys = unique(ignoredKeys);
   return {
     chunkId: chunk.chunkId,
     chunkIndex: chunk.chunkIndex,
@@ -343,6 +348,7 @@ export function calculateCoverageChunk(
     totalWeight: orderedUnits.reduce((sum, unit) => sum + unit.weight, 0),
     countedTokenCount: orderedUnits.reduce((sum, unit) => sum + unit.tokenCount, 0),
     uniqueLemmaKeys,
+    uniqueIgnoredKeys,
     referencedEntryIds,
     excluded,
     unresolvedReasons,
@@ -386,11 +392,96 @@ function inferMethod(input: CoverageDocumentInput): CoverageAnalysisMethod {
   return hasLemmaData ? "lemma-aware" : "exact-form-fallback";
 }
 
-function chooseBand(score: number, bands: LexicalCoveragePolicy["bands"]): { id: string; label: string } {
-  const sorted = [...bands.bands].sort((left, right) => left.minDifficultyScore - right.minDifficultyScore || left.id.localeCompare(right.id));
-  return sorted.find((band) => score >= band.minDifficultyScore && score < band.maxDifficultyScore) ??
-    (score < (sorted[0]?.minDifficultyScore ?? 0) ? sorted[0] : sorted.at(-1)) ??
+const UNIQUE_STATE_RANK: Readonly<Record<CoverageKnowledgeState, number>> = {
+  known: 4,
+  familiar: 3,
+  learning: 2,
+  new: 1,
+  unresolved: 0,
+};
+
+function matchesCoverageBand(coveragePercent: number, band: LexicalCoveragePolicy["bands"]["bands"][number]): boolean {
+  const min = band.minCoveragePercent ?? 0;
+  const max = band.maxCoveragePercent ?? 100;
+  const meetsMin = band.minExclusive ? coveragePercent > min : coveragePercent >= min;
+  const meetsMax = band.maxInclusive ? coveragePercent <= max : coveragePercent < max;
+  return meetsMin && meetsMax;
+}
+
+function chooseBand(
+  coveragePercent: number,
+  difficultyScore: number,
+  bands: LexicalCoveragePolicy["bands"],
+): { id: string; label: string } {
+  const usesCoverageBands = bands.bands.some(
+    (band) => band.minCoveragePercent !== undefined || band.maxCoveragePercent !== undefined,
+  );
+  if (usesCoverageBands) {
+    const sorted = [...bands.bands].sort(
+      (left, right) => (left.minCoveragePercent ?? 0) - (right.minCoveragePercent ?? 0) || left.id.localeCompare(right.id),
+    );
+    return sorted.find((band) => matchesCoverageBand(coveragePercent, band)) ??
+      (coveragePercent < (sorted[0]?.minCoveragePercent ?? 0) ? sorted[0] : sorted.at(-1)) ??
+      { id: "unconfigured", label: "Unconfigured" };
+  }
+
+  const sorted = [...bands.bands].sort(
+    (left, right) => (left.minDifficultyScore ?? 0) - (right.minDifficultyScore ?? 0) || left.id.localeCompare(right.id),
+  );
+  return sorted.find((band) => difficultyScore >= (band.minDifficultyScore ?? 0) && difficultyScore < (band.maxDifficultyScore ?? 101)) ??
+    (difficultyScore < (sorted[0]?.minDifficultyScore ?? 0) ? sorted[0] : sorted.at(-1)) ??
     { id: "unconfigured", label: "Unconfigured" };
+}
+
+function summarizeUniqueVocabulary(
+  allUnits: readonly CoverageCountingUnit[],
+  chunks: readonly CoverageChunkResult[],
+): {
+  uniqueLemmaCount: number;
+  uniqueSurfaceCount: number;
+  uniqueKnownCount: number;
+  uniqueFamiliarCount: number;
+  uniqueLearningCount: number;
+  uniqueNewCount: number;
+  uniqueIgnoredCount: number;
+  uniqueUnresolvedCount: number;
+  uniqueKnownPercent: number;
+} {
+  const uniqueStateByLemma = new Map<string, CoverageKnowledgeState>();
+  const surfaceKeys = new Set<string>();
+
+  for (const unit of allUnits) {
+    const surfaceKey = unit.normalized || unit.surface.toLowerCase();
+    if (surfaceKey) surfaceKeys.add(surfaceKey);
+
+    const lemmaKey = unit.lemma || unit.normalized || unit.surface.toLowerCase();
+    if (!lemmaKey) continue;
+    const previous = uniqueStateByLemma.get(lemmaKey);
+    if (!previous || UNIQUE_STATE_RANK[unit.state] > UNIQUE_STATE_RANK[previous]) {
+      uniqueStateByLemma.set(lemmaKey, unit.state);
+    }
+  }
+
+  const uniqueCounts = emptyStateCounts();
+  for (const state of uniqueStateByLemma.values()) {
+    uniqueCounts[state] += 1;
+  }
+
+  const ignoredKeys = unique(chunks.flatMap((chunk) => chunk.uniqueIgnoredKeys ?? []));
+  const uniqueLemmaCount = uniqueStateByLemma.size;
+  const uniqueKnownPercent = uniqueLemmaCount === 0 ? 0 : round((uniqueCounts.known / uniqueLemmaCount) * 100);
+
+  return {
+    uniqueLemmaCount,
+    uniqueSurfaceCount: surfaceKeys.size,
+    uniqueKnownCount: uniqueCounts.known,
+    uniqueFamiliarCount: uniqueCounts.familiar,
+    uniqueLearningCount: uniqueCounts.learning,
+    uniqueNewCount: uniqueCounts.new,
+    uniqueIgnoredCount: ignoredKeys.length,
+    uniqueUnresolvedCount: uniqueCounts.unresolved,
+    uniqueKnownPercent,
+  };
 }
 
 function summarize(
@@ -421,6 +512,10 @@ function summarize(
   const phraseDifficultyWeight = phraseUnits.reduce((sum, unit) => sum + unit.weight * (1 - policy.stateWeights[unit.state]), 0);
   const phraseTotalWeight = phraseUnits.reduce((sum, unit) => sum + unit.weight, 0);
   const denominator = totalWeight || 1;
+  const knownCoveragePercent = round((knownWeight / denominator) * 100);
+  const coveragePercent = round((weightedCoverage / denominator) * 100);
+  const unknownPercent = round((unknownWeight / denominator) * 100);
+  const unresolvedPercent = round((unresolvedWeight / denominator) * 100);
   const difficultySignals: CoverageDifficultySignals = {
     lexicalGap: round(100 - (weightedCoverage / denominator) * 100),
     unresolvedDensity: round((unresolvedWeight / denominator) * 100),
@@ -437,9 +532,13 @@ function summarize(
     0,
     100,
   ));
-  const band = chooseBand(difficultyScore, policy.bands);
+  const hasCountedUnits = allUnits.length > 0;
+  const band = hasCountedUnits
+    ? chooseBand(coveragePercent, difficultyScore, policy.bands)
+    : { id: "unavailable", label: "Unavailable" };
+  const uniqueVocab = summarizeUniqueVocabulary(allUnits, chunks);
   return {
-    freshness: "fresh",
+    freshness: hasCountedUnits ? "fresh" : "unavailable",
     version,
     method: inferMethod(input),
     computedAt,
@@ -448,12 +547,12 @@ function summarize(
     totalWeight: round(totalWeight),
     stateCounts,
     excluded,
-    knownCoveragePercent: round((knownWeight / denominator) * 100),
-    coveragePercent: round((weightedCoverage / denominator) * 100),
-    unknownPercent: round((unknownWeight / denominator) * 100),
-    unresolvedPercent: round((unresolvedWeight / denominator) * 100),
+    knownCoveragePercent,
+    coveragePercent,
+    unknownPercent,
+    unresolvedPercent,
     unresolvedCount: stateCounts.unresolved,
-    uniqueLemmaCount: unique(allUnits.map((unit) => unit.lemma || unit.normalized)).length,
+    ...uniqueVocab,
     phraseCount: phraseUnits.length,
     difficultyScore,
     difficultyBand: band.id,

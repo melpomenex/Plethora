@@ -7,3 +7,4 @@ export * from "./diagnostics";
 export * from "./persistence";
 export * from "./runtime";
 export * from "./contracts";
+export * from "./adapters";

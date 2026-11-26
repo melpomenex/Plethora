@@ -1,4 +1,4 @@
-import type { LanguageLearningDraft, LanguageSuggestionInput, LanguageSuggestionScore } from "./types";
+import { languageDraftKey, type LanguageLearningDraft, type LanguageSuggestionInput, type LanguageSuggestionScore } from "./types";
 
 const SUGGESTION_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
 
@@ -23,6 +23,6 @@ export function scoreLanguageSuggestion(input: LanguageSuggestionInput): Languag
 export function createLanguageLearningDraft(input: Omit<LanguageLearningDraft, "draftKey"> & { draftKey?: string }): LanguageLearningDraft {
   return {
     ...input,
-    draftKey: input.draftKey ?? [input.provenance.profileId, input.provenance.lexicalEntryId ?? "-", input.provenance.phraseId ?? "-", input.itemType, input.question.trim().toLocaleLowerCase()].join("\u001f"),
+    draftKey: input.draftKey ?? languageDraftKey(input.provenance, input.itemType, input.question),
   };
 }

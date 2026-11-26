@@ -80,16 +80,62 @@ export function upsertLanguagePracticeAttempt(attempt: PracticeAttempt) {
   } }).then(fromPersisted);
 }
 
-export function listLanguagePracticeAttempts(profileId: string, options: { sourceId?: string; limit?: number } = {}) {
-  return call<PersistedPracticeAttempt[]>("list_language_practice_attempts", { profileId, sourceId: options.sourceId, limit: options.limit ?? 50 }).then((rows) => rows.map(fromPersisted));
+export function getLanguagePracticeAttempt(profileId: string, id: string) {
+  return call<PersistedPracticeAttempt>("get_language_practice_attempt", { profileId, id }).then(fromPersisted);
+}
+
+export function listLanguagePracticeAttempts(
+  profileId: string,
+  options: { sourceId?: string; mode?: PracticeAttempt["mode"]; status?: PracticeAttempt["status"]; offset?: number; limit?: number } = {},
+) {
+  return call<PersistedPracticeAttempt[]>("list_language_practice_attempts", {
+    profileId,
+    sourceId: options.sourceId,
+    mode: options.mode,
+    status: options.status,
+    offset: options.offset ?? 0,
+    limit: options.limit ?? 50,
+  }).then((rows) => rows.map(fromPersisted));
+}
+
+export function importLanguagePracticeAttempts(profileId: string, attempts: PracticeAttempt[]) {
+  return call<number>("import_language_practice_attempts", {
+    profileId,
+    attempts: attempts.map((attempt) => ({
+      id: attempt.id,
+      profileId,
+      mode: attempt.mode,
+      status: attempt.status,
+      sourceType: attempt.source.sourceType,
+      sourceId: attempt.source.sourceId,
+      sourceAnchor: attempt.source.sourceAnchor,
+      sourceFingerprint: attempt.source.sourceFingerprint,
+      promptText: attempt.promptText,
+      rawResponse: attempt.rawResponse,
+      normalizedResponse: attempt.normalizedResponse,
+      comparison: attempt.comparison,
+      providerId: attempt.providerId,
+      providerVersion: attempt.providerVersion,
+      privacyMode: attempt.recordingPolicy.privacy,
+      retentionExpiresAt: attempt.recordingPolicy.retentionExpiresAt,
+      activeEvidenceAccepted: attempt.activeEvidenceAccepted,
+      revealed: Boolean(attempt.revealed),
+      mediaId: attempt.source.mediaId,
+      startMs: attempt.source.startMs,
+      endMs: attempt.source.endMs,
+      createdAt: attempt.createdAt,
+      updatedAt: attempt.updatedAt,
+    })),
+  });
 }
 
 export function deleteLanguagePracticeAttempt(profileId: string, id: string) {
   return call<boolean>("delete_language_practice_attempt", { profileId, id });
 }
 
-export function purgeExpiredLanguagePracticeAttempts(profileId: string, now = Date.now()) {
-  return call<number>("purge_expired_language_practice_attempts", { profileId, now });
+export function purgeExpiredLanguagePracticeAttempts(profileId: string, now = Math.floor(Date.now() / 1000)) {
+  const normalizedNow = now > 10_000_000_000 ? Math.floor(now / 1000) : now;
+  return call<number>("purge_expired_language_practice_attempts", { profileId, now: normalizedNow });
 }
 
 export function exportLanguagePracticeAttempts(profileId: string) {

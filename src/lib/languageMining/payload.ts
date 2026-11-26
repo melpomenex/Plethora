@@ -7,7 +7,7 @@ export function createLanguageMiningPayload(input: MiningPayloadInput, now = Dat
   return {
     ...input,
     payloadVersion: 1,
-    frameAvailable: input.frameAvailable ?? false,
+    frameAvailable: input.frameAvailable ?? Boolean(input.frameDataUrl),
     context,
     provenance: { generatedAt: now, fromCache: false, ...input.provenance },
   };

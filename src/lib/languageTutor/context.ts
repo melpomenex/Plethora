@@ -1,5 +1,5 @@
 import type { LanguageKnowledgeState } from "../../types/languageKnowledge";
-import type { LearnerContextBudget, LearnerContextItem, LearnerContextPacket } from "./types";
+import type { LearnerContextBudget, LearnerContextItem, LearnerContextPacket, LearnerLexiconSummary } from "./types";
 
 export interface ContextProfile {
   id: string;
@@ -23,6 +23,39 @@ function redact(text: string, budget: LearnerContextBudget): string {
   return text.replace(/\s+/g, " ").trim().slice(0, budget.maxTextCodeUnits);
 }
 
+function summarizeLexicon(rows: readonly ContextLexiconRow[]): LearnerLexiconSummary {
+  const summary: LearnerLexiconSummary = {
+    totalEntries: 0,
+    knownCount: 0,
+    familiarCount: 0,
+    learningCount: 0,
+    encounteredCount: 0,
+    newCount: 0,
+  };
+  for (const row of rows) {
+    if (row.state === "ignored") continue;
+    summary.totalEntries += 1;
+    switch (row.state) {
+      case "known":
+        summary.knownCount += 1;
+        break;
+      case "familiar":
+        summary.familiarCount += 1;
+        break;
+      case "learning":
+        summary.learningCount += 1;
+        break;
+      case "encountered":
+        summary.encounteredCount += 1;
+        break;
+      case "new":
+        summary.newCount += 1;
+        break;
+    }
+  }
+  return summary;
+}
+
 /** Deterministically ranks compact learner context; it never loads full lexicon text. */
 export function buildLearnerContext(input: {
   profile: ContextProfile;
@@ -32,8 +65,8 @@ export function buildLearnerContext(input: {
   now?: number;
 }): LearnerContextPacket {
   const budget = { ...DEFAULT_BUDGET, ...input.budget };
-  const ranked = [...input.lexicon]
-    .filter((row) => row.state !== "ignored")
+  const activeRows = input.lexicon.filter((row) => row.state !== "ignored");
+  const ranked = [...activeRows]
     .sort((left, right) => right.evidenceCount - left.evidenceCount || left.entryId.localeCompare(right.entryId))
     .slice(0, Math.max(0, budget.maxItems));
   const items: LearnerContextItem[] = ranked.map((row) => ({ ...row, redacted: true }));
@@ -47,6 +80,7 @@ export function buildLearnerContext(input: {
     baseLanguage: input.profile.baseLanguage,
     proficiency: input.profile.proficiency,
     items,
+    lexiconSummary: summarizeLexicon(activeRows),
     currentSource: source,
     generatedAt: input.now ?? Date.now(),
     freshness: ranked.length < input.lexicon.length ? "partial" : "fresh",

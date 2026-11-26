@@ -50,14 +50,24 @@ export interface DifficultySignalWeights {
 export interface CoverageBandDefinition {
   id: string;
   label: string;
-  /** Inclusive lower bound on the 0–100 difficulty score. */
-  minDifficultyScore: number;
-  /** Exclusive upper bound, except for the final band which may use 101. */
-  maxDifficultyScore: number;
+  /** Configurable heuristic description (never a CEFR level). */
+  description?: string;
+  /** Inclusive lower bound on coveragePercent (0–100) unless `minExclusive` is true. */
+  minCoveragePercent?: number;
+  /** Exclusive upper bound on coveragePercent (0–100) unless `maxInclusive` is true. */
+  maxCoveragePercent?: number;
+  minExclusive?: boolean;
+  maxInclusive?: boolean;
+  /** Legacy/custom fallback: inclusive lower bound on the 0–100 difficulty score. */
+  minDifficultyScore?: number;
+  /** Legacy/custom fallback: exclusive upper bound on difficulty score (101 for final band). */
+  maxDifficultyScore?: number;
 }
 
 export interface CoverageBandConfiguration {
   version: string;
+  /** Explicit note that bands are configurable comprehensible-input heuristics, never CEFR levels. */
+  heuristicNote?: string;
   bands: readonly CoverageBandDefinition[];
 }
 
@@ -84,13 +94,47 @@ export interface LexicalCoveragePolicy {
 }
 
 export const DEFAULT_COVERAGE_BANDS: CoverageBandConfiguration = {
-  version: "default-1",
+  version: "comprehensible-input-1",
+  heuristicNote: "Configurable comprehensible-input heuristics based on lexical coverage thresholds; never CEFR levels.",
   bands: [
-    { id: "very-easy", label: "Very easy", minDifficultyScore: 0, maxDifficultyScore: 10 },
-    { id: "comfortable", label: "Comfortable", minDifficultyScore: 10, maxDifficultyScore: 25 },
-    { id: "productive-challenge", label: "Productive challenge", minDifficultyScore: 25, maxDifficultyScore: 45 },
-    { id: "difficult", label: "Difficult", minDifficultyScore: 45, maxDifficultyScore: 70 },
-    { id: "very-difficult", label: "Very difficult", minDifficultyScore: 70, maxDifficultyScore: 101 },
+    {
+      id: "overwhelming",
+      label: "Overwhelming",
+      description: "Configurable heuristic (<80% coverage)",
+      minCoveragePercent: 0,
+      maxCoveragePercent: 80,
+    },
+    {
+      id: "challenging",
+      label: "Challenging",
+      description: "Configurable heuristic (80-90% coverage)",
+      minCoveragePercent: 80,
+      maxCoveragePercent: 90,
+    },
+    {
+      id: "intensive-learning",
+      label: "Intensive learning",
+      description: "Configurable heuristic (90-95% coverage)",
+      minCoveragePercent: 90,
+      maxCoveragePercent: 95,
+    },
+    {
+      id: "relatively-comprehensible",
+      label: "Relatively comprehensible",
+      description: "Configurable heuristic (95-98% coverage)",
+      minCoveragePercent: 95,
+      maxCoveragePercent: 98,
+      maxInclusive: true,
+    },
+    {
+      id: "comfortable-reading",
+      label: "Comfortable reading",
+      description: "Configurable heuristic (>98% coverage)",
+      minCoveragePercent: 98,
+      minExclusive: true,
+      maxCoveragePercent: 100,
+      maxInclusive: true,
+    },
   ],
 };
 
@@ -249,6 +293,7 @@ export interface CoverageChunkResult {
   totalWeight: number;
   countedTokenCount: number;
   uniqueLemmaKeys: readonly string[];
+  uniqueIgnoredKeys?: readonly string[];
   referencedEntryIds: readonly string[];
   excluded: CoverageExclusionCounts;
   unresolvedReasons: Readonly<Partial<Record<UnresolvedReason, number>>>;
@@ -263,7 +308,7 @@ export interface CoverageDifficultySignals {
 }
 
 export interface CoverageSummary {
-  freshness: "fresh";
+  freshness: CoverageFreshness;
   version: CoverageVersion;
   method: CoverageAnalysisMethod;
   computedAt: number;
@@ -279,6 +324,14 @@ export interface CoverageSummary {
   unresolvedPercent: number;
   unresolvedCount: number;
   uniqueLemmaCount: number;
+  uniqueSurfaceCount: number;
+  uniqueKnownCount: number;
+  uniqueFamiliarCount: number;
+  uniqueLearningCount: number;
+  uniqueNewCount: number;
+  uniqueIgnoredCount: number;
+  uniqueUnresolvedCount: number;
+  uniqueKnownPercent: number;
   phraseCount: number;
   difficultyScore: number;
   difficultyBand: string;

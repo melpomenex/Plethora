@@ -1,10 +1,12 @@
+import type { LanguageTranslationCacheRecord } from "../../api/languageEcosystem";
+import { useSettingsStore } from "../../stores/settingsStore";
 import { contentFingerprint } from "../languageProcessing/fingerprints";
 import { TranslationCache } from "./cache";
 import { createTranslationCacheKey, translationCacheIdentity, type TranslationCacheKey } from "./cacheKey";
 import { cancelledTranslationError, TranslationError, toTranslationError } from "./error";
 import { canonicalizeTranslationLanguageTag, type CanonicalTranslationRequest, type TranslationRequest } from "./request";
 import { TranslationProviderRegistry, createTranslationProviderRegistry, type TranslationProviderSelection } from "./registry";
-import { createAiTranslationProvider } from "./aiTranslate";
+import { createAiTranslationProvider, refreshAiTranslationPath } from "./aiTranslate";
 import { createAppleTranslationProvider } from "./appleTranslate";
 import { createMlKitTranslationProvider } from "./mlkitTranslate";
 import { type StoredTranslationResult, type TranslationResult } from "./result";
@@ -74,6 +76,7 @@ export class TranslationService {
   readonly registry: TranslationProviderRegistry;
   readonly cache: TranslationCache;
   readonly settings: TranslationSettings;
+  private readonly explicitSettings: Partial<TranslationSettings>;
   private readonly now: () => number;
   private readonly sleep: (milliseconds: number, signal?: AbortSignal) => Promise<void>;
   private readonly inFlight = new Map<TranslationCacheKey, InFlightTranslation>();
@@ -81,12 +84,20 @@ export class TranslationService {
   constructor(options: TranslationServiceOptions = {}) {
     this.registry = options.registry ?? new TranslationProviderRegistry();
     this.cache = options.cache ?? new TranslationCache();
+    this.explicitSettings = options.settings ?? {};
     this.settings = resolveTranslationSettings(options.settings);
     this.now = options.now ?? Date.now;
     this.sleep = options.sleep ?? defaultSleep;
   }
 
   async translate(request: TranslationRequest, options: TranslationCallOptions = {}): Promise<TranslationResult> {
+    if (options.signal?.aborted) throw cancelledTranslationError();
+
+    if (this.registry.list().some((provider) => provider.id === "plethora-ai-translate")) {
+      await refreshAiTranslationPath();
+      if (options.signal?.aborted) throw cancelledTranslationError();
+    }
+
     const canonical = this.canonicalRequest(request);
     const selection = this.registry.select({
       sourceLanguage: canonical.sourceLanguage,
@@ -102,26 +113,42 @@ export class TranslationService {
       if (cached) return { ...cached, fromCache: true };
     }
 
-    if (!selection.provider) throw this.unavailableError(selection, canonical);
-
     const provider = selection.provider;
-    const key = this.keyFor(canonical, provider);
-    const existing = this.inFlight.get(key);
+    const selectedKey = provider ? this.keyFor(canonical, provider) : undefined;
+    if (selectedKey) {
+      const existing = this.inFlight.get(selectedKey);
+      if (existing) return this.joinInFlight(existing, options.signal);
+    }
+
+    for (const candidate of selection.considered) {
+      const key = this.keyFor(canonical, candidate.provider);
+      const persisted = await this.cache.getPersisted(key, (record) =>
+        this.rehydrateRecord(canonical, candidate.provider, key, record),
+      );
+      if (options.signal?.aborted) throw cancelledTranslationError();
+      if (persisted) return { ...persisted, fromCache: true };
+    }
+
+    if (!provider || !selectedKey) throw this.unavailableError(selection, canonical);
+
+    const memAfterAwait = this.cache.get(selectedKey);
+    if (memAfterAwait) return { ...memAfterAwait, fromCache: true };
+    const existing = this.inFlight.get(selectedKey);
     if (existing) return this.joinInFlight(existing, options.signal);
 
     const controller = new AbortController();
     const record = {} as InFlightTranslation;
-    const promise = this.execute(canonical, provider, key, controller.signal, options)
-      .then((result) => {
-        this.cache.set(storedResult(result));
+    const promise = this.execute(canonical, provider, selectedKey, controller.signal, options)
+      .then(async (result) => {
+        await this.cache.setPersisted(storedResult(result));
         return result;
       });
-    record.key = key;
+    record.key = selectedKey;
     record.controller = controller;
     record.promise = promise;
     record.activeConsumers = 0;
     record.done = false;
-    this.inFlight.set(key, record);
+    this.inFlight.set(selectedKey, record);
     promise.then(
       () => this.finishInFlight(record),
       () => this.finishInFlight(record),
@@ -141,6 +168,18 @@ export class TranslationService {
     this.cache.clear();
   }
 
+  private currentSettings(): TranslationSettings {
+    const languageLearning = useSettingsStore.getState().settings.languageLearning as
+      | { translation?: Partial<TranslationSettings> }
+      | undefined;
+    const runtimeOffline = typeof navigator !== "undefined" && navigator.onLine === false;
+    return resolveTranslationSettings({
+      offline: runtimeOffline,
+      ...languageLearning?.translation,
+      ...this.explicitSettings,
+    });
+  }
+
   private canonicalRequest(request: TranslationRequest): CanonicalTranslationRequest {
     const sourceLanguage = canonicalizeTranslationLanguageTag(request.sourceLanguage);
     const targetLanguage = canonicalizeTranslationLanguageTag(request.targetLanguage);
@@ -150,6 +189,7 @@ export class TranslationService {
     if (!request.profileId.trim() || !request.text.trim()) {
       throw new TranslationError("invalid-request", "A profile id and non-empty sentence are required");
     }
+    const liveSettings = this.currentSettings();
     const sourceFingerprint = request.sourceFingerprint ?? request.contentFingerprint ?? contentFingerprint(request.text);
     return {
       ...request,
@@ -158,12 +198,54 @@ export class TranslationService {
       sourceFingerprint,
       providerPolicy: resolveTranslationPolicy(
         {
-          offline: this.settings.offline,
-          privacy: this.settings.privacy,
-          preferredProviderId: this.settings.preferredProviderId,
+          offline: liveSettings.offline,
+          privacy: liveSettings.privacy,
+          preferredProviderId: liveSettings.preferredProviderId,
         },
         request.providerPolicy,
       ),
+    };
+  }
+
+  private rehydrateRecord(
+    request: CanonicalTranslationRequest,
+    provider: TranslationProvider,
+    key: TranslationCacheKey,
+    record: LanguageTranslationCacheRecord,
+  ): StoredTranslationResult {
+    const generatedAt = record.createdAt > 1e12 ? record.createdAt : record.createdAt * 1000;
+    return {
+      sourceText: request.text,
+      translatedText: record.translationText,
+      sourceLanguage: request.sourceLanguage,
+      targetLanguage: request.targetLanguage,
+      profileId: request.profileId,
+      sourceFingerprint: request.sourceFingerprint!,
+      sourceAnchor: request.sourceAnchor,
+      providerId: provider.id,
+      providerKind: provider.kind,
+      providerVersion: record.providerVersion || provider.version,
+      model: provider.capabilities.model,
+      confidence: record.confidence ?? undefined,
+      cacheKey: key,
+      provenance: {
+        sourceFingerprint: request.sourceFingerprint!,
+        sourceAnchor: request.sourceAnchor,
+        profileId: request.profileId,
+        sourceLanguage: request.sourceLanguage,
+        targetLanguage: request.targetLanguage,
+        providerId: provider.id,
+        providerKind: provider.kind,
+        providerVersion: record.providerVersion || provider.version,
+        model: provider.capabilities.model,
+        cacheKey: key,
+        generatedAt,
+        confidence: record.confidence ?? undefined,
+        privacy: {
+          dataLeavesDevice: provider.capabilities.sendsTextOffDevice,
+          description: provider.capabilities.privacyDisclosure,
+        },
+      },
     };
   }
 

@@ -1,5 +1,6 @@
 import { compareManualQueueOrder, resolveDisplaySlider } from "../utils/queueManualOrder";
 import { browserChatCompletion, prepareBrowserContextRequest } from "./browserLlmTransport";
+import { registerBrowserLanguageHandlers } from "./browserLanguageBackend";
 import { registerBrowserSmartFeedHandlers } from "./browserSmartFeedsBackend";
 /**
  * Browser backend command handlers
@@ -6011,6 +6012,7 @@ commandHandlers.stage_session_media = sessionUnavailable;
 commandHandlers.export_partial_recording = sessionUnavailable;
 commandHandlers.import_session_transcript = sessionUnavailable;
 registerBrowserSmartFeedHandlers(commandHandlers);
+registerBrowserLanguageHandlers(commandHandlers);
 
 /**
  * Execute a browser command

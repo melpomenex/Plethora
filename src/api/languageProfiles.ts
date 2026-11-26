@@ -70,6 +70,24 @@ export function archiveLanguageProfile(id: string, scope?: Partial<LanguageProfi
   return call<LanguageProfile>("archive_language_profile", { id, ...scopeArgs(scope) });
 }
 
+export function unarchiveLanguageProfile(id: string, scope?: Partial<LanguageProfileScope>): Promise<LanguageProfile> {
+  return call<LanguageProfile>("unarchive_language_profile", { id, ...scopeArgs(scope) });
+}
+
+export function deleteLanguageProfileAssociation(
+  profileId: string,
+  contentType: ContentType,
+  contentId: string,
+  scope?: Partial<LanguageProfileScope>,
+): Promise<boolean> {
+  return call<boolean>("delete_language_profile_association", {
+    profileId,
+    contentType,
+    contentId,
+    ...scopeArgs(scope),
+  });
+}
+
 export function deleteLanguageProfile(id: string, scope?: Partial<LanguageProfileScope>): Promise<ProfileDeleteReport> {
   return call<ProfileDeleteReport>("delete_language_profile", { id, ...scopeArgs(scope) });
 }

@@ -14,6 +14,7 @@ import type { ShadowingRecognitionProvider } from "../lib/languageShadowing";
 import type { WritingProvider } from "../lib/languageWriting";
 import type { PronunciationProviderManifest } from "../lib/languagePronunciation";
 import type { ReadingAssistRegistry } from "../lib/languageReadingAssist";
+import { ensureLanguageAdapterPackBridge } from "../lib/languagePacks/adapterBridge";
 
 export interface LanguageLearningHostProviderProps {
   hostId: string;
@@ -95,6 +96,10 @@ export function LanguageLearningHostProvider(props: LanguageLearningHostProvider
   const resolvedSourceFingerprint = sourceFingerprint(props.source);
 
   const refresh = useCallback(() => setRefreshToken((value) => value + 1), []);
+
+  useEffect(() => {
+    if (props.languageModeEnabled) ensureLanguageAdapterPackBridge();
+  }, [props.languageModeEnabled]);
 
   useEffect(() => {
     let mounted = true;

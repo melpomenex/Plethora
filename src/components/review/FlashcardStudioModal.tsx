@@ -72,10 +72,13 @@ import {
 } from "@phosphor-icons/react";
 import {
   createLearningItem,
+  getAllLearningItems,
   getLearningItemsByAcceptanceKey,
   generateLearningItemsFromExtract,
   type CreateLearningItemInput,
 } from "../../api/learning-items";
+import { createLanguageMemorizationLink } from "../../api/languageKnowledge";
+import { languageDraftKey, type LanguageDraftItemType } from "../../lib/languageSrs";
 import { getExtracts, type Extract } from "../../api/extracts";
 import { streamChatWithContext, type LLMMessage } from "../../api/llm";
 import { AssistantAnswerStreamFilter } from "../../lib/ai/assistant/answerStreamFilter";
@@ -233,6 +236,26 @@ export interface FlashcardStudioModalProps {
   seed?: FlashcardStudioSeed | null;
 }
 
+export interface FlashcardStudioLanguageProvenance {
+  profileId?: string;
+  lexicalEntryId?: string;
+  phraseId?: string;
+  sentenceId?: string;
+  languageTag?: string;
+  translatedSentence?: string;
+  reading?: string;
+  partOfSpeech?: string;
+  mediaStartMs?: number;
+  mediaEndMs?: number;
+  draftKey?: string;
+  itemType?: LanguageDraftItemType;
+  sourceAnchor?: unknown;
+  sourceFingerprint?: string;
+  origin?: string;
+  providerId?: string;
+  providerVersion?: string;
+}
+
 export interface FlashcardStudioSeed {
   key: string;
   documentId?: string | null;
@@ -247,10 +270,24 @@ export interface FlashcardStudioSeed {
   linkedExtractId?: string;
   /** Tag applied to the next created flashcard (e.g. from `:deck <name>`). */
   deckTag?: string;
-  languageProvenance?: { profileId?: string; sourceAnchor?: unknown; sourceFingerprint?: string; origin?: string };
+  languageProvenance?: FlashcardStudioLanguageProvenance;
   initialQuestion?: string;
   initialAnswer?: string;
   initialTags?: string[];
+}
+
+function formatLanguageSeedAnswer(provenance: FlashcardStudioLanguageProvenance): string {
+  const parts: string[] = [];
+  if (provenance.translatedSentence?.trim()) {
+    parts.push(provenance.translatedSentence.trim());
+  }
+  const meta: string[] = [];
+  if (provenance.reading?.trim()) meta.push(`Reading: ${provenance.reading.trim()}`);
+  if (provenance.partOfSpeech?.trim()) meta.push(`POS: ${provenance.partOfSpeech.trim()}`);
+  if (meta.length > 0) {
+    parts.push(meta.join(" · "));
+  }
+  return parts.join("\n");
 }
 
 interface QuickTemplate {
@@ -402,6 +439,13 @@ export const QUICK_TEMPLATES: QuickTemplate[] = [
     label: "Formulas & Equations",
     description: "Key formulas with explanations",
     prompt: "Extract important formulas, equations, or mathematical expressions. Create cards that show the formula and test understanding of when and how to apply it.",
+  },
+  {
+    id: "language-bilingual",
+    icon: <BookOpen className="w-4 h-4 text-emerald-500" />,
+    label: "Language Sentence & Vocab",
+    description: "Bilingual sentence mining cards with translation, reading, and usage",
+    prompt: "Create bilingual vocabulary and sentence-mining flashcards from this content. Include target-language context on the front, clear base-language translation and reading/part-of-speech notes on the back, and use cloze deletions for key words in context.",
   },
 ];
 
@@ -1974,7 +2018,9 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
     // draft rather than the old pile). A bare document/excerpt seed without a
     // draft, applied to an empty session, just updates that session in place.
     const activeSessionHasContent = messages.length > 0 || draftCards.length > 0;
-    const seedCreatesDraft = Boolean(seed.resetDraftCards || seed.draftCardType || seed.extractId);
+    const seedCreatesDraft = Boolean(
+      seed.resetDraftCards || seed.draftCardType || seed.extractId || seed.languageProvenance?.itemType
+    );
     if (activeSessionHasContent && seedCreatesDraft) {
       startFreshSession({ carryDrafts: false });
     }
@@ -1992,18 +2038,28 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       });
     }
 
-    if (seed.resetDraftCards || seed.draftCardType) {
-      const nextCard = createBlankDraftCard(seed.draftCardType || "qa");
-      if ((seed.draftCardType || "qa") === "cloze" && seed.excerpt?.trim()) {
+    if (seed.resetDraftCards || seed.draftCardType || seed.languageProvenance?.itemType) {
+      const resolvedDraftType: DraftCardType =
+        seed.draftCardType || (seed.languageProvenance?.itemType === "cloze" ? "cloze" : "qa");
+      const nextCard = createBlankDraftCard(resolvedDraftType);
+      if (resolvedDraftType === "cloze" && seed.excerpt?.trim()) {
         nextCard.text = seed.excerpt.trim();
       }
+      const langProv = seed.languageProvenance;
+      const formattedLanguageAnswer = langProv ? formatLanguageSeedAnswer(langProv) : "";
       if (seed.initialQuestion) {
         nextCard.question = seed.initialQuestion;
+      } else if (resolvedDraftType === "qa" && langProv?.translatedSentence?.trim() && seed.excerpt?.trim()) {
+        nextCard.question = seed.excerpt.trim();
       }
       if (seed.initialAnswer) {
         nextCard.answer = seed.initialAnswer;
-      } else if ((seed.draftCardType || "qa") === "qa" && seed.excerpt?.trim() && !nextCard.answer) {
-        nextCard.answer = seed.excerpt.trim();
+      } else if (resolvedDraftType === "qa" && langProv?.translatedSentence?.trim() && formattedLanguageAnswer) {
+        nextCard.answer = formattedLanguageAnswer;
+      } else if (resolvedDraftType === "qa" && seed.excerpt?.trim() && !nextCard.answer) {
+        nextCard.answer = formattedLanguageAnswer
+          ? `${seed.excerpt.trim()}\n${formattedLanguageAnswer}`
+          : seed.excerpt.trim();
       }
       nextCard.extractId = seed.linkedExtractId;
       if (seed.draftCardType === "image-occlusion" && seed.imageAssetId) {
@@ -2518,6 +2574,11 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
     try {
       const pendingSources = new Map<string, ReturnType<typeof resolveAssistantSource>>();
+      const langProvenance = seed?.languageProvenance;
+      const existingLanguageItemsPromise = langProvenance?.profileId
+        ? getAllLearningItems().catch(() => [])
+        : null;
+      const seenLanguageDraftKeys = new Set<string>();
       const results = await Promise.all(
         toCreate.map(async (card) => {
           try {
@@ -2568,10 +2629,42 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                   : undefined,
             };
 
-            if (seed?.languageProvenance) {
+            const langProfileId = langProvenance?.profileId;
+            const langItemType: LanguageDraftItemType =
+              langProvenance?.itemType ?? (card.type === "cloze" ? "cloze" : "qa");
+            const keyQuestion =
+              card.type === "cloze" ? (card.text || "").trim() : (card.question || "").trim();
+            const computedDraftKey = langProvenance?.draftKey
+              ?? (langProfileId
+                ? languageDraftKey(
+                    {
+                      profileId: langProfileId,
+                      lexicalEntryId: langProvenance.lexicalEntryId,
+                      phraseId: langProvenance.phraseId,
+                      sentenceId: langProvenance.sentenceId,
+                    },
+                    langItemType,
+                    keyQuestion
+                  )
+                : undefined);
+
+            if (langProvenance) {
+              baseInput.allow_duplicate = false;
               baseInput.interaction_metadata = {
                 ...(baseInput.interaction_metadata ?? {}),
-                languageProvenance: seed.languageProvenance,
+                ...(computedDraftKey ? { languageDraftKey: computedDraftKey } : {}),
+                ...(langProvenance.profileId ? { languageProfileId: langProvenance.profileId } : {}),
+                ...(langProvenance.lexicalEntryId ? { lexicalEntryId: langProvenance.lexicalEntryId } : {}),
+                ...(langProvenance.phraseId ? { phraseId: langProvenance.phraseId } : {}),
+                ...(langProvenance.sentenceId ? { sentenceId: langProvenance.sentenceId } : {}),
+                ...(langProvenance.sourceAnchor !== undefined ? { sourceAnchor: langProvenance.sourceAnchor } : {}),
+                ...(langProvenance.origin ? { origin: langProvenance.origin } : {}),
+                ...(langProvenance.providerId ? { providerId: langProvenance.providerId } : {}),
+                ...(langProvenance.providerVersion ? { providerVersion: langProvenance.providerVersion } : {}),
+                languageProvenance: {
+                  ...langProvenance,
+                  ...(computedDraftKey ? { draftKey: computedDraftKey } : {}),
+                },
               };
             }
 
@@ -2616,6 +2709,25 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
               throw new Error("Image occlusion cards require an image and at least one hidden region.");
             }
 
+            if (computedDraftKey && langProfileId) {
+              const batchScopeKey = `${langProfileId}\u001f${computedDraftKey}`;
+              if (seenLanguageDraftKeys.has(batchScopeKey)) {
+                throw new Error("A duplicate card for this language entry and prompt is already in this batch.");
+              }
+              seenLanguageDraftKeys.add(batchScopeKey);
+
+              const existingItems = existingLanguageItemsPromise ? await existingLanguageItemsPromise : [];
+              const duplicateLanguageCard = existingItems.find((row) => {
+                const meta = row.interaction_metadata;
+                if (!meta || meta.languageDraftKey !== computedDraftKey) return false;
+                const rowProfileId = meta.languageProfileId ?? meta.languageProvenance?.profileId;
+                return rowProfileId === langProfileId;
+              });
+              if (duplicateLanguageCard) {
+                throw new Error("A card for this language entry and prompt already exists in this profile.");
+              }
+            }
+
             const receipts = await getLearningItemsByAcceptanceKey(baseInput.acceptance_id!);
             const existing = receipts.find((row) => row.proposal_id === card.id);
             if (existing && (existing.question !== baseInput.question || (existing.answer || "") !== (baseInput.answer || "") || (existing.cloze_text || "") !== (baseInput.cloze_text || ""))) {
@@ -2625,6 +2737,22 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
             // candidate and returns its receipt after an uncertain response.
             const persisted = await createLearningItem(baseInput);
             if (!persisted?.id) throw new Error("The save could not be confirmed. Retry this draft.");
+
+            const linkProfileId = langProvenance?.profileId ?? baseInput.interaction_metadata?.languageProfileId;
+            const linkEntryId = langProvenance?.lexicalEntryId ?? baseInput.interaction_metadata?.lexicalEntryId;
+            if (linkProfileId && linkEntryId) {
+              try {
+                await createLanguageMemorizationLink({
+                  profileId: linkProfileId,
+                  entryId: linkEntryId,
+                  learningItemId: persisted.id,
+                  relation: "explicit",
+                });
+              } catch (linkError) {
+                console.warn("Failed to create language memorization link", linkError);
+              }
+            }
+
             return { id: card.id, success: true, error: undefined };
           } catch (error) {
             console.error("Failed to create card", error);
@@ -3018,8 +3146,22 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
         onClick={(e) => e.stopPropagation()}
       >
         {seed?.languageProvenance && (
-          <div className="flex items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-foreground" role="status">
-            <span className="min-w-0 flex-1">Language source attached. Confirm it is still current before saving.</span>
+          <div className="flex flex-wrap items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-xs text-foreground" role="status">
+            <span className="min-w-0 flex-1">
+              Language source attached. Confirm it is still current before saving.
+              {(seed.languageProvenance.languageTag || seed.languageProvenance.reading || seed.languageProvenance.partOfSpeech || (seed.languageProvenance.mediaStartMs !== undefined && seed.languageProvenance.mediaEndMs !== undefined)) && (
+                <span className="ml-2 text-muted-foreground">
+                  {[
+                    seed.languageProvenance.languageTag ? `[${seed.languageProvenance.languageTag}]` : null,
+                    seed.languageProvenance.reading ? `Reading: ${seed.languageProvenance.reading}` : null,
+                    seed.languageProvenance.partOfSpeech ? `POS: ${seed.languageProvenance.partOfSpeech}` : null,
+                    seed.languageProvenance.mediaStartMs !== undefined && seed.languageProvenance.mediaEndMs !== undefined
+                      ? `Media: ${Math.round(seed.languageProvenance.mediaStartMs)}–${Math.round(seed.languageProvenance.mediaEndMs)}ms`
+                      : null,
+                  ].filter(Boolean).join(" · ")}
+                </span>
+              )}
+            </span>
             <button type="button" className="shrink-0 rounded border border-amber-500/50 px-2 py-1 font-medium hover:bg-amber-500/10" onClick={() => setLanguageSourceConfirmed(true)} aria-pressed={languageSourceConfirmed}>
               {languageSourceConfirmed ? "Source confirmed" : "Confirm source"}
             </button>

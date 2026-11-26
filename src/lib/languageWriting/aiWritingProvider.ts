@@ -1,4 +1,5 @@
-import { hasCloudProvider } from "../ai/provider";
+import { type AiPath } from "../ai/provider";
+import { getEffectiveAiPathSync, refreshAiTranslationPath } from "../languageTranslation/aiTranslate";
 import { runTask } from "../ai/tasks/runTask";
 import type { AITaskDefinition } from "../ai/tasks/types";
 import { UNTRUSTED_CONTAINMENT_CLAUSE, wrapUntrustedBlock } from "../ai/tasks/containment";
@@ -53,8 +54,8 @@ function mapCorrections(payload: WritingCorrectionPayload): readonly WritingCorr
 }
 
 /** Writing feedback through the shared AI task layer; never overwrites learner text. */
-export function createAiWritingProvider(): WritingProvider | undefined {
-  if (!hasCloudProvider()) return undefined;
+export function createAiWritingProvider(options?: { aiPath?: AiPath }): WritingProvider | undefined {
+  if (getEffectiveAiPathSync(options?.aiPath) === "none") return undefined;
   return {
     id: "plethora-ai-writing",
     version: "1.0.0",
@@ -69,6 +70,12 @@ export function createAiWritingProvider(): WritingProvider | undefined {
       return corrections;
     },
   };
+}
+
+/** Resolve writing provider after probing on-device AI availability. */
+export async function resolveAiWritingProvider(): Promise<WritingProvider | undefined> {
+  const aiPath = await refreshAiTranslationPath();
+  return createAiWritingProvider({ aiPath });
 }
 
 export type { WritingCorrectionChunk };

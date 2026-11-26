@@ -56,6 +56,13 @@ export interface TutorContextEntry {
  * and deterministic; this is a frequency heuristic, not NLP.
  */
 const STOPWORDS = new Set([
+  // 2–3 letter English function/filler words (never drop target-language words like ser/est/der/die/das/una/eau/oui/sol)
+  "all", "am", "an", "and", "any", "are", "as", "at", "be", "but", "by", "can", "did", "do",
+  "for", "go", "got", "had", "has", "he", "her", "him", "his", "how", "if", "in", "is", "it",
+  "its", "let", "may", "me", "my", "nor", "not", "now", "of", "off", "ok", "on", "or", "our",
+  "out", "own", "put", "she", "so", "the", "to", "too", "uh", "um", "up", "us", "was", "we",
+  "who", "why", "yes", "yet", "you",
+  // 4+ letter English function/filler words
   "about", "actually", "after", "again", "already", "always", "answer", "because", "been", "being", "below",
   "between", "both", "came", "come", "could", "does", "doing", "done",
   "down", "each", "even", "every", "from", "give", "given", "goes", "going",
@@ -68,6 +75,65 @@ const STOPWORDS = new Set([
   "without", "work", "would", "your", "yours",
 ]);
 
+/**
+ * CJK conversational fillers and grammatical particles that should not trigger
+ * topic-drift refreshes on their own. Content words of length >= 1 (e.g. 山, 記憶)
+ * are preserved.
+ */
+const CJK_STOPWORDS = new Set([
+  // Chinese fillers & grammatical particles
+  "嗯", "啊", "哦", "呢", "吧", "吗", "嘛", "呀", "哇", "的", "了", "着", "过", "在", "是", "和", "与", "也", "都", "就", "而", "把", "被",
+  // Japanese particles & conversational fillers
+  "は", "が", "を", "に", "で", "と", "の", "も", "へ", "や", "か", "ね", "よ", "わ", "さ", "から", "まで", "より", "です", "ます", "だ",
+  "うん", "ええ", "はい", "あの", "えと", "えっと",
+  // Korean particles & conversational fillers
+  "은", "는", "이", "가", "을", "를", "의", "에", "도", "만", "와", "과", "로", "으로", "에서", "응", "어", "음", "네", "예",
+]);
+
+const CJK_CHAR_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;
+const SCRIPT_SPLIT_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+|[^\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]+/gu;
+
+interface IntlSegmenterLike {
+  segment(input: string): Iterable<{ segment: string; isWordLike?: boolean }>;
+}
+type IntlSegmenterCtor = new (locale?: string, options?: { granularity: "word" }) => IntlSegmenterLike;
+
+const segmenterCache = new Map<string, IntlSegmenterLike>();
+
+function getWordSegmenter(locale: string): IntlSegmenterLike | null {
+  const cached = segmenterCache.get(locale);
+  if (cached) return cached;
+  const intlAny = Intl as unknown as { Segmenter?: IntlSegmenterCtor };
+  if (typeof intlAny.Segmenter !== "function") return null;
+  try {
+    const instance = new intlAny.Segmenter(locale, { granularity: "word" });
+    segmenterCache.set(locale, instance);
+    return instance;
+  } catch {
+    return null;
+  }
+}
+
+function segmentCjkRun(run: string): string[] {
+  const locale = /[\p{Script=Hiragana}\p{Script=Katakana}]/u.test(run)
+    ? "ja"
+    : /\p{Script=Hangul}/u.test(run)
+      ? "ko"
+      : "zh";
+  const segmenter = getWordSegmenter(locale);
+  if (segmenter) {
+    const out: string[] = [];
+    for (const seg of segmenter.segment(run)) {
+      if (seg.isWordLike !== false && CJK_CHAR_RE.test(seg.segment)) {
+        out.push(seg.segment);
+      }
+    }
+    if (out.length > 0) return out;
+  }
+  // Fallback when Intl.Segmenter is unavailable: keep short runs intact, split long unspaced runs by character.
+  return run.length <= 4 ? [run] : Array.from(run);
+}
+
 /** Truncate to `maxChars`, marking the cut with an ellipsis. */
 export function capText(text: string, maxChars: number): string {
   if (text.length <= maxChars) return text;
@@ -75,20 +141,42 @@ export function capText(text: string, maxChars: number): string {
 }
 
 /**
- * Top key terms by frequency (ties: first-seen order). Tokens are
- * unicode letter/number runs, lowercased; stopwords and tokens shorter than
- * 4 characters are dropped (which also means short CJK answers yield no
- * terms — drift detection then simply never fires, which is safe).
+ * Top key terms by frequency (ties: first-seen order).
+ * CJK tokens (Han/Hiragana/Katakana/Hangul) of length >= 1 (segmented via
+ * `Intl.Segmenter` when available, excluding particles/fillers) and non-CJK
+ * tokens of length >= 2 (excluding English filler stopwords) are preserved so
+ * both CJK and short target-language words participate in context & drift.
  */
 export function extractKeyTerms(text: string, limit: number): string[] {
   const counts = new Map<string, { count: number; firstSeen: number }>();
   let seen = 0;
-  for (const match of text.toLowerCase().matchAll(/[\p{L}\p{N}]+/gu)) {
-    const token = match[0];
-    if (token.length < 4 || STOPWORDS.has(token)) continue;
+
+  const recordToken = (token: string, isCjk: boolean) => {
+    if (isCjk) {
+      if (token.length < 1 || CJK_STOPWORDS.has(token)) return;
+    } else {
+      if (token.length < 2 || STOPWORDS.has(token)) return;
+    }
     const existing = counts.get(token);
     if (existing) existing.count += 1;
     else counts.set(token, { count: 1, firstSeen: seen++ });
+  };
+
+  for (const match of text.toLowerCase().matchAll(/[\p{L}\p{N}]+/gu)) {
+    const run = match[0];
+    if (!CJK_CHAR_RE.test(run)) {
+      recordToken(run, false);
+      continue;
+    }
+    for (const subRun of run.match(SCRIPT_SPLIT_RE) ?? [run]) {
+      if (CJK_CHAR_RE.test(subRun)) {
+        for (const cjkToken of segmentCjkRun(subRun)) {
+          recordToken(cjkToken, true);
+        }
+      } else {
+        recordToken(subRun, false);
+      }
+    }
   }
   return [...counts.entries()]
     .sort((a, b) => b[1].count - a[1].count || a[1].firstSeen - b[1].firstSeen)

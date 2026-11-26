@@ -1,3 +1,4 @@
+import { MULTILINGUAL_LANGUAGE_ADAPTERS } from "./adapters";
 import { baselineAdapter, exactFormFallbackAdapter } from "./baseline";
 import type {
   AdapterContext,
@@ -130,14 +131,23 @@ export class LanguageProcessingAdapterRegistry {
       cloud: 2,
       "exact-form": 3,
     };
-    return [...this.adapters.values()].sort((left, right) => priority[left.kind] - priority[right.kind]);
+    return [...this.adapters.values()].sort((left, right) => {
+      const kindDiff = priority[left.kind] - priority[right.kind];
+      if (kindDiff !== 0) return kindDiff;
+      const leftWild = left.manifest.supportedLanguageTags.includes("*") ? 1 : 0;
+      const rightWild = right.manifest.supportedLanguageTags.includes("*") ? 1 : 0;
+      return leftWild - rightWild;
+    });
   }
 }
 
 export function createDefaultLanguageProcessingRegistry(
   adapters: readonly LanguageProcessingAdapter[] = [],
 ): LanguageProcessingAdapterRegistry {
-  const registry = new LanguageProcessingAdapterRegistry();
-  for (const adapter of adapters) registry.register(adapter);
-  return registry;
+  return new LanguageProcessingAdapterRegistry([
+    ...adapters,
+    ...MULTILINGUAL_LANGUAGE_ADAPTERS,
+    baselineAdapter,
+    exactFormFallbackAdapter,
+  ]);
 }

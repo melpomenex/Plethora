@@ -61,4 +61,37 @@ export function exportLanguageKnowledge(profileId: string) {
   return call<LanguageKnowledgeExport>("export_language_knowledge", { profileId });
 }
 
+export function listLanguageKnowledgeStates(
+  profileId: string,
+  options: { entryIds?: string[]; state?: LanguageKnowledgeState; offset?: number; limit?: number } = {},
+) {
+  return call<import("../types/languageLexicon").LexiconPage<LanguageKnowledgeStateSnapshot>>("list_language_knowledge_states", {
+    profileId,
+    entryIds: options.entryIds,
+    state: options.state,
+    offset: options.offset ?? 0,
+    limit: options.limit ?? 50,
+  });
+}
+
+export function listLanguageMemorizationLinks(profileId: string, entryId?: string) {
+  return call<LanguageMemorizationLink[]>("list_language_memorization_links", { profileId, entryId });
+}
+
+export function deleteLanguageMemorizationLink(profileId: string, linkId: string) {
+  return call<boolean>("delete_language_memorization_link", { profileId, linkId });
+}
+
+export function listLanguageKnowledgeEvidence(
+  profileId: string,
+  options: { entryId?: string; offset?: number; limit?: number } = {},
+) {
+  return call<import("../types/languageLexicon").LexiconPage<LanguageKnowledgeEvidenceEvent>>("list_language_knowledge_evidence", {
+    profileId,
+    entryId: options.entryId,
+    offset: options.offset ?? 0,
+    limit: options.limit ?? 50,
+  });
+}
+
 export const LANGUAGE_KNOWLEDGE_STATES: LanguageKnowledgeState[] = ["new", "encountered", "learning", "familiar", "known", "ignored"];

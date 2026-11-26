@@ -1172,6 +1172,67 @@ export function LocalVideoPlayer({
     }
   };
 
+  useEffect(() => {
+    const onLanguageRangeReplay = (event: Event) => {
+      const detail = (event as CustomEvent<{
+        documentId?: string;
+        mediaId?: string;
+        startMs?: number;
+        endMs?: number;
+      }>).detail;
+      if (!detail || typeof detail.startMs !== "number" || typeof detail.endMs !== "number") return;
+      const matchesTarget = detail.documentId
+        ? detail.documentId === documentId || detail.mediaId === sourceKey
+        : Boolean(detail.mediaId && (detail.mediaId === documentId || detail.mediaId === sourceKey));
+      if (!matchesTarget) return;
+      const startSec = Math.max(0, detail.startMs / 1000);
+      const endSec = Math.max(startSec, detail.endMs / 1000);
+      resetSponsorBlockTracking(startSec);
+      if (videoRef.current) {
+        videoRef.current.currentTime = startSec;
+      }
+      setCurrentTime(startSec);
+      currentTimeRef.current = startSec;
+      if (endSec > startSec) {
+        setActiveExtractStartTime(startSec);
+        setActiveExtractEndTime(endSec);
+      } else {
+        setActiveExtractStartTime(null);
+        setActiveExtractEndTime(null);
+      }
+      void attemptPlay("language-range");
+    };
+    window.addEventListener("plethora-language-original-audio-range", onLanguageRangeReplay);
+    return () => window.removeEventListener("plethora-language-original-audio-range", onLanguageRangeReplay);
+  }, [attemptPlay, documentId, resetSponsorBlockTracking, sourceKey]);
+
+  const handlePauseFromLanguageHost = useCallback(() => {
+    videoRef.current?.pause();
+  }, []);
+
+  const captureVideoFrame = useCallback(async (): Promise<string | null> => {
+    if (mediaType === "audio") return null;
+    const video = videoRef.current;
+    if (!video || !(video instanceof HTMLVideoElement) || video.videoWidth <= 0 || video.videoHeight <= 0) {
+      return null;
+    }
+    try {
+      const maxWidth = 960;
+      const scale = video.videoWidth > maxWidth ? maxWidth / video.videoWidth : 1;
+      const width = Math.max(1, Math.round(video.videoWidth * scale));
+      const height = Math.max(1, Math.round(video.videoHeight * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return null;
+      ctx.drawImage(video, 0, 0, width, height);
+      return canvas.toDataURL("image/jpeg", 0.85);
+    } catch {
+      return null;
+    }
+  }, [mediaType]);
+
   // Use requestVideoFrameCallback for smoother playback when available
   // Falls back to timeupdate event for older browsers
   const rafCallbackRef = useRef<number | undefined>(undefined);
@@ -2083,6 +2144,11 @@ export function LocalVideoPlayer({
           segments={transcriptSegments}
           currentTime={currentTime}
           onSeek={handleSeek}
+          onPause={handlePauseFromLanguageHost}
+          onPlaybackRateChange={changePlaybackRate}
+          playbackRate={playbackRate}
+          frameCaptureAvailable={mediaType !== "audio"}
+          onCaptureFrame={mediaType !== "audio" ? captureVideoFrame : undefined}
         />
       )}
 

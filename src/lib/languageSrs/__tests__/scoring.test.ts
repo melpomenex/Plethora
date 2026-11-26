@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLanguageLearningDraft, scoreLanguageSuggestion } from "../index";
+import { createLanguageLearningDraft, languageDraftKey, scoreLanguageSuggestion } from "../index";
 
 describe("language SRS bridge", () => {
   it("scores repeated passive evidence without creating a card", () => {
@@ -10,9 +10,10 @@ describe("language SRS bridge", () => {
   });
 
   it("keeps ignored/known/cooldown suggestions bounded", () => {
-    expect(scoreLanguageSuggestion({ entryId: "e1", profileId: "p1", state: "known", passiveEvidence: 5, activeEvidence: 0, encounterCount: 5, lookupCount: 0 }).eligible).toBe(false);
+    expect(scoreLanguageSuggestion({entryId: "e1", profileId: "p1", state: "known", passiveEvidence: 5, activeEvidence: 0, encounterCount: 5, lookupCount: 0 }).eligible).toBe(false);
     expect(scoreLanguageSuggestion({ entryId: "e1", profileId: "p1", state: "learning", passiveEvidence: 5, activeEvidence: 0, encounterCount: 5, lookupCount: 0, lastSuggestedAt: 100, now: 101 }).reasons).toEqual(["cooldown"]);
-    const draft = createLanguageLearningDraft({ itemType: "flashcard", question: "Define hola", answer: "hello", provenance: { origin: "dictionary-peek", profileId: "p1", lexicalEntryId: "e1", createdAt: 1 } });
+    const draft = createLanguageLearningDraft({ itemType: "flashcard", question: "Define hola", answer: "hello", provenance: { origin: "dictionary-peek", profileId: "p1", lexicalEntryId: "e1", sentenceId: "s1", createdAt: 1 } });
     expect(draft.draftKey).toContain("e1");
+    expect(draft.draftKey).toBe(languageDraftKey({ profileId: "p1", lexicalEntryId: "e1", sentenceId: "s1" }, "flashcard", "Define hola"));
   });
 });
