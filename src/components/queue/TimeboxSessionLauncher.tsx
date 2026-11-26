@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Timer, X } from "@phosphor-icons/react";
 import { TIMEBOX_PRESETS, type TimeboxPresetId } from "../../utils/timeboxPlaylistBuilder";
 import { cn } from "../../utils";
+import { useViewportClampedPopover } from "./useViewportClampedPopover";
 
 export interface TimeboxCompletionRingProps {
   completedCount: number;
@@ -67,9 +68,37 @@ export function TimeboxSessionLauncher({
   onClearPreset,
 }: TimeboxSessionLauncherProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverOffsetLeft = useViewportClampedPopover({
+    isOpen,
+    anchorRef: containerRef,
+    popoverRef,
+  });
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.stopPropagation();
+        setIsOpen(false);
+      }
+    };
+    const handlePointerDown = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown, true);
+    document.addEventListener("mousedown", handlePointerDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+      document.removeEventListener("mousedown", handlePointerDown);
+    };
+  }, [isOpen]);
 
   return (
-    <div className="relative inline-flex items-center">
+    <div ref={containerRef} className="relative inline-flex items-center">
       <button
         type="button"
         onClick={() => setIsOpen((prev) => !prev)}
@@ -92,8 +121,10 @@ export function TimeboxSessionLauncher({
 
       {isOpen && (
         <div
+          ref={popoverRef}
           role="menu"
-          className="absolute right-0 top-full z-50 mt-2 w-64 rounded-xl border border-border bg-card p-2 text-card-foreground shadow-xl"
+          style={popoverOffsetLeft !== null ? { left: `${popoverOffsetLeft}px` } : undefined}
+          className="absolute left-0 top-full z-50 mt-2 w-[min(16rem,calc(100vw-2rem))] rounded-xl border border-border bg-card p-2 text-card-foreground shadow-xl"
         >
           <div className="flex items-center justify-between px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
             <span>Time-Boxed Playlists</span>

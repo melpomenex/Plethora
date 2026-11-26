@@ -5,6 +5,7 @@ import { schedulerLabel } from "../../lib/schedulerCatalog";
 import { normalizeSchedulerId } from "../../lib/schedulerIdentity";
 import { setQueueOrderingMode } from "../../stores/queueOrderingSettings";
 import type { QueueOrderingMode } from "../../types/queue";
+import { useViewportClampedPopover } from "./useViewportClampedPopover";
 
 export interface QueueProvenanceInfo {
   itemId: string;
@@ -82,6 +83,12 @@ export const QueueProvenancePill = React.memo(function QueueProvenancePill({
   const [isBusy, setIsBusy] = useState(false);
   const popoverId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
+  const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverOffsetLeft = useViewportClampedPopover({
+    isOpen,
+    anchorRef: containerRef,
+    popoverRef,
+  });
 
   useEffect(() => {
     setDraftSlider(clampProvenanceSlider(info.prioritySlider));
@@ -173,6 +180,7 @@ export const QueueProvenancePill = React.memo(function QueueProvenancePill({
 
       {isOpen && (
         <div
+          ref={popoverRef}
           id={popoverId}
           role="dialog"
           aria-label="Queue scheduling provenance"
@@ -180,6 +188,7 @@ export const QueueProvenancePill = React.memo(function QueueProvenancePill({
           onKeyDown={(e) => {
             if (e.key !== "Escape") e.stopPropagation();
           }}
+          style={popoverOffsetLeft !== null ? { left: `${popoverOffsetLeft}px` } : undefined}
           className="absolute left-0 top-full mt-2 z-50 w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-border bg-card p-4 text-card-foreground shadow-2xl"
         >
           <div className="mb-3 space-y-1 border-b border-border pb-2.5">
