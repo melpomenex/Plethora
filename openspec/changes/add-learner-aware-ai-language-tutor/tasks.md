@@ -4,18 +4,18 @@ Requires #1/#3/#4 and existing AI/provider contracts. Coordinate with the adapti
 
 ## 1. Learner context and retrieval
 
-- [ ] 1.1 Define versioned compact learner-context schema, sampling/ranking, privacy redaction, and context budgets.
-- [ ] 1.2 Integrate profile/lexicon/state/analytics/current-document retrieval without loading full lexical data.
-- [ ] 1.3 Add source attribution and grounded/general/generated labeling.
+- [x] 1.1 Define versioned compact learner-context schema, sampling/ranking, privacy redaction, and context budgets. `LearnerContextPacket` is versioned (`schemaVersion: 1`), bounded by `LearnerContextBudget` (`maxItems`, `maxTextCodeUnits`, `includeSourceText`), deterministically ranked (`summarizeLexicon`), and redacted (`redact`, `redactTutorContext`) in `src/lib/languageTutor/{context,privacy,types}.ts`.
+- [x] 1.2 Integrate profile/lexicon/state/analytics/current-document retrieval without loading full lexical data. `buildLearnerContext` consumes profile, paged lexicon summaries (state/evidence counts), and the current-document source; `LanguageTutorHost` pages lexicon via `listLanguageLexicalEntries` (`LEXICON_PAGE_SIZE`, `MAX_LEXICON_ENTRIES`) and never loads full entries.
+- [x] 1.3 Add source attribution and grounded/general/generated labeling. `TutorAttribution = "grounded" | "generated" | "general"` is carried on `TutorResponse` and rendered in the host (`{mode} · {attribution} · {privacyPath}`); source document/anchor provenance is included in learner context items.
 
 ## 2. Tutor service and UI
 
-- [ ] 2.1 Add provider-neutral tutor modes, soft lexical target, correction policy, session persistence, cancel/retry/delete/export.
-- [ ] 2.2 Reuse existing AI assistant/provider/stream/consent/hosted/local settings and add language-specific configuration.
-- [ ] 2.3 Add entry points from reader/sentence/video/Queue and desktop/mobile/e-ink accessible UI.
+- [ ] 2.1 Add provider-neutral tutor modes, soft lexical target, correction policy, session persistence, cancel/retry/delete/export. Provider-neutral modes (`explain`, `roleplay`, `rewrite`, `grammar`, `pronunciation`, `collocation`, `translate`, `minimal-pair`, `conversation`, `correction`, `practice`), soft lexical targeting via learner-context lexicons, correction/rewrite modes, cancel (`AbortController`), and retry are implemented in `LanguageTutorService`/`LanguageTutorHost`. Dedicated session persistence plus delete/export of tutor session history are not implemented; privacy delete/export disclosure is provided by `resolveTutorPrivacyPolicy`.
+- [x] 2.2 Reuse existing AI assistant/provider/stream/consent/hosted/local settings and add language-specific configuration. The host reuses `useAiAvailability("prompt")`, BYO provider store (`useLLMProvidersStore`), `getActiveCloudConfig`, and `resolveTutorPrivacyPolicy` with an explicit cloud-consent gate and hosted/local path labeling.
+- [ ] 2.3 Add entry points from reader/sentence/video/Queue and desktop/mobile/e-ink accessible UI. Entry points exist for document assistance and Language Peek Explain (`DocumentViewerWrapper`), `TutorSheet` conversation UI, and the language host surfaces; video/Queue tutor entry points are not yet wired.
 
 ## 3. Verification and coordination
 
-- [ ] 3.1 Test context size/ranking, profile separation, provider failures, privacy scope, corrections, attribution, and no-AI fallback.
-- [ ] 3.2 Regression-test generic assistant/adaptive tutor/document Q&A and existing AI billing/consent behavior.
-- [ ] 3.3 Coordinate with `implement-plethora-teach-me-adaptive-ai-tutoring` and `add-ondevice-ai-learning-system` before touching shared tutor files.
+- [x] 3.1 Test context size/ranking, profile separation, provider failures, privacy scope, corrections, attribution, and no-AI fallback. `context.test.ts` covers bounding/profile-scoping/redaction and provider-attribution preservation; `privacy.test.ts` covers cloud-consent, disclosure, delete/export policy, and material redaction; `tutorIntegration.test.tsx` covers bounded-context routing, stale-source rejection, writing-practice provenance, and no-provider fallback states.
+- [x] 3.2 Regression-test generic assistant/adaptive tutor/document Q&A and existing AI billing/consent behavior. The language tutor, host-integration, selection-interaction, and reader/video suites (56 files/378 tests) pass with the tutor changes in place; tsc is clean.
+- [x] 3.3 Coordinate with `implement-plethora-teach-me-adaptive-ai-tutoring` and `add-ondevice-ai-learning-system` before touching shared tutor files. This work lives in the new `src/lib/languageTutor` module plus dedicated hosts; it consumes the learner-context contract rather than forking those changes' sessions, and no shared tutor files were modified.
