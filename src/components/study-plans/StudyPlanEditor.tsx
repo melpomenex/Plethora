@@ -45,6 +45,7 @@ import {
   type StudyPlanLanguageLinkage,
 } from './LanguageProfileSection';
 import { PlanOutline } from './PlanOutline';
+import { LearnerEvidenceSection } from './LearnerEvidenceSection';
 import { PlanNodeEditor } from './PlanNodeEditor';
 import { PlanSourceList } from './PlanSourceList';
 import { PlanVersionDiff } from './PlanVersionDiff';
@@ -869,6 +870,8 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
           </div>
         )
       )}
+
+      <LearnerEvidenceSection planDetail={planDetail} />
 
       {/* Interrupted Jobs Recovery Banner */}
       {interruptedJobs.length > 0 && (
