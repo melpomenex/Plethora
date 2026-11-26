@@ -32,64 +32,94 @@ export function LanguageTranscriptDomBridge({ container, segments, sourceId }: L
       mode: "full",
     });
 
-    void listLanguageLexicalEntries(profile.id, { languageTag: profile.targetLanguage, offset: 0, limit: 500 })
-      .then((page) => {
-        if (disposed) return;
-        const entries = new Map(page.items.map((entry) => [entry.normalizedForm, entry]));
-        const states = new Map<string, LanguageKnowledgeState>();
-        for (const entry of page.items) {
-          if (isLanguageKnowledgeState(entry.knowledgeState)) states.set(entry.id, entry.knowledgeState);
-        }
-        const stateMap = { profileId: profile.id, lexicalStateVersion: 1, states };
+    let observer: IntersectionObserver | null = null;
+    const annotatedRoots = new Set<HTMLElement>();
 
-        for (const root of segmentRoots) {
-          const segmentId = root.getAttribute("data-language-transcript-segment") ?? "";
-          const segment = segments.find((value) => value.id === segmentId);
-          if (!segment) continue;
-          const adapter = new DomLanguageHighlightAdapter("transcript", sourceId, root, (node, start, end) => ({
-            kind: "dom-text",
-            sourceId,
-            node,
-            startOffset: start,
-            endOffset: end,
-            confidence: anchorConfidence(1),
-            confidenceScore: 1,
-          }));
-          const anchors = adapter.getTokenAnchors();
-          const tokens = anchors.flatMap((anchor) => {
-            const entry = entries.get(anchor.surface.normalize("NFKC").toLocaleLowerCase());
-            if (!entry) return [];
-            return [{
-              id: anchor.id,
-              profileId: profile.id,
-              lexicalEntryId: entry.id,
-              surface: anchor.surface,
-              normalized: entry.normalizedForm,
-              sourceId: anchor.sourceId,
-              range: anchor.range,
-              anchor: anchor.anchor,
-              analysisVersion: 1,
-              analysisAvailable: true,
-            }];
-          });
-          const annotations = buildVocabularyAnnotations({
-            tokens,
-            stateMap,
-            settings,
-            expectedVersions: { analysisVersion: 1, lexicalStateVersion: 1 },
-          });
-          applyLanguageAnnotationSpans(root, annotations, settings);
-          adapter.dispose();
-        }
-      })
-      .catch(() => {
-        if (!disposed) {
-          for (const root of segmentRoots) clearLanguageAnnotationSpans(root);
-        }
-      });
+    void (async () => {
+      const allItems = [];
+      let offset = 0;
+      while (offset < 2000) {
+        const page = await listLanguageLexicalEntries(profile.id, { languageTag: profile.targetLanguage, offset, limit: 500 });
+        allItems.push(...page.items);
+        if (!page.hasMore || page.items.length === 0) break;
+        offset += page.items.length;
+      }
+      if (disposed) return;
+
+      const entries = new Map(allItems.map((entry) => [entry.normalizedForm, entry]));
+      const states = new Map<string, LanguageKnowledgeState>();
+      for (const entry of allItems) {
+        if (isLanguageKnowledgeState(entry.knowledgeState)) states.set(entry.id, entry.knowledgeState);
+      }
+      const stateMap = { profileId: profile.id, lexicalStateVersion: 1, states };
+
+      const annotateRoot = (root: HTMLElement) => {
+        if (disposed || annotatedRoots.has(root)) return;
+        annotatedRoots.add(root);
+        const segmentId = root.getAttribute("data-language-transcript-segment") ?? "";
+        const segment = segments.find((value) => value.id === segmentId);
+        if (!segment) return;
+        const adapter = new DomLanguageHighlightAdapter("transcript", sourceId, root, (node, start, end) => ({
+          kind: "dom-text",
+          sourceId,
+          node,
+          startOffset: start,
+          endOffset: end,
+          confidence: anchorConfidence(1),
+          confidenceScore: 1,
+        }));
+        const anchors = adapter.getTokenAnchors();
+        const tokens = anchors.flatMap((anchor) => {
+          const entry = entries.get(anchor.surface.normalize("NFKC").toLocaleLowerCase());
+          if (!entry) return [];
+          return [{
+            id: anchor.id,
+            profileId: profile.id,
+            lexicalEntryId: entry.id,
+            surface: anchor.surface,
+            normalized: entry.normalizedForm,
+            sourceId: anchor.sourceId,
+            range: anchor.range,
+            anchor: anchor.anchor,
+            analysisVersion: 1,
+            analysisAvailable: true,
+          }];
+        });
+        const annotations = buildVocabularyAnnotations({
+          tokens,
+          stateMap,
+          settings,
+          expectedVersions: { analysisVersion: 1, lexicalStateVersion: 1 },
+        });
+        applyLanguageAnnotationSpans(root, annotations, settings);
+        adapter.dispose();
+      };
+
+      if (typeof IntersectionObserver !== "undefined") {
+        observer = new IntersectionObserver(
+          (ioEntries) => {
+            for (const ioEntry of ioEntries) {
+              if (ioEntry.isIntersecting) {
+                annotateRoot(ioEntry.target as HTMLElement);
+                observer?.unobserve(ioEntry.target);
+              }
+            }
+          },
+          { rootMargin: "200px 0px" },
+        );
+        for (const root of segmentRoots) observer.observe(root);
+      } else {
+        for (const root of segmentRoots.slice(0, 50)) annotateRoot(root);
+      }
+    })().catch(() => {
+      if (!disposed) {
+        for (const root of segmentRoots) clearLanguageAnnotationSpans(root);
+      }
+    });
 
     return () => {
       disposed = true;
+      observer?.disconnect();
       for (const root of segmentRoots) clearLanguageAnnotationSpans(root);
     };
   }, [container, ready, segments, snapshot?.profile, sourceId]);

@@ -551,6 +551,7 @@ export function TranscriptSync({
   const [followPausedByUser, setFollowPausedByUser] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const [transcriptContainer, setTranscriptContainer] = useState<HTMLDivElement | null>(null);
+  const [segmentRenderLimit, setSegmentRenderLimit] = useState(200);
   const activeSegmentRef = useRef<HTMLDivElement>(null);
   const highlightedSegmentRef = useRef<HTMLDivElement>(null);
   const selectionTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -1472,40 +1473,53 @@ export function TranscriptSync({
             )}
           </div>
         ) : (
-          filteredSegments.map((segment) => {
-            const segmentIndex = indexById.get(segment.id) ?? -1;
-            const isActive = segmentIndex === activeIndex;
-            const isExternallyHighlighted = Boolean(
-              effectiveHighlightedSegmentId && segment.id === effectiveHighlightedSegmentId
-            );
+          <>
+            {filteredSegments.slice(0, Math.max(segmentRenderLimit, activeIndex + 25)).map((segment) => {
+              const segmentIndex = indexById.get(segment.id) ?? -1;
+              const isActive = segmentIndex === activeIndex;
+              const isExternallyHighlighted = Boolean(
+                effectiveHighlightedSegmentId && segment.id === effectiveHighlightedSegmentId
+              );
 
-            return (
-              <TranscriptRow
-                key={segment.id}
-                segment={segment}
-                segmentIndex={segmentIndex}
-                isActive={isActive}
-                isExternallyHighlighted={isExternallyHighlighted}
-                isSearchHit={Boolean(
-                  effectiveHighlightQuery &&
-                    segment.text.toLowerCase().includes(effectiveHighlightQuery.toLowerCase())
-                )}
-                showTimestamps={showTimestamps}
-                showSpeakers={showSpeakers}
-                compact={compact}
-                highlightQuery={effectiveHighlightQuery}
-                // Inactive rows get a constant so React.memo can skip them —
-                // only the spoken line re-renders as the clock advances.
-                wordClock={isActive ? karaokeTime : 0}
-                canExtract={canExtractText}
-                onSelect={handleSegmentClick}
-                onExtractSegment={handleExtractSegment}
-                onContextMenu={handleSegmentContextMenu}
-                onRowKeyDown={handleSegmentRowKeyDown}
-                setRef={setSegmentRefs}
-              />
-            );
-          })
+              return (
+                <TranscriptRow
+                  key={segment.id}
+                  segment={segment}
+                  segmentIndex={segmentIndex}
+                  isActive={isActive}
+                  isExternallyHighlighted={isExternallyHighlighted}
+                  isSearchHit={Boolean(
+                    effectiveHighlightQuery &&
+                      segment.text.toLowerCase().includes(effectiveHighlightQuery.toLowerCase())
+                  )}
+                  showTimestamps={showTimestamps}
+                  showSpeakers={showSpeakers}
+                  compact={compact}
+                  highlightQuery={effectiveHighlightQuery}
+                  // Inactive rows get a constant so React.memo can skip them —
+                  // only the spoken line re-renders as the clock advances.
+                  wordClock={isActive ? karaokeTime : 0}
+                  canExtract={canExtractText}
+                  onSelect={handleSegmentClick}
+                  onExtractSegment={handleExtractSegment}
+                  onContextMenu={handleSegmentContextMenu}
+                  onRowKeyDown={handleSegmentRowKeyDown}
+                  setRef={setSegmentRefs}
+                />
+              );
+            })}
+            {filteredSegments.length > Math.max(segmentRenderLimit, activeIndex + 25) && (
+              <div className="flex justify-center py-3">
+                <button
+                  type="button"
+                  onClick={() => setSegmentRenderLimit((prev) => prev + 200)}
+                  className="rounded-md border border-border bg-card px-3 py-1.5 text-xs font-medium text-foreground hover:bg-muted"
+                >
+                  Show more segments ({filteredSegments.length - Math.max(segmentRenderLimit, activeIndex + 25)} remaining)
+                </button>
+              </div>
+            )}
+          </>
         )}
       </div>
       {languageSourceId && (
