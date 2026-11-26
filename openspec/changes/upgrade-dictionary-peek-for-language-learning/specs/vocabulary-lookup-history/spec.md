@@ -1,6 +1,6 @@
 # Spec Delta: vocabulary-lookup-history
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Profile-aware lookup recording
 

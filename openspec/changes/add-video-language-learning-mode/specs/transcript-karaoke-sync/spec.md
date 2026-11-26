@@ -1,6 +1,6 @@
 # Spec Delta: transcript-karaoke-sync
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Language annotations do not alter karaoke semantics
 

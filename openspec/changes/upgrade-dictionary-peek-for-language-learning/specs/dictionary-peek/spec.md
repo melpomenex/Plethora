@@ -1,6 +1,6 @@
 # Spec Delta: dictionary-peek
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Profile-aware content is additive
 

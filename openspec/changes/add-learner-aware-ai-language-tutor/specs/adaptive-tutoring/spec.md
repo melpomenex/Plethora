@@ -1,6 +1,6 @@
 # Spec Delta: adaptive-tutoring
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Language learner context is optional and bounded
 
