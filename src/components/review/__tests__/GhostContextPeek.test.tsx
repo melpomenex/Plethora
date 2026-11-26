@@ -306,4 +306,85 @@ After paragraph about many worlds.
     expect(peek).toHaveTextContent("Preceding sentence from anchor.");
     expect(peek).toHaveTextContent("Succeeding sentence from anchor.");
   });
+
+  it("highlights the exact extract text inside the matched paragraph and splits oversized blocks", () => {
+    const longWall = [
+      "Sentence one introduces the history of time travel paradoxes in physics and philosophy.",
+      "Sentence two discusses early thought experiments from twentieth century science fiction.",
+      "Sentence three explains how multiverse branching avoids logical contradictions in causal loops.",
+      "Sentence four describes the grandfather paradox in detail: if you travel back in time, you could alter the past.",
+      "Sentence five notes that information sent backward creates self-consistency constraints.",
+      "Sentence six concludes with Deutsch's quantum computation model of closed timelike curves.",
+      "Sentence seven adds further commentary on decoherence and observer effects in branching universes.",
+      "Sentence eight wraps up the section with open questions about experimental testability.",
+    ].join(" ");
+
+    render(
+      <GhostContextPeek
+        isPeeking={true}
+        documentTitle="Simulation Hypothesis"
+        parentContent={longWall}
+        extractText="grandfather paradox in detail: if you travel back in time, you could alter the past."
+        radius={1}
+      />
+    );
+
+    const anchor = document.querySelector("[data-ghost-context-anchor='true']");
+    const highlight = document.querySelector("[data-ghost-context-highlight='true']");
+    expect(anchor).toBeInTheDocument();
+    expect(highlight).toBeInTheDocument();
+    expect(highlight).toHaveTextContent(
+      "grandfather paradox in detail: if you travel back in time, you could alter the past."
+    );
+    // Chunking should have produced surrounding before/after chunks rather than one giant block
+    expect(screen.getByText("Current extract")).toBeInTheDocument();
+  });
+
+  it("allows expanding earlier/later context and extracting selected text from the context peek", async () => {
+    const manyParagraphs = Array.from(
+      { length: 8 },
+      (_, idx) => `Paragraph ${idx + 1} with distinct context content.`
+    ).join("\n\n");
+
+    const onExtractSelection = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <GhostContextPeek
+        isPeeking={true}
+        documentTitle="Long Doc"
+        parentContent={manyParagraphs}
+        extractText="Paragraph 4 with distinct context content."
+        radius={1}
+        onExtractSelection={onExtractSelection}
+      />
+    );
+
+    expect(screen.queryByText("Paragraph 1 with distinct context content.")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Show earlier context/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Show more below/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Show earlier context/i }));
+    expect(screen.getByText("Paragraph 1 with distinct context content.")).toBeInTheDocument();
+
+    // Simulate selecting text inside GhostContextPeek
+    const targetParagraph = screen.getByText("Paragraph 5 with distinct context content.");
+    const textNode = targetParagraph.firstChild!;
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, "Paragraph 5 with distinct context content.".length);
+    const selection = window.getSelection()!;
+    selection.removeAllRanges();
+    selection.addRange(range);
+
+    fireEvent.mouseUp(document.querySelector("[data-ghost-context-peek='true']")!);
+
+    const extractBtn = screen.getByRole("button", { name: /Extract selection/i });
+    fireEvent.click(extractBtn);
+
+    await waitFor(() => {
+      expect(onExtractSelection).toHaveBeenCalledWith(
+        "Paragraph 5 with distinct context content."
+      );
+    });
+  });
 });

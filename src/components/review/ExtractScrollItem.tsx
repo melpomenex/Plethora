@@ -23,6 +23,7 @@ import {
 } from "@phosphor-icons/react";
 import DOMPurify from "dompurify";
 import {
+  createExtract,
   updateExtract,
   forgetExtract,
   dismissExtract,
@@ -128,6 +129,10 @@ export function ExtractScrollItem({
                 ? storeParentContent
                 : fetchedParentByDocId[extract.document_id]);
     const [isPeekingContext, setIsPeekingContext] = useState(false);
+    const [isContextPinned, setIsContextPinned] = useState(false);
+    const hasContextSelectionRef = useRef(false);
+    const isContextPinnedRef = useRef(false);
+    isContextPinnedRef.current = isContextPinned;
     const overscrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // Opt-in: progressive summaries are never generated (or shown) unless the
     // user asked for them in Settings → AI → Summarization.
@@ -253,7 +258,7 @@ export function ExtractScrollItem({
         return () => window.removeEventListener("keydown", handleKeyDown);
     }, [onRate, onCreateCloze]);
 
-    // Bare Alt hold reveals GhostContextPeek; releasing Alt collapses it
+    // Bare Alt hold reveals GhostContextPeek; releasing Alt collapses it unless pinned or selecting
     useEffect(() => {
         const handleAltDown = (e: KeyboardEvent) => {
             if (e.key === "Alt" && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
@@ -261,14 +266,21 @@ export function ExtractScrollItem({
                     return;
                 }
                 setIsPeekingContext(true);
+            } else if (e.key === "Escape") {
+                setIsPeekingContext(false);
+                setIsContextPinned(false);
             }
         };
         const handleAltUp = (e: KeyboardEvent) => {
-            if (e.key === "Alt") {
+            if (e.key === "Alt" && !isContextPinnedRef.current && !hasContextSelectionRef.current) {
                 setIsPeekingContext(false);
             }
         };
-        const handleBlur = () => setIsPeekingContext(false);
+        const handleBlur = () => {
+            if (!isContextPinnedRef.current) {
+                setIsPeekingContext(false);
+            }
+        };
         window.addEventListener("keydown", handleAltDown);
         window.addEventListener("keyup", handleAltUp);
         window.addEventListener("blur", handleBlur);
@@ -281,6 +293,22 @@ export function ExtractScrollItem({
             }
         };
     }, []);
+
+    const handleExtractFromContext = async (selectedText: string) => {
+        if (!extract.document_id || selectedText.trim().length < 3) return;
+        try {
+            await createExtract({
+                document_id: extract.document_id,
+                content: selectedText.trim(),
+                page_number: extract.page_number,
+                note: `Extracted from context peek: ${documentTitle}`,
+            });
+            toast.success("Extract created");
+        } catch (err) {
+            console.error("Failed to create extract from context peek:", err);
+            toast.error("Failed to create extract");
+        }
+    };
 
     // Lazily hydrate parent document content when peeking if the store only holds a summary
     useEffect(() => {
@@ -610,7 +638,13 @@ export function ExtractScrollItem({
                 <div className="flex items-center justify-end gap-3 flex-wrap">
                     <button
                         type="button"
-                        onClick={() => setIsPeekingContext((prev) => !prev)}
+                        onClick={() => {
+                            setIsPeekingContext((prev) => {
+                                const next = !prev;
+                                setIsContextPinned(next);
+                                return next;
+                            });
+                        }}
                         aria-pressed={isPeekingContext}
                         className="px-3 py-2 bg-muted/60 hover:bg-muted text-muted-foreground hover:text-foreground rounded-lg font-medium text-xs flex items-center gap-1.5 border border-border/60 transition-colors"
                     >
@@ -652,6 +686,19 @@ export function ExtractScrollItem({
                     extractText={content}
                     selectionContext={extract.selection_context}
                     isLoading={isLoadingParentContent}
+                    isPinned={isContextPinned}
+                    onTogglePin={() => setIsContextPinned((prev) => !prev)}
+                    onClose={() => {
+                        setIsPeekingContext(false);
+                        setIsContextPinned(false);
+                    }}
+                    onExtractSelection={extract.document_id ? handleExtractFromContext : undefined}
+                    onHasSelectionChange={(hasSel) => {
+                        hasContextSelectionRef.current = hasSel;
+                        if (hasSel) {
+                            setIsContextPinned(true);
+                        }
+                    }}
                 />
 
                 {/* Content Editor / Progressive Disclosure */}
