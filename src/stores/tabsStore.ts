@@ -35,7 +35,8 @@ export type TabType =
   | "extracts"
   | "import-needs-review"
   | "study-plans"
-  | "learning-insights";
+  | "learning-insights"
+  | "language-learning";
 
 export interface Tab {
   id: string;

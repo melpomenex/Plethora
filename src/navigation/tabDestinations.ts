@@ -254,6 +254,15 @@ export const NAVIGATION_DESTINATIONS: NavigationDestination[] = [
     aliases: ["study plans", "curriculum", "study plan", "learning paths", "plans"],
     keywords: ["study", "plan", "curriculum", "learn", "topics", "assessments"],
   },
+  {
+    id: "language-learning",
+    labelKey: "palette.destination.languageLearning",
+    descriptionKey: "palette.destination.languageLearningDesc",
+    path: "/language-learning",
+    tabType: "language-learning",
+    aliases: ["language learning", "languages", "vocabulary manager", "language dashboard"],
+    keywords: ["language", "learning", "vocabulary", "profile", "immersion", "lyrics"],
+  },
 ];
 
 /**
@@ -287,6 +296,10 @@ export const TAB_TYPE_ALIASES: Record<string, TabType> = {
   curriculum: "study-plans",
   plans: "study-plans",
   "learning-paths": "study-plans",
+  lang: "language-learning",
+  "language-learning": "language-learning",
+  languages: "language-learning",
+  "language": "language-learning",
 };
 
 /** Resolve a navigate-event path (without or with a leading slash) to a tab type. */

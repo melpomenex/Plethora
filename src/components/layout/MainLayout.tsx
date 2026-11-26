@@ -654,7 +654,7 @@ export function MainLayout() {
     }
 
     const config = tabConfig[type];
-    if (!config && type !== "study-plans" && type !== "learning-insights" && type !== "continue-reading") return;
+    if (!config && type !== "study-plans" && type !== "learning-insights" && type !== "language-learning" && type !== "continue-reading") return;
     addTab(config ? {
       title: config.title,
       // TabBar derives the icon from `type` via getTabIcon(); no emoji needed.
@@ -707,6 +707,9 @@ export function MainLayout() {
           break;
         case "learning-insights":
           openTabByType("learning-insights");
+          break;
+        case "language-learning":
+          openTabByType("language-learning");
           break;
         case "open-settings":
           openTabByType("settings");

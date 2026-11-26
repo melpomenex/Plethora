@@ -57,6 +57,7 @@ import {
   SquaresFour,
   Stack,
   TextT,
+  Translate,
 } from "@phosphor-icons/react";
 import { CollectionSwitcher } from "./collections/CollectionSwitcher";
 import { cn } from "../utils/cn";
@@ -490,6 +491,10 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     openTab(createCanonicalTab("learning-insights"), inSplit);
   };
 
+  const handleLanguageLearning = (inSplit = false) => {
+    openTab(createCanonicalTab("language-learning"), inSplit);
+  };
+
   const handleContinueReading = (inSplit = false) => {
     openTab({
       title: translateRecentFeature("i18nAudit.ui.continue-reading.25d33750"),
@@ -815,6 +820,15 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
       splitAction: () => handleLearningInsights(true),
       group: 1,
     }] : []),
+    {
+      id: "language-learning",
+      icon: Translate,
+      label: t("languageLearning.title"),
+      shortcut: "",
+      action: () => handleLanguageLearning(),
+      splitAction: () => handleLanguageLearning(true),
+      group: 1,
+    },
     // Group 2: RSS
     {
       id: "rss",
@@ -987,6 +1001,7 @@ export function Toolbar({ position = "top" }: ToolbarProps) {
     "start-review": ["review"],
     "study-plans": ["study-plans"],
     "learning-insights": ["learning-insights"],
+    "language-learning": ["language-learning"],
     "continue-reading": ["continue-reading"],
     settings: ["settings"],
     documents: ["documents"],

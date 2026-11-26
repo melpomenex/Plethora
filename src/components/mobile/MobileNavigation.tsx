@@ -33,6 +33,7 @@ import {
   Rss,
   Scissors,
   TextT,
+  Translate,
   X,
 } from "@phosphor-icons/react";
 import { toggleFullscreen, isFullscreen, isFullscreenSupported, isPWA } from "../../lib/pwa";
@@ -60,6 +61,7 @@ import {
   DocumentQATab,
   StudyPlansTab,
   LearningInsightsTab,
+  LanguageLearningTab,
 } from "../tabs/TabRegistry";
 import {
   getPlatformCapability,
@@ -282,6 +284,16 @@ export const allNavItems: NavItem[] = [
     tabTitle: "studyPlans.title",
     tabIcon: "🎓",
     tabContent: StudyPlansTab,
+    closable: true,
+  },
+  {
+    id: "language-learning",
+    label: "languageLearning.title",
+    icon: Translate,
+    tabType: "language-learning",
+    tabTitle: "languageLearning.title",
+    tabIcon: "🗣️",
+    tabContent: LanguageLearningTab,
     closable: true,
   },
 ];

@@ -38,6 +38,7 @@ import {
   SquaresFour,
   Stack,
   TextT,
+  Translate,
   YoutubeLogo,
   type Icon,
 } from "@phosphor-icons/react";
@@ -74,6 +75,7 @@ export const TAB_TYPE_ICONS: Record<TabType, Icon> = {
   "import-needs-review": Stack,
   "study-plans": GraduationCap,
   "learning-insights": MoonStars,
+  "language-learning": Translate,
 };
 
 /**

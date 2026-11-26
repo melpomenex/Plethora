@@ -46,6 +46,7 @@ export const ImportNeedsReviewTab = debugLazy("ImportNeedsReviewTab", () => impo
 export const IngestionAirlockModal = debugLazy("IngestionAirlockModal", () => import("../import/IngestionAirlockModal").then(m => ({ default: m.IngestionAirlockModal })));
 export const LearningInsightsTab = debugLazy("LearningInsightsTab", () => import("./LearningInsightsTab").then(m => ({ default: m.LearningInsightsTab })));
 export const StudyPlansTab = debugLazy("StudyPlansTab", () => import("../study-plans/StudyPlansTab").then(m => ({ default: m.StudyPlansTab })));
+export const LanguageLearningTab = debugLazy("LanguageLearningTab", () => import("../language/LanguageLearningTab").then(m => ({ default: m.LanguageLearningTab })));
 
 /**
  * Destinations a user is likely to tap first on a fresh boot. Their lazy
@@ -75,6 +76,7 @@ const SECONDARY_TAB_COMPONENTS: ReadonlyArray<RetryableLazyComponent> = [
   LearningInsightsTab,
   StudyPlansTab,
   PodcastTab,
+  LanguageLearningTab,
 ];
 
 async function preloadBatch(
@@ -116,6 +118,7 @@ export const TAB_TYPE_ICONS: Record<string, string> = {
   "import-needs-review": "🧭",
   "learning-insights": "☾",
   "study-plans": "🎓",
+  "language-learning": "🗣️",
 };
 
 export const tabContentRegistry: Record<TabType, { content: ComponentType; title: string; icon: string; closable: boolean }> = {
@@ -145,6 +148,7 @@ export const tabContentRegistry: Record<TabType, { content: ComponentType; title
   "import-needs-review": { content: ImportNeedsReviewTab, title: "Import Needs Review", icon: "🧭", closable: true },
   "learning-insights": { content: LearningInsightsTab, title: "Learning Insights", icon: "☾", closable: true },
   "study-plans": { content: StudyPlansTab, title: "Study Plans", icon: "🎓", closable: true },
+  "language-learning": { content: LanguageLearningTab, title: "Language Learning", icon: "🗣️", closable: true },
 };
 
 // Registry titles remain English metadata for persisted tabs and diagnostics.
@@ -178,6 +182,7 @@ const TAB_TITLE_TRANSLATION_KEYS: Partial<Record<TabType, string>> = {
   "import-needs-review": "i18nAudit.ui.import-needs-review.fba4f59c",
   "learning-insights": "health.learningInsights",
   "study-plans": "studyPlans.title",
+  "language-learning": "languageLearning.title",
 };
 
 export function getTabTitleTranslationKey(type: TabType, storedTitle?: string): string | undefined {
