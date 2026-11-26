@@ -89,6 +89,13 @@ import { FlashcardStudioModal } from "../components/review/FlashcardStudioModal"
 import { LearningCardsList } from "../components/learning/LearningCardsList";
 import { submitReview } from "../api/review";
 import {
+  canonicalLearningItemId,
+  filterStaleDueLearningItems,
+  getReviewSyncRevision,
+  reconcileScheduledReview,
+  subscribeReviewSync,
+} from "../lib/reviewSync";
+import {
   clampCompositionToAvailability,
   composeSession,
   type ComposedSession,
@@ -1197,11 +1204,13 @@ export function QueueScrollPage() {
           await loadQueue();
         }
 
-        const [dueItems, extracts] = await Promise.all([
+        const syncRevisionAtStart = getReviewSyncRevision();
+        const [rawDueItems, extracts] = await Promise.all([
           getDueItems(strictCollectionId),
           getDueExtracts(strictCollectionId),
         ]);
         if (cancelled) return;
+        const dueItems = filterStaleDueLearningItems(rawDueItems, syncRevisionAtStart);
         setDueFlashcards(dueItems.map(normalizeLearningItem).filter((item): item is LearningItem => item !== null && !item.is_suspended));
         setDueExtracts(extracts);
       } catch (error) {
@@ -3248,6 +3257,73 @@ export function QueueScrollPage() {
     resetScrollToTop();
   }, [currentIndex, resetScrollToTop, isNeuralMode, scrollItems, documentsMap, toast, t, currentItem]);
 
+  useEffect(() => {
+    const syncRev = subscribeReviewSync((event) => {
+      if (event.source === "scrollMode") return;
+      if (event.type === "review-committed") {
+        if (!event.eligible) {
+          setDueFlashcards((prev) =>
+            prev.filter((item) => canonicalLearningItemId(item.id) !== event.canonicalId)
+          );
+          setRatedFlashcardIds((prev) => {
+            if (prev.has(event.canonicalId)) return prev;
+            const next = new Set(prev);
+            next.add(event.canonicalId);
+            return next;
+          });
+          const matchingScrollItem = scrollItemsRef.current.find(
+            (item) =>
+              item.type === "flashcard" &&
+              item.learningItem &&
+              canonicalLearningItemId(item.learningItem.id) === event.canonicalId
+          );
+          if (matchingScrollItem) {
+            advanceAfterRemoval(matchingScrollItem.id);
+          }
+        } else {
+          const normalized = normalizeLearningItem(event.item as Parameters<typeof normalizeLearningItem>[0]);
+          if (normalized && !normalized.is_suspended) {
+            setDueFlashcards((prev) => {
+              const exists = prev.some(
+                (item) => canonicalLearningItemId(item.id) === event.canonicalId
+              );
+              return exists
+                ? prev.map((item) =>
+                    canonicalLearningItemId(item.id) === event.canonicalId ? normalized : item
+                  )
+                : [...prev, normalized];
+            });
+          }
+        }
+      } else if (event.type === "review-undone") {
+        removedIdsRef.current.delete(event.canonicalId);
+        removedIdsRef.current.delete(`flashcard-${event.canonicalId}`);
+        setRatedFlashcardIds((prev) => {
+          if (!prev.has(event.canonicalId)) return prev;
+          const next = new Set(prev);
+          next.delete(event.canonicalId);
+          return next;
+        });
+        if (event.eligible) {
+          const normalized = normalizeLearningItem(event.item as Parameters<typeof normalizeLearningItem>[0]);
+          if (normalized && !normalized.is_suspended) {
+            setDueFlashcards((prev) => {
+              const exists = prev.some(
+                (item) => canonicalLearningItemId(item.id) === event.canonicalId
+              );
+              return exists
+                ? prev.map((item) =>
+                    canonicalLearningItemId(item.id) === event.canonicalId ? normalized : item
+                  )
+                : [...prev, normalized];
+            });
+          }
+        }
+      }
+    });
+    return syncRev;
+  }, [advanceAfterRemoval]);
+
   const handleProvenanceSnooze = useCallback(
     async (days: number) => {
       if (!currentItem) return;
@@ -4124,11 +4200,11 @@ export function QueueScrollPage() {
         }
         emitInteractionFeedback("review.card-graded", { rating }, { interactionId: createFeedbackInteractionId(), origin: "user" });
 
-        // Synchronize Reading Queue store so completed flashcards do not persist in Reading Queue
-        if (updatedLearningItem?.due_date && new Date(updatedLearningItem.due_date).getTime() <= Date.now()) {
-          useQueueStore.getState().applyItemDelta(currentItem.learningItem.id, {
-            dueDate: updatedLearningItem.due_date,
-            interval: updatedLearningItem.interval,
+        // Synchronize Reading Queue, Review View, and mounted Scroll Mode sessions
+        if (updatedLearningItem) {
+          reconcileScheduledReview(updatedLearningItem, {
+            source: "scrollMode",
+            buryExtractId: currentItem.learningItem.extract_id ?? null,
           });
         } else {
           useQueueStore.getState().removeItemsLocally([currentItem.learningItem.id]);

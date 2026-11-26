@@ -764,8 +764,14 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   hasLocalDeltas: false,
 
   applyItemDelta: (id, updates) => {
+    const normalizedTarget = id.replace(/^flashcard-/, "");
+    const matchesTarget = (item: QueueItem) =>
+      item.id === id ||
+      (item.itemType === "learning-item" &&
+        (item.id.replace(/^flashcard-/, "") === normalizedTarget ||
+          item.learningItemId?.replace(/^flashcard-/, "") === normalizedTarget));
     set((state) => ({
-      items: state.items.map((item) => (item.id === id ? { ...item, ...updates } : item)),
+      items: state.items.map((item) => (matchesTarget(item) ? { ...item, ...updates } : item)),
       hasLocalDeltas: true,
     }));
     get().applyFilters();
@@ -777,8 +783,15 @@ export const useQueueStore = create<QueueState>((set, get) => ({
     // would copy the array and re-run every filter once per selected item —
     // 200 array copies and 200 filter passes for a 200-item bulk action.
     const target = new Set(ids);
+    const normalizedTargets = new Set(ids.map((id) => id.replace(/^flashcard-/, "")));
+    const matchesTargets = (item: QueueItem) =>
+      target.has(item.id) ||
+      (item.itemType === "learning-item" &&
+        (normalizedTargets.has(item.id.replace(/^flashcard-/, "")) ||
+          (item.learningItemId != null &&
+            normalizedTargets.has(item.learningItemId.replace(/^flashcard-/, "")))));
     set((state) => ({
-      items: state.items.map((item) => (target.has(item.id) ? { ...item, ...updates } : item)),
+      items: state.items.map((item) => (matchesTargets(item) ? { ...item, ...updates } : item)),
       hasLocalDeltas: true,
     }));
     get().applyFilters();
@@ -787,8 +800,15 @@ export const useQueueStore = create<QueueState>((set, get) => ({
   removeItemsLocally: (ids) => {
     if (ids.length === 0) return;
     const remove = new Set(ids);
+    const normalizedRemove = new Set(ids.map((id) => id.replace(/^flashcard-/, "")));
+    const shouldRemove = (item: QueueItem) =>
+      remove.has(item.id) ||
+      (item.itemType === "learning-item" &&
+        (normalizedRemove.has(item.id.replace(/^flashcard-/, "")) ||
+          (item.learningItemId != null &&
+            normalizedRemove.has(item.learningItemId.replace(/^flashcard-/, "")))));
     set((state) => ({
-      items: state.items.filter((item) => !remove.has(item.id)),
+      items: state.items.filter((item) => !shouldRemove(item)),
       hasLocalDeltas: true,
     }));
     get().applyFilters();

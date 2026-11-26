@@ -26,6 +26,8 @@ import {
 } from "./TabRegistry";
 import { getDashboardStats, type DashboardStats } from "../../api/analytics";
 import { getDueItems, submitReview, type LearningItem, type ReviewRating } from "../../api/review";
+import { cardMutationCoordinator } from "../../api/learningItemMutationCoordinator";
+import { reconcileScheduledReview } from "../../lib/reviewSync";
 import { useStudyDeckStore } from "../../stores/studyDeckStore";
 import { filterByDecks } from "../../utils/studyDecks";
 import { getCaptureListingSource, type CaptureDocument } from "../../api/capture-activity";
@@ -410,8 +412,17 @@ export function DashboardTab() {
     );
     cardShownAtRef.current = Date.now();
 
+    const token = cardMutationCoordinator.acquireMutationToken(cardId, "rate");
+    if (!token) {
+      return;
+    }
+
     try {
-      await submitReview(cardId, numericRating, elapsedSeconds);
+      const updated = await submitReview(cardId, numericRating, elapsedSeconds);
+      token.release();
+      if (updated) {
+        reconcileScheduledReview(updated, { source: "quickReview" });
+      }
       setStats((prev) =>
         prev
           ? {
@@ -424,6 +435,7 @@ export function DashboardTab() {
       );
       void loadStats();
     } catch (err) {
+      token.rollback(err instanceof Error ? err : new Error(String(err)));
       console.error("Failed to submit quick review rating:", err);
       toast.error(
         err instanceof Error ? err.message : "Failed to save review rating"

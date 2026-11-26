@@ -34,6 +34,15 @@ import {
   reconcileItemRating,
   type SessionState,
 } from "../lib/sessionTransition";
+import {
+  canonicalLearningItemId,
+  filterStaleDueLearningItems,
+  getReviewSyncRevision,
+  isLearningItemEligibleForDueQueue,
+  reconcileReviewUndo,
+  reconcileScheduledReview,
+  type SyncableLearningItem,
+} from "../lib/reviewSync";
 
 interface StoredReviewSession {
   reviewedIds: string[];
@@ -191,6 +200,7 @@ interface ReviewState {
   patchCurrentCard: (updated: ReviewSessionItem) => void;
   patchCardTags: (itemId: string, tags: string[]) => void;
   removeItemFromSession: (itemId: string) => void;
+  reconcileExternalReview: (updatedItem: SyncableLearningItem, nowMs?: number) => void;
   resetSession: () => void;
   startReviewAtItem: (itemId: string) => Promise<void>;
   startReviewWithQueue: (itemIds: string[]) => Promise<void>;
@@ -292,7 +302,9 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     set({ isLoading: true, error: null, generation: nextGen });
     try {
       const collectionId = useCollectionStore.getState().activeCollectionId;
-      const items = await getDueItems(collectionId);
+      const syncRevisionAtStart = getReviewSyncRevision();
+      const rawItems = await getDueItems(collectionId);
+      const items = filterStaleDueLearningItems(rawItems, syncRevisionAtStart);
 
       // Collection filtering is handled by the backend (collection_id on items).
       // The review session is flashcards / learning items only — reading items
@@ -680,6 +692,13 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
           updatedAt: Date.now(),
         });
         setTimeout(() => void get().loadPreviewIntervals(), 100);
+      }
+
+      if (reviewMode === "normal" && updatedLearningItem) {
+        reconcileScheduledReview(updatedLearningItem, {
+          source: "reviewStore",
+          buryExtractId: learningCard.extract_id ?? null,
+        });
       }
     } catch (error) {
       token.rollback(error instanceof Error ? error : new Error(String(error)));
@@ -1168,13 +1187,71 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
     set({ pendingReviewMetadata: metadata });
   },
 
+  reconcileExternalReview: (updatedItem, nowMs) => {
+    const state = get();
+    const canonicalId = canonicalLearningItemId(updatedItem.id);
+    const hasCardInQueue = state.queue.some(
+      (item) => canonicalLearningItemId(item.id) === canonicalId
+    );
+    const isCurrent =
+      state.currentCard !== null &&
+      canonicalLearningItemId(state.currentCard.id) === canonicalId;
+
+    if (!hasCardInQueue && !isCurrent) {
+      return;
+    }
+
+    const eligible = isLearningItemEligibleForDueQueue(updatedItem, nowMs);
+    if (eligible) {
+      const nextQueue = state.queue.map((item) =>
+        canonicalLearningItemId(item.id) === canonicalId
+          ? ({ ...item, ...updatedItem } as unknown as ReviewSessionItem)
+          : item
+      );
+      const nextCurrent = isCurrent
+        ? ({ ...state.currentCard, ...updatedItem } as unknown as ReviewSessionItem)
+        : state.currentCard;
+      set({
+        queue: nextQueue,
+        currentCard: nextCurrent,
+      });
+      return;
+    }
+
+    const targetId =
+      state.queue.find((item) => canonicalLearningItemId(item.id) === canonicalId)?.id ??
+      canonicalId;
+    const sessionState: SessionState<ReviewSessionItem> = {
+      items: state.queue,
+      currentId: state.currentCard?.id ?? null,
+      reviewedIds: new Set<string>(),
+      removedIds: state.removedIds ?? new Set<string>(),
+      revealRevision: state.revealRevision ?? 0,
+      generation: state.generation ?? 1,
+    };
+    const reconciled = reconcileItemRemoval(sessionState, targetId);
+    const nextCurrentCard = reconciled.nextCurrentId
+      ? reconciled.nextItems.find((item) => item.id === reconciled.nextCurrentId) ?? null
+      : null;
+
+    set({
+      queue: reconciled.nextItems,
+      currentIndex: reconciled.nextIndex,
+      currentCard: nextCurrentCard,
+      revealRevision: reconciled.revealRevision,
+      isAnswerShown: isCurrent ? false : state.isAnswerShown,
+      previewIntervals: isCurrent ? null : state.previewIntervals,
+    });
+  },
+
   undoLastReview: async () => {
     const snapshot = lastUndoSnapshot;
     if (!snapshot) return;
 
     try {
+      let restoredItem: LearningItem | null = null;
       if (snapshot.learningItemState) {
-        await restoreLearningItemState(snapshot.learningItemState.itemId, {
+        restoredItem = await restoreLearningItemState(snapshot.learningItemState.itemId, {
           dueDate: snapshot.learningItemState.dueDate,
           interval: snapshot.learningItemState.interval,
           easeFactor: snapshot.learningItemState.easeFactor,
@@ -1217,6 +1294,25 @@ export const useReviewStore = create<ReviewState>((set, get) => ({
         sessionId: get().sessionId,
         updatedAt: Date.now(),
       });
+
+      if (snapshot.learningItemState) {
+        const fallbackItem: LearningItem = restoredItem ?? {
+          ...(snapshot.currentCard as LearningItem),
+          id: snapshot.learningItemState.itemId,
+          due_date: snapshot.learningItemState.dueDate,
+          interval: snapshot.learningItemState.interval,
+          ease_factor: snapshot.learningItemState.easeFactor,
+          last_review_date: snapshot.learningItemState.lastReviewDate,
+          review_count: snapshot.learningItemState.reviewCount,
+          lapses: snapshot.learningItemState.lapses,
+          state: snapshot.learningItemState.state as LearningItem["state"],
+          memory_state: snapshot.learningItemState.memoryState ?? undefined,
+          difficulty: snapshot.learningItemState.difficulty,
+          algorithm_type: snapshot.learningItemState.algorithmType,
+          algorithm_state: snapshot.learningItemState.algorithmState,
+        };
+        reconcileReviewUndo(fallbackItem, { source: "reviewStore" });
+      }
 
       lastUndoSnapshot = null;
     } catch (error) {
