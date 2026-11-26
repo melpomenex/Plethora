@@ -1,5 +1,11 @@
 # Changelog
 
+## [3.14.1] - 2026-11-26
+
+### Fixed & Improved
+
+- **Android wearable-import builds** — compile the local folder picker only for desktop targets while retaining the explicit unsupported response on Android and iOS.
+
 ## [3.14.0] - 2026-11-26
 
 ### Added
