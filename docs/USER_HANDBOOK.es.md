@@ -1,4 +1,4 @@
-# Manual de usuario incremental
+# Manual de usuario de Plétora
 
 **Su guía completa para dominar la lectura incremental y la repetición espaciada**
 
@@ -6,13 +6,13 @@
 
 ## Introducción
 
-### ¿Qué es Plethora?
+### ¿Qué es Plétora?
 
 Plethora es una poderosa aplicación de aprendizaje que combina dos técnicas probadas:
 
 **Lectura incremental**: procese grandes cantidades de información en fragmentos pequeños y manejables a lo largo del tiempo. En lugar de leer artículos de principio a fin, extrae puntos clave y desarrolla gradualmente la comprensión.
 
-**Repetición espaciada**: revise el material a intervalos científicamente optimizados para maximizar la retención. Algoritmos como FSRS-6 y SM-18 predicen cuándo está a punto de olvidar y programan revisiones justo a tiempo.
+**Repetición espaciada**: revise el material a intervalos científicamente optimizados para maximizar la retención. FSRS-7 predice cuándo está a punto de olvidar y programa revisiones justo a tiempo.
 
 ### Conceptos clave
 
@@ -42,7 +42,7 @@ Cuando inicie Plethora por primera vez, verá el **Panel** con cuatro secciones 
    - Pruebe "Modern Dark" o "Material You" para una apariencia moderna
 
 2. **Configurar ajustes de revisión** - Ajustes → Aprendizaje → Algoritmo
-   - **Algoritmo**: FSRS-6 (recomendado), SM-18 o Plethora Classic
+   - **Algoritmo**: FSRS-7 (programador de producción)
    - **Retención deseada**: 90% (predeterminado): apunta a qué tan bien quieres recordar
    - **Aprender por día**: 20-50 elementos recomendados para principiantes
 
@@ -76,7 +76,7 @@ Importemos su primer documento:
 | **Rebaja** | Archivos `.md` | Documentación técnica, notas |
 | **HTML** | Paginas web | Artículos, publicaciones de blogs |
 | **Anki (.apkg)** | Paquete de mazo Anki | Migrar desde Anki |
-| Apps de aprendizaje legacy | Exportaciones ZIP | Migrar desde apps de aprendizaje incremental compatibles |
+| Aplicaciones de aprendizaje heredadas | Exportaciones ZIP | Migrar desde colecciones compatibles de aprendizaje incremental |
 | **JSON (.json)** | Archivos de mazos de tarjetas didácticas | Importar mazos con datos de programación |
 | **URL** | Cualquier enlace web | Artículos en línea, blogs |
 | **Arxiv** | Trabajos académicos | Literatura de investigación |
@@ -89,7 +89,7 @@ Importemos su primer documento:
 1. Haga clic en **Documentos** → **Importar**
 2. Seleccione **Archivo local**
 3. Navegue hasta su archivo y selecciónelo.
-4. El incremento:
+4. Plétora:
    - Extraer contenido de texto
    - Calcular el tiempo de lectura y el recuento de palabras.
    - Extraer metadatos (título, autor, etc.)
@@ -101,7 +101,7 @@ Importemos su primer documento:
 2. Haga clic en **Documentos** → **Importar** → **URL**
 3. Pega la URL
 4. Haga clic en **Importar**
-5. Plethora recupera y procesa el contenido.
+5. Plethora busca y procesa el contenido.
 
 **Sitios compatibles:**
 - Artículos de noticias (la mayoría de los sitios principales)
@@ -115,7 +115,7 @@ Importemos su primer documento:
 2. Copie la URL o la identificación del documento (`2301.07041`)
 3. Haga clic en **Documentos** → **Importar** → **Arxiv**
 4. Pegue la URL o ID
-5. Descargas incrementales:
+5. Plétoras descargas:
    - PDF completo
    - Resumen
    - Autores
@@ -163,15 +163,15 @@ El archivo debe ser un objeto plano que asigne el texto de la pregunta a los dat
 - Dejar caer el mismo archivo dos veces no creará duplicados: se omitirán las tarjetas existentes.
 - Las tarjetas marcadas como `known_pile: true` se importan como suspendidas.
 
-#### Esclusa de ingesta y pre-segmentación por capítulos / H2
+#### Esclusa de aire de ingestión y fragmentación previa del capítulo/H2
 
-En **Necesita revisión** (*Needs Review*), haz clic en **Airlock Triage** para enrutar recortes web o documentos largos antes de que saturen tu cola activa:
-- **`[1]` Curso activo alta prioridad (`P10`)**: se encola de inmediato para estudio urgente.
-- **`[2]` Evergreen baja prioridad (`P65`)**: se programa en la ingesta incremental normal.
-- **`[3]` Solo referencia (`P95`, archivado)**: se guarda para consulta sin entrar en la cola SRS pendiente.
-- **`[C]` Pre-segmentar por capítulos / encabezados H2**: divide documentos Markdown (`## ` / `# `) o HTML (`<h2>` / `<h1>`) en subsecciones ordenadas que heredan la prioridad elegida.
+Al preparar clips entrantes del navegador o documentos largos en **Necesita revisión**, haga clic en **Airlock Triage** para enrutar el material antes de que inunde su cola activa:
+- **`[1]` Curso activo de alta prioridad (`P10`)**: Hace cola inmediatamente para estudio urgente.
+- **`[2]` Evergreen de baja prioridad (`P65`)**: Programa una ingesta incremental normal.
+- **`[3]` Bóveda de solo referencia (`P95`, archivado)**: almacena para referencia/búsqueda sin ingresar a la cola SRS correspondiente.
+- **`[C]` Fragmento previo por capítulo/encabezados H2**: divide documentos Markdown (`## ` / `# `) o HTML (`<h2>` / `<h1>`) en secciones secundarias ordenadas que heredan la prioridad de nivel elegida.
 
-**Ejemplo:** Importar un artículo Markdown con 3 secciones `##` con **Pre-Chunk by Chapter / H2 Headings** activado y pulsar `1` crea 3 secciones tituladas con prioridad 10.
+**Ejemplo:** Importar un artículo de Markdown de 3 secciones (`## Conceptos básicos del consenso`, `## Elección de líder`, `## Replicación de registros`) con **Pre-fragmento por capítulo/Encabezados H2** habilitado y presionar `1` crea 3 secciones tituladas con Prioridad 10.
 
 ### Visor de documentos
 
@@ -200,25 +200,25 @@ Una vez importado, abra cualquier documento para acceder:
    - Adjunte sus pensamientos/notas
    - Las notas aparecen con extractos.
 
-4. **Creador dividido de P&R / Cloze (`Ctrl/Cmd + Mayús + Q`)**:
-   - Abre la creación de P&R o Cloze acoplada junto al lector sin tapar el pasaje.
-   - Usa **Insert Selection into Question** o **Insert Selection into Answer** para insertar el texto seleccionado en el campo activo.
+4. **Preguntas y respuestas divididas acopladas/Creador Cloze (`Ctrl/Cmd + Shift + Q`)**:
+   - Abre la creación de preguntas y respuestas o Cloze al lado del lector en lugar de bloquear el pasaje.
+   - Utilice **Insertar selección en pregunta** o **Insertar selección en respuesta** para colocar el texto resaltado directamente en el campo activo.
 
-5. **Chip de herencia de prioridad y Cloze encadenado (`C`)**:
-   - La barra de selección muestra la prioridad heredada (`P<N>`). Mantén `Mayús` + rueda (`Shift+Wheel`) para ajustar la prioridad ±5 %.
-   - Durante 4 segundos tras crear un extracto en línea, `Flecha arriba` / `Flecha abajo` ajusta su prioridad.
-   - Haz clic en **[C] Cloze** para crear una tarjeta Cloze encadenada en una sola pulsación sin salir del lector.
+5. **Chip de herencia prioritario y cloze encadenado (`C`)**:
+   - La barra de selección muestra la prioridad heredada del documento (`P<N>`). Mantenga presionada la tecla "Shift" y desplácese sobre el chip ("Shift+Wheel") para cambiar la prioridad ±5%.
+   - Después de crear un extracto en línea, `ArrowUp`/`ArrowDown` ajusta su prioridad durante 4 segundos.
+   - Haga clic en **[C] Cloze** para generar una tarjeta cloze encadenada con una sola pulsación de tecla sin salir del lector.
 
-6. **Margen socrático anclado a la selección (`Ctrl/Cmd + J`) y respaldo IA elegante**:
-   - Selecciona un pasaje y pulsa `Ctrl/Cmd + J` (o haz clic en **⌘J Socratic**) para abrir un hilo IA anclado a tu cita.
-   - Pulsa **Convert Explanation to Extract** o **Convert to Flashcard** para guardar cualquier explicación en un clic.
-   - Si el LLM local o remoto está desconectado o expira, **Graceful AI Fallback** conserva tu cita y pregunta y ofrece **Fallback to Manual Extract** o **Retry with Smaller Context (50 %)**.
+6. **Margen socrático anclado en la selección (`Ctrl/Cmd + J`) y elegantes respaldos de IA**:
+   - Resalte un pasaje y presione `Ctrl/Cmd + J` (o haga clic en **⌘J Socratic**) para abrir un hilo de IA en línea anclado a su cita.
+   - Haga clic en **Convertir explicación en extracto** o **Convertir en tarjeta didáctica** para guardar cualquier explicación de IA con un solo clic.
+   - Si su LLM local o remoto está fuera de línea o se agota el tiempo de espera, **Graceful AI Fallback** conserva su cotización y aviso y ofrece **Retroceso al extracto manual** o **Reintentar con un contexto más pequeño (50%)**.
 
-7. **Vista Breakout para tablas, matemáticas y código**:
-   - Pasa el cursor o enfoca cualquier bloque `<table>`, `.katex-display` o `<pre><code>` (en Markdown, EPUB o Extractos) y pulsa **Breakout View** para abrir un modal aislado con paneo y zoom `0.5x–3.0x` (`+`, `-`, `0` para restablecer, `Esc` para cerrar).
+7. **Vista desglosada de tablas, matemáticas y códigos**:
+   - Pase el cursor sobre cualquier `<table>`, ecuación `.katex-display` o bloque `<pre><code>` amplio (en Markdown, EPUB o Extracts) y haga clic en **Vista de grupos** para abrir un modal aislado de panorámica y zoom `0.5x–3.0x` (`+`, `-`, `0` para restablecer, `Esc` para cerrar).
 
-8. **Minimapa Metro (Subway Minimap)**:
-   - Activa **Subway Map** en el panel de Extractos para ver las secciones y extractos coloreados por nivel de dominio.
+8. **Minimapa del metro**:
+   - Active **Mapa del metro** en la barra lateral de Extractos para ver secciones del documento y extractos codificados por colores según el estado de dominio.
 
 ### Organización del documento
 
@@ -241,31 +241,32 @@ Una vez importado, abra cualquier documento para acceder:
 
 ## El sistema de aprendizaje
 
-### Entendiendo FSRS-6
+### Entendiendo FSRS-7
 
-**FSRS-6** (Programador de repetición espaciada libre) es un algoritmo moderno que:
+**FSRS-7** (Programador de repetición espaciada libre, versión 7) es el programador de tarjetas didácticas de producción de Plethora. Amplía versiones anteriores de FSRS con un modelo de memoria de **rastreo dual**:
 
-1. **Seguimiento del estado de la memoria**: modela la potencia de tu memoria para cada tarjeta
-2. **Predice el olvido**: estima cuándo olvidarás cada elemento
-3. **Optimiza la programación**: programa revisiones en momentos óptimos
-4. **Se adapta a ti**: aprende de tus patrones de desempeño
+1. **Estado de memoria de doble traza**: Cada tarjeta rastrea dos trazas de estabilidad: una **raza lenta** (`stability`) para la retención a largo plazo y una **raza rápida** (`stability_fast`) para la dinámica de recuperación a corto plazo. La **Recuperabilidad** se calcula a partir de una combinación de ambos rastros, no de un único valor de estabilidad por sí solo.
+2. **Tiempo transcurrido fraccional**: los intervalos entre revisiones del mismo día y de días parciales se modelan con precisión (no se redondean a días completos), por lo que los intervalos después de intervalos cortos son más precisos.
+3. **modelo de 34 parámetros**: utiliza el vector de peso FSRS-7; el optimizador personal puede ajustarlos a su historial de revisiones cuando tenga suficientes datos.
+4. **Clasificaciones de cuatro botones**: Nuevamente / Difícil / Bueno / Fácil (calificaciones 1 a 4) con intervalos de vista previa para cada opción.
 
 **Métricas clave:**
-- **Estabilidad**: cuánto dura una memoria (mayor = más estable)
-- **Dificultad**: Qué tan difícil es el elemento para ti (escala 1-10)
-- **Recuperabilidad**: Probabilidad actual de recuperación (0-100%)
+- **Estabilidad** (trazo lento): intensidad de la memoria de horizonte largo (mayor = más estable)
+- **Estabilidad (rápida)** (rastreo rápido): dinámica de recuperación de horizonte corto combinada con el rastreo lento
+- **Dificultad**: qué tan difícil es el elemento para ti (escala de 1 a 10)
+- **Recuperabilidad**: probabilidad actual de recuperación (0–100%), derivada del modelo de doble seguimiento
 
 ### Entendiendo SM-18
 
-**SM-18** es el planificador de la generación anterior de la familia. Representa una evolución significativa con respecto a Plethora Classic, al introducir el modelado de estabilidad de la memoria y un enfoque basado en datos para el cálculo de intervalos.
+**SM-18** es el programador de la generación anterior de la familia. Representa una evolución significativa con respecto a SM-2, al introducir el modelado de estabilidad de la memoria y un enfoque basado en datos para el cálculo de intervalos.
 
 SM-18:
 
 1. **Modelos que olvidan exponencialmente**: utiliza la fórmula `R = 0,9^(t/S)` para calcular la recuperabilidad: la probabilidad de que recuerdes un elemento en el momento `t` dada su estabilidad `S`
 2. **Seguimiento de la dificultad de forma independiente**: mantiene un valor de dificultad `D ∈ [0, 1]` para cada elemento, actualizado mediante una fórmula de promedio final que responde mejor con cada repetición.
-3. **Utiliza una matriz SInc 3D**: busca el factor de aumento de estabilidad en una matriz de 21×21×21 indexada por dificultad, estabilidad y recuperabilidad agrupadas; este es el núcleo de la inteligencia de SM-18.
+3. **Utiliza una matriz SInc 3D**: busca el factor de aumento de estabilidad en una matriz de 21 × 21 × 21 indexada por dificultad, estabilidad y recuperabilidad agrupadas; este es el núcleo de la inteligencia del SM-18.
 4. **Maneja los lapsos con gracia**: en caso de falla, reduce la estabilidad en un factor de 0,87 (dividido por los lapsos acumulados) y reinicia el contador de repeticiones, pero conserva la estimación de dificultad.
-5. **Calcula intervalos a partir de la estabilidad**: deriva el siguiente intervalo de revisión a partir del objetivo de retención deseado: `intervalo = S × ln(1-FI) / ln(0.9)`
+5. **Calcula intervalos a partir de la estabilidad**: deriva el siguiente intervalo de revisión a partir del objetivo de retención deseado: `intervalo = S × ln(1-FI) / ln(0,9)`
 
 **Métricas clave:**
 - **Estabilidad (S)**: cuánto tiempo persiste un recuerdo antes de descomponerse (medido en días)
@@ -274,38 +275,38 @@ SM-18:
 - **SInc**: El factor de aumento de estabilidad se obtuvo de la matriz de 9261 entradas: cuánto crece la estabilidad después de cada revisión exitosa.
 - **Lapsos**: Recuento de fallos, que penalizan la estabilidad futura en lapsos posteriores
 
-### Entendiendo SM-20
+### Entendiendo SM-20 y el campo de los algoritmos
 
-La opción **SM-20** de Plethora es **Algorithm Arena**: una reimplementación fiel del planificador original que ejecuta **cinco** algoritmos de repetición espaciada en paralelo en cada tarjeta y combina sus predicciones en un solo programa. Los cinco competidores, con los pesos de mezcla predeterminados con los que comienzan:
+La opción **SM-20** de Plethora es un **Algorithm Arena**: una implementación de conjunto independiente que ejecuta **cinco** algoritmos de repetición espaciada en paralelo en cada tarjeta didáctica y combina sus predicciones en un solo programa (a diferencia del modo SM-20 de un solo núcleo puro). Los cinco competidores, con los pesos de mezcla predeterminados con los que comienzan:
 
 | Ranura | Modelo | Peso predeterminado | ¿Aprende cómo? |
 |------|-------|---------------:|-------------|
-| 1 | **Plethora Classic** | 6% | Fijo |
-| 2 | **Plethora Classic 15** | 14% | Continuamente, en cada revisión |
-| 3 | **Classic 19** | 45% | Continuamente, en cada revisión |
+| 1 | **SM-2** | 6% | Fijo |
+| 2 | **SM-15** | 14% | Continuamente, en cada revisión |
+| 3 | **SM-19** | 45% | Continuamente, en cada revisión |
 | 4 | **SM-20** (el kernel de curva de olvido "M4" de 35 parámetros) | 25% | Bajo demanda, a través del botón Optimizar |
 | 5 | **FSRS** | 10% | Bajo demanda, a través del botón Optimizar |
 
-**Cómo funciona la combinación.** Cada modelo produce de forma independiente una estimación de estabilidad para la tarjeta; la Arena toma un promedio ponderado y deriva el siguiente intervalo a partir de ahí. Los pesos no son fijos: se **adaptan a ti**. Cada vez que revisas una tarjeta cuya revisión anterior fue hace al menos un día, Arena califica la predicción *anterior* de cada modelo contra lo que realmente sucedió (lo recordaste u olvidaste) y empuja los pesos hacia los modelos que te han estado prediciendo mejor. Ningún modelo se elimina por completo, por lo que un modelo que arranca lentamente puede recuperarse.
+**Cómo funciona la combinación.** Cada modelo produce de forma independiente una estimación de estabilidad para la tarjeta; la Arena toma un promedio ponderado y deriva el siguiente intervalo a partir de ahí. Los pesos no son fijos: se **adaptan a ti**. Cada vez que revisas una tarjeta cuya revisión anterior fue hace al menos un día, Arena califica la predicción *anterior* de cada modelo en comparación con lo que realmente sucedió (recordaste u olvidaste) y empuja los pesos hacia los modelos que te han estado prediciendo mejor. Ningún modelo se elimina por completo, por lo que un modelo que arranca lentamente puede recuperarse.
 
 **Dos formas de aprender:**
 
-1. **Automáticamente, en cada revisión**: el optimizador Plethora Classic 15 y las matrices Classic 19 se actualizan inmediatamente y los pesos de combinación cambian. Esto comienza con su primera revisión. Puedes verlo en Configuración → Aprendizaje: el panel **Pesos de Arena** muestra el porcentaje actual de cada modelo y, una vez que tengas suficientes reseñas puntuadas, una **Métrica R** (cuánto mejor es la predicción combinada que Classic 19 solo).
+1. **Automáticamente, en cada revisión**: el optimizador SM-15 y las matrices SM-19 se actualizan inmediatamente y los pesos de combinación cambian. Esto comienza con su primera revisión. Puedes verlo en Configuración → Aprendizaje: el panel **Pesos de Arena** muestra el porcentaje actual de cada modelo y, una vez que tengas suficientes reseñas puntuadas, una **Métrica R** (cuánto mejor es la predicción combinada que SM-19 solo).
 2. **Bajo demanda, al hacer clic en Optimizar**: dos de los cinco competidores (el kernel SM-20 y FSRS) se pueden incluir en su historial de reseñas personal. Estos ajustes están respaldados por una cantidad mínima de datos (aproximadamente varios cientos de revisiones espaciadas por días) y una verificación de validación retenida: un ajuste solo se acepta si realmente supera los valores predeterminados enviados en las revisiones que el ajuste no ha visto. Hasta entonces, los botones Optimizar informan "Aún no hay suficiente historial de revisión" y esos dos modelos siguen usando sus parámetros predeterminados.
 
-**Por qué puede decir que no ha comenzado a entrenar.** Solo las revisiones espaciadas con al menos **un día de diferencia** transmiten la señal: las primeras revisiones y las nuevas revisiones el mismo día no le dicen nada a la Arena (cada modelo predice correctamente lo que recordarás), por lo que no cuentan para el total de puntos. Si solo tienes un puñado de cartas, espera que los pesos de la Arena permanezcan cerca de sus valores predeterminados y que la Métrica R permanezca oculta hasta que esas cartas comiencen a aparecer en intervalos de escala de días. Esto es lo esperado, no un error.
+**Por qué puede decir que no ha comenzado a entrenar.** Solo las revisiones espaciadas al menos **con un día de diferencia** transmiten la señal: las primeras revisiones y las nuevas revisiones el mismo día no le dicen nada a la Arena (cada modelo predice correctamente lo que recordarás), por lo que no cuentan para el total de puntos. Si solo tienes un puñado de cartas, espera que los pesos de la Arena permanezcan cerca de sus valores predeterminados y que la Métrica R permanezca oculta hasta que esas cartas comiencen a aparecer en intervalos de escala de días. Esto es lo esperado, no un error.
 
 **Métricas clave:**
 - **Estabilidad (S)**: la estimación de cada modelo de cuánto tiempo persiste la memoria (días); la Arena combina estos.
 - **Dificultad (D)**: estimación de la dificultad del ítem de cada modelo.
 - **Pesos de arena**: los porcentajes de combinación en vivo por modelo, que se muestran en la configuración de aprendizaje.
-- **R-Metric**: mejora relativa de la mezcla con respecto a Classic 19 solo, calculada sobre una ventana decreciente de sus revisiones.
+- **R-Metric**: mejora relativa de la mezcla con respecto a SM-19 solo, calculada sobre una ventana decreciente de sus revisiones.
 
-**En qué se diferencia SM-20 de FSRS-6:**
-- FSRS-6 es un programador de producción único y maduro y sigue siendo el valor predeterminado recomendado.
-- SM-20 es un conjunto experimental que enfrenta cinco algoritmos entre sí y permite que tus propios datos elijan la combinación. Es más complejo y necesita más revisiones para personalizarlo, pero puede superar a cualquier modelo una vez que tenga suficiente historial para aprender.
+**En qué se diferencia SM-20 (Algorithm Arena) de FSRS-7:**
+- FSRS-7 es el programador de producción único y la única opción que se muestra en la configuración de Aprendizaje.
+- SM-20 (Algorithm Arena) es un conjunto experimental heredado que enfrenta cinco algoritmos entre sí y permite que sus propios datos elijan la combinación (mientras que el modo Pure SM-20 ejecuta solo el kernel M4 directamente). Permanece en el código base para la investigación, pero está oculto al selector del programador.
 
-#### Elección de un horizonte de memoria después de una revisión de SM-20
+#### Elección de un horizonte de memoria después de una revisión del SM-20
 
 En **Configuración → Aprendizaje → Campo de algoritmos → Después de cada calificación**, elija cuántos detalles de programación desea:
 
@@ -315,7 +316,7 @@ En **Configuración → Aprendizaje → Campo de algoritmos → Después de cada
 La misma opción compacta aparece debajo de los seis controles de calificación SM-20, por lo que la siguiente calificación puede usar un modo diferente sin salir de la revisión. Ambos modos ejecutan y entrenan los mismos cinco modelos de colección; esta configuración cambia sólo si realiza la elección final del intervalo. El paso de decisión sigue limitado a revisiones normales de tarjetas didácticas SM-20; la lectura de documentos, el modo intensivo, otros algoritmos y el **Modo SM-20 puro** mantienen su flujo de programación directa existente.
 
 - **Arena Pick** está seleccionado de forma predeterminada. Es la recomendación ponderada y suele ser la mejor opción cuando quieres que la Arena decida.
-- **Plethora Classic, Plethora Classic 15, Classic 19, SM-20 y FSRS** te permiten seguir deliberadamente la propuesta exacta de un modelo para esta revisión. Elegir uno no le da a ese modelo un peso de votación adicional; Las ponderaciones futuras continúan aprendiendo solo de la precisión de la predicción.
+- **SM-2, SM-15, SM-19, SM-20 y FSRS** te permiten seguir deliberadamente la propuesta exacta de un modelo para esta revisión. Elegir uno no le da a ese modelo un peso de votación adicional; Las ponderaciones futuras continúan aprendiendo solo de la precisión de la predicción.
 - **Personalizado** acepta una cantidad y una unidad o una posición en la lente de tiempo logarítmica. Los límites mostrados protegen contra programaciones no válidas y la fecha de vencimiento exacta se actualiza antes de que usted confirme.
 - **Por qué este intervalo** amplía las propuestas, los pesos actuales y el rango de Arena. El rango es el intervalo del más antiguo al más reciente propuesto por los cinco modelos, no un intervalo de incertidumbre o de confianza.
 
@@ -326,37 +327,40 @@ Controles del teclado mientras Memory Horizon está abierto:
 | Clave | Acción |
 |-----|--------|
 | `←` / `→` | Explora propuestas en orden temporal |
-| `1`–`5` | Seleccione Plethora Classic, Plethora Classic 15, Classic 19, SM-20 o FSRS |
+| `1`–`5` | Seleccione SM-2, SM-15, SM-19, SM-20 o FSRS |
 | `A` | Seleccionar Arena Elegir |
 | `M` | Seleccione Personalizado |
 | `Entrar` o `Espacio` | Confirmar el horario mostrado |
 | `Escape` | Volver a la calificación |
 
-En la revisión de audio con manos libres, Plethora confirma automáticamente la selección de arena para que la reproducción pueda continuar, incluso cuando se selecciona **Mostrar la arena** para revisiones visuales. La revisión sigue siendo recuperable si esa confirmación automática falla.
+En la revisión de audio manos libres, Plethora confirma automáticamente Arena Pick para que la reproducción pueda continuar, incluso cuando se selecciona **Mostrar la Arena** para revisiones visuales. La revisión sigue siendo recuperable si esa confirmación automática falla.
 
 ### Programa de lectura de documentos (lectura incremental)
 
-Los algoritmos anteriores (FSRS-6, SM-18, SM-20) son programadores de **tarjetas didácticas**: se entrenan en preguntas y respuestas, cloze y tarjetas básicas, donde el objetivo es el recuerdo a largo plazo. Los **documentos** (los artículos, artículos y pasajes que lees mediante lectura incremental) se programan mediante un programador **separado** con un objetivo diferente: mantener el contenido en rotación regular en lugar de maximizar la retención a largo plazo de un solo hecho.
+FSRS-7 es el programador de **tarjetas didácticas**: se entrena en preguntas y respuestas, cierre y tarjetas básicas, donde el objetivo es la recuperación a largo plazo. (Los programadores heredados, como SM-18 y SM-20, permanecen en el código base, pero están ocultos de la interfaz de usuario). Los **Documentos** (los artículos, documentos y pasajes que lee mediante lectura incremental) se programan mediante un **FSRS-7** modificado, el programador *Engaging*, sintonizado para un objetivo diferente: mantener el contenido en rotación regular en lugar de maximizar la retención a largo plazo de un solo hecho. Se ejecuta en su propia instancia de FSRS, separada de su programador de tarjetas flash, por lo que los valores de **estabilidad**, **estabilidad (rápida)** y **dificultad** que ve para un documento en la vista Programación son parámetros de memoria FSRS-7 reales.
 
-**Dos programadores, no uno.** Esta es la mayor fuente de confusión:
+**Dos vías de programación, no una.** Esta es la mayor fuente de confusión:
 
-- **Tarjetas didácticas** → FSRS-6 / SM-18 / SM-20 (su elección en la configuración de aprendizaje) → escribe en el historial de revisión que entrena esos algoritmos.
-- **Documentos** → el **Programador de lectura incremental** (o su variante **Engaging**) → rastreado por separado y **no alimenta los algoritmos de las tarjetas didácticas en absoluto.**
+- **Tarjetas didácticas** → FSRS-7 (programador de producción en la configuración de aprendizaje) → escribe en el historial de revisión que entrena el optimizador FSRS.
+- **Documentos** → un **FSRS-7** modificado (el programador *Engaging*, que se usa en todos los lugares donde se califica un documento en la aplicación; un programador *incremental* de intervalo fijo se usa solo como respaldo para API/MCP) → se realiza un seguimiento por separado y **no alimenta el programador de tarjetas flash en absoluto.**
 
-Calificar un documento con Nuevamente / Difícil / Bueno / Fácil parece idéntico a calificar una tarjeta didáctica (aparecen los mismos cuatro botones), pero la calificación va a un lugar diferente y produce intervalos cortos y predecibles:
+Calificar un documento utiliza los **mismos cuatro botones** que una tarjeta didáctica (Nuevamente / Difícil / Bueno / Fácil), pero la calificación va a una instancia FSRS **separada** que no entrena los algoritmos de su tarjeta didáctica. El intervalo que produce depende de qué programador maneja la calificación:
 
-| Calificación | Intervalo de documentos | Intervalo de tarjetas (varía según el algoritmo) |
-|--------|-------------------|------------------------------------------|
+- **Involucrar a FSRS-7 (el que usa la aplicación).** Cuando califica un documento de la cola o del visor de documentos, Plethora ejecuta FSRS-7 con un objetivo de retención de 0,9 y luego aplica un multiplicador de *participación* limitado (0,25×–2,0×) para novedad, variedad y casualidad. Los intervalos se calculan mediante FSRS y, por lo tanto, son **variables**: crecen con la estabilidad de doble seguimiento del documento como si fuera una tarjeta, no con los valores fijos que aparecen a continuación. En el contenido de formato largo que solo lee parcialmente, un límite que tiene en cuenta la duración reduce el intervalo Bueno/Fácil a 1 a 4 días según la cantidad del documento que realmente cubrió.
+- **Programador de lectura incremental (el respaldo).** La ruta de clasificación API/MCP simple utiliza un programador separado que no es FSRS con intervalos cortos, **fijos** y un límite estricto de 30 días:
+
+| Calificación | Intervalo incremental (de reserva) | Intervalo de tarjetas (varía según el algoritmo) |
+|--------|---------------------------------|------------------------------------|
 | **Otra vez** | ~4 horas | minutos |
 | **Duro** | ~1 día | 1–2 días |
 | **Bueno** | ~3 días | días–semanas |
 | **Fácil** | ~7 días | semanas |
 
-Los intervalos entre documentos tienen un límite de aproximadamente **30 días** para que el material permanezca en rotación, y las calificaciones consecutivas Bueno/Fácil agregan una pequeña bonificación, mientras que las calificaciones consecutivas Nuevamente/Difícil agregan una pequeña penalización.
+En el programador alternativo, las calificaciones consecutivas Bueno/Fácil agregan una pequeña bonificación y las calificaciones consecutivas Nuevo/Difícil agregan una pequeña penalización, y los intervalos tienen un límite aproximado de **30 días** para que el material permanezca en rotación. (La ruta Engaging FSRS-7 que llega desde la cola no tiene un límite fijo de 30 días; su único límite es el que tiene en cuenta la duración que se muestra arriba).
 
-**El Programador Engaging.** Cuando lees documentos de la cola, Plethora utiliza la variante *Engaging*, que combina inyección de novedad, equilibrio de variedad y serendipia además de los intervalos base para que tus sesiones de lectura sigan siendo variadas e interesantes. Estas características de participación afectan *qué* documento aparece a continuación, no las matemáticas de intervalo subyacentes.
+**La interacción afecta tanto al orden como al espaciado.** La capa de interacción hace dos cosas: da forma a *qué* documento aparece a continuación (inyección de novedad, equilibrio de variedad, casualidad) y escala el intervalo FSRS-7 dentro de su banda de 0,25×–2,0×. Se superpone a las matemáticas FSRS-7; no lo reemplaza.
 
-**Conclusión práctica.** Hacer mucha lectura incremental **no** contará para el "entrenamiento" SM-20 o FSRS; esos algoritmos solo ven revisiones de tarjetas didácticas. Si desea que se personalicen, necesita tarjetas didácticas revisadas con un espaciado a escala de días. (Es por eso que el panel SM-20 en la configuración de Aprendizaje puede leer "0 puntaje" incluso si ha estado leyendo documentos toda la semana). Consulte [Comprensión de SM-20](#understanding-sm-20) para saber qué cuenta y qué no.
+**Conclusión práctica.** Las revisiones de documentos se ejecutan a través de su **propia** instancia FSRS-7 y se rastrean por separado; **no** entrenan el optimizador FSRS de tarjetas flash, que solo aprende de las revisiones de tarjetas flash. Si desea pesos FSRS personalizados, necesita tarjetas didácticas revisadas con espaciado de escala de días.
 
 ### Sistema de calificación
 
@@ -406,7 +410,7 @@ Ocultar partes de una imagen (diagramas, tablas)
 
 **Autoría manual:** Pase el cursor sobre una imagen en cualquier documento y haga clic en **Crear tarjeta de oclusión de imagen** para abrir el editor de oclusión. Dibuje una región arrastrándola por la imagen, luego muévala arrastrándola dentro de la región, cambie su tamaño mediante los controladores de las esquinas, vuelva a etiquetarla en el panel de región o elimínela (botón o tecla Eliminar). Debe tener al menos una región para guardar; de lo contrario, se rechazará el guardado.
 
-**Las propuestas de IA se pueden corregir:** Cuando la IA propone regiones de oclusión, el editor abre las opciones precargadas. Ajuste, agregue o elimine regiones antes de guardar; Si el modelo devuelve regiones inutilizables, se fijan a la imagen y se abre el editor para que puedas dibujarlas manualmente; una tarjeta sin regiones utilizables nunca se guarda en silencio.
+**Las propuestas de IA son corregibles:** Cuando la IA propone regiones de oclusión, el editor abre precargadas con ellas. Ajuste, agregue o elimine regiones antes de guardar; Si el modelo devuelve regiones inutilizables, se fijan a la imagen y se abre el editor para que puedas dibujarlas manualmente; una tarjeta sin regiones utilizables nunca se guarda en silencio.
 
 ### Creando tarjetas
 
@@ -530,7 +534,7 @@ Seleccione varias tarjetas usando las casillas de verificación, luego use la ba
 **Sesiones de Repaso Mixtas (Tarjetas + Documentos):**
 - Las sesiones de revisión pueden incluir **elementos de aprendizaje** y **documentos** que deben leerse.
 - Cuando aparece un documento, puedes abrirlo directamente desde la tarjeta de sesión.
-- Calificar un documento programa su próxima fecha de lectura a través del **Programador de lectura incremental** (intervalos cortos y limitados), independiente de los algoritmos de las tarjetas didácticas. Consulte [Programa de lectura de documentos] (#programa-de-lectura-de-documentos-lectura-incremental).
+- La calificación de un documento programa su próxima fecha de lectura a través del programador **Engaging FSRS-7** (un FSRS-7 modificado, con intervalos cortos y fáciles de rotar), cuyo seguimiento se realiza por separado del programador de tarjetas didácticas. Consulte [Programa de lectura de documentos](#programa-de-lectura-de-documentos-lectura-incremental).
 
 **Interfaz de calificación:**
 Después de revelar la respuesta, aparecen cuatro botones de calificación:
@@ -540,7 +544,7 @@ Después de revelar la respuesta, aparecen cuatro botones de calificación:
   ~10m ~2d ~7d ~14d
 ```
 
-Cada botón muestra la **próxima fecha de revisión**. ¡Esta es la función **Intervalo de vista previa**!
+Cada botón muestra la **próxima fecha de revisión**: ¡esta es la función **Intervalo de vista previa**!
 
 **Acciones de recuperación (Revisar inspector de cola):**
 Úselos cuando el cronograma de un elemento de aprendizaje necesite un empujón rápido:
@@ -632,6 +636,9 @@ Muestra todos los elementos programados, incluidas revisiones futuras
 #### Nueva vista
 Muestra tarjetas recién creadas que aún no se han revisado
 
+#### Posponer automáticamente
+En Configuración de aprendizaje, habilite **Posponer automáticamente al inicio de la sesión** para reprogramar elementos vencidos elegibles cuando Plethora inicie una nueva sesión de la aplicación. Se ejecuta una vez por sesión, distribuye elementos durante los siguientes 30 días calendario locales y muestra un resumen sin bloqueo. Se conservan el historial de revisión y el estado de la memoria; manual Posponer Todo permanece disponible.
+
 ### Operaciones en cola
 
 **Filtrado:**
@@ -658,19 +665,19 @@ Muestra tarjetas recién creadas que aún no se han revisado
 Las filas de extracción en la cola abren un **lector de extractos** dedicado: el texto del extracto es el tema, no el documento fuente. Desde el lector podrás:
 
 - Lea el contenido completo del extracto (HTML enriquecido cuando se conserva, texto sin formato en caso contrario)
-- **Califíquelo** (Otra vez / Difícil / Bueno / Fácil): la cola se actualiza inmediatamente con el nuevo programa, no es necesario recargar
+- **Califíquelo** (Otra vez / Difícil / Bueno / Fácil): la cola se actualiza inmediatamente con el nuevo cronograma, no es necesario recargar
 - **Documento de código abierto** para volver al visor de documentos en la tarjeta resaltada del extracto. Si el documento fuente ya no se puede cargar, el botón se desactiva con una explicación.
-- **Vista previa fantasma de contexto (mantener `Alt`)**: mantén `Alt` (o pulsa el conmutador de vista previa) al revisar un extracto para ver los párrafos circundantes del documento padre sin salir de la cola.
-- **Barra de triaje al final del elemento**: al final de un extracto, usa las acciones rápidas (`Keep`, `Postpone`, `Archive`) para procesar pasajes terminados.
+- **Visita de contexto fantasma (`Alt`-mantener)**: mantenga presionada la tecla `Alt` (o haga clic en el botón de vista contextual) mientras revisa un extracto para obtener una vista previa de los párrafos circundantes del documento principal sin salir de la cola.
+- **Barra de clasificación de fin de elemento**: en la parte inferior de un extracto, utilice acciones de clasificación rápidas (`Mantener`, `Posponer`, `Archivar`) para deshacerse de pasajes terminados o de bajo valor.
 
-### Modos de sesión, higiene de cola y ergonomía móvil
+### Modos de sesión en cola, higiene y ergonomía móvil
 
-- **Densidad Zen vs Arquitecto (`Ctrl/Cmd + \`)**: alterna globalmente entre el modo **Zen** (lectura limpia sin telemetría) y el modo **Architect** (telemetría FSRS completa: estabilidad, dificultad e intervalos).
-- **Cabecera de sesión unificada y píldora de procedencia**: cambia entre orden **Adaptive** y **Strict Manual** desde la cabecera y pulsa la píldora de procedencia para saltar al documento origen.
-- **Listas de tiempo limitado (Timebox) y anillo de progreso**: inicia sesiones acotadas (**15m**, **45m**, **10m Commute**) desde la vista de desplazamiento y sigue el anillo de 0–100 %.
-- **Barrido de compostaje (Triage Compost Sweep)**: limpia rápidamente extractos pospuestos antiguos con `[J]`, `[K]`, `[L]` y `[Backspace]`.
-- **Asistente en línea de refactorización de sanguijuelas (`lapses >= 4`)**: las tarjetas con 4 o más fallos muestran **Split into Simpler Clozes**, **Rewrite via Local AI** o **Demote to Reading Extract**.
-- **Ergonomía móvil**: en teléfono, usa el selector **Commute Audio Queue**, el dock inferior para una mano **Bottom Thumb-Arc** (`Again`/`Hard`/`Good`/`Easy` y `Boost Priority (-10)` / `Defer (+10)`) y **doble toque en cualquier párrafo** para enviarlo al instante a la bandeja de entrada de escritorio.
+- **Zen vs. Densidad de arquitecto (`Ctrl/Cmd + \`)**: alterna globalmente entre el modo **Zen** (superficie de lectura/revisión limpia con telemetría de programación oculta) y el modo **Arquitecto** (estabilidad completa de FSRS, dificultad y telemetría de intervalo visibles).
+- **Encabezado de sesión unificado y píldora de procedencia**: cambie entre pedidos **Adaptable** y **Manual estricto** directamente desde el encabezado de la sesión y haga clic en la píldora de procedencia para saltar al documento fuente del elemento.
+- **Listas de reproducción de Timebox y anillo de finalización**: inicie sesiones limitadas (**15 m**, **45 m** o **10 m de viaje diario**) desde la vista de desplazamiento de cola y realice un seguimiento del progreso con el anillo de finalización del 0 al 100 %.
+- **Triaje de barrido de compost**: abra el modo Barrido de compost en la vista de desplazamiento de cola para clasificar rápidamente los elementos pospuestos obsoletos usando `[J]`, `[K]`, `[L]` y `[Retroceso]`.
+- **Asistente de refactorización de Leech en línea**: las tarjetas didácticas con lapsos `4+` muestran automáticamente un banner de refactorización que ofrece **Dividir en capas más simples**, **Reescribir mediante IA local** o **Degradar a extracto de lectura**.
+- **Ergonomía de la cola móvil**: en diseños de teléfono, use el interruptor **Conmutar cola de audio**, el acoplamiento con una sola mano **Inferior Thumb-Arc** (`Otra vez`/`Difícil`/`Bueno`/`Fácil` y `Aumentar prioridad (-10)`/`Aplazar (+10)`) y **toque dos veces cualquier párrafo de vista previa** para capturarlo directamente en la bandeja de entrada de su escritorio.
 
 ### Sistema de prioridades
 
@@ -678,15 +685,17 @@ Cada documento, extracto y tarjeta se encuentra en algún lugar de una **lista c
 
 **La prioridad es una posición, no una etiqueta.**
 
-Este es el modelo de cola de prioridad y es la razón por la que los números se comportan como lo hacen. Cuando configuras un artículo al 70%, se mueve hasta el punto 70% de tu colección: por encima de aproximadamente el 70% de todo lo que posees, por debajo del 30% superior. No se renumera nada más; el artículo simplemente encaja.
+Este es el modelo de cola de prioridad y es la razón por la que los números se comportan como lo hacen. Cuando configuras un artículo al 70 %, se mueve hasta el punto 70 % de tu colección, es decir, por encima de aproximadamente el 70 % de todo lo que posees, por debajo del 30 % superior. No se renumera nada más; el artículo simplemente encaja.
 
 Establezca prioridad 0-100 en cualquier elemento:
 
-- **90-100**: Por encima de casi todo lo demás: las pocas cosas que deseas primero
+- **90-100**: por encima de casi todo lo demás: las pocas cosas que deseas primero
 - **70-80**: Parte superior de la colección
 - **50-60**: mitad del paquete (el valor predeterminado para material nuevo)
 - **20-40**: parte inferior; léelo eventualmente
 - **0-10**: final de la cola: referencia, archivo, algún día
+
+**La calificación de importancia de 1 a 5.** Algunas vistas también muestran una calificación de importancia compacta de **1 a 5** junto a un elemento. Ese número es solo el control deslizante de 0 a 100 % dividido en cinco bandas: **5 es el más alto** (el rango de 81 a 100 %), 1 es el más bajo. Por lo tanto, un documento configurado al 100% que muestra "prioridad 5" muestra la *parte superior* de la escala, no el quinto lugar. La calificación del 1 al 5 no contiene información más allá del control deslizante; el control deslizante en sí (y la lectura en vivo de *Posición X de N*) es siempre la fuente de la verdad.
 
 **Tus porcentajes se mueven por sí solos y eso es correcto.**
 
@@ -712,20 +721,20 @@ Los elementos de mayor prioridad se muestran con más frecuencia en reseñas mix
 Comprender cómo la cola ordena los elementos y por qué cambian las posiciones le ayuda a optimizar el flujo de su estudio:
 
 1. **Programación FSRS y puntuación de prioridad dinámica**:
-   - La posición de cada elemento se calcula utilizando sus parámetros de memoria FSRS (fecha de vencimiento, intervalo, estabilidad, disminución de la capacidad de recuperación) combinados con su estrategia de cola inteligente o preajuste de ordenación adaptativa seleccionado (*Maximizar retención*, *Recuperación agresiva*, *Minimizar tiempo*, *Exploratorio*, *Sprint de trabajo profundo*, *Cansado / De camino*, *Triaje despiadado* o *Descubrimiento equilibrado*). Consulte los detalles completos en [Colas inteligentes y ordenación adaptativa (DAQE)](#colas-inteligentes-y-ordenación-adaptativa-daqe) más adelante.
+   - La posición de cada elemento se calcula utilizando sus parámetros de memoria FSRS (fecha de vencimiento, intervalo, estabilidad, estabilidad rápida, deterioro de la capacidad de recuperación) combinados con su estrategia de cola inteligente seleccionada o ajuste preestablecido de clasificación adaptativa (*Maximizar retención*, *Recuperación agresiva*, *Minimizar tiempo*, *Exploratorio*, *Corrimiento de trabajo profundo*, *Desplazamiento cansado/móvil*, *Triaje despiadado* o *Descubrimiento equilibrado*). Para los documentos, estos parámetros provienen del programador *Engaging* FSRS-7 descrito en [Programación de lectura de documentos] (#document-reading-schedule-incremental-reading); entonces, sí, los valores de memoria FSRS se aplican tanto a los documentos como a las tarjetas. La única diferencia es que las revisiones FSRS de un documento se rastrean por separado y no entrenan al programador de tarjetas didácticas. Consulte [Colas inteligentes y clasificación adaptable (DAQE)](#smart-queues--adaptive-ranking-daqe) a continuación para obtener detalles completos.
    - A medida que completa revisiones, pospone elementos o toma notas, los parámetros de la memoria se actualizan y los elementos se reclasifican naturalmente al regresar a la cola.
 
 2. **Aleatorización de selección ponderada**:
    - El motor de revisión aplica un algoritmo sutil de disminución ponderada (`aleatoriedad = 0,3` por defecto) al extraer elementos del backend. Esto mantiene los elementos con prioridades similares cerca de la parte superior al tiempo que introduce una ligera variedad para evitar la fatiga en la cola.
 
-3. **Sincronización de estado**:
+3. **Sincronización de estados**:
    - La realización de acciones de modificación de la cola (como archivar un documento, editar la prioridad en masa o modificar etiquetas) activa una actualización en segundo plano al regresar a la vista de la cola para mantener la lista alineada con el estado de la base de datos backend.
    - Los cambios de vista pasiva o los cambios de pestañas mantienen el orden local estable sin provocar reorganizaciones inesperadas.
 
 
 ### Revisión neuronal ("Vuélvete neuronal")
 
-La revisión neuronal es un modo exploratorio opcional inspirado en el concepto *Learn: Go neural*. En lugar de trabajar en su cola de prioridades en orden, crea una nueva secuencia de revisión **difundiendo la activación** desde un único punto de partida (el elemento que está leyendo actualmente) y mostrando todo lo relacionado con él. Es el modo al que recurrir cuando quieres seguir un hilo a través de tu colección en lugar de esforzarte en lo que corresponde.
+La revisión neuronal es un modo exploratorio opcional inspirado en el concepto *Learn: Go neural*. En lugar de trabajar en su cola de prioridades en orden, crea una nueva secuencia de revisión **difundiendo la activación** desde un único punto de partida (el elemento que está leyendo actualmente) y mostrando todo lo relacionado con él. Es el modo al que recurrir cuando quieres seguir un hilo a través de tu colección en lugar de esforzarte en lo que se debe.
 
 **Cómo usarlo.** Mientras lees en modo de desplazamiento, haz clic en **Ir neuronal** en la barra superior. La sesión cambia a una cola de activación de difusión sembrada en el documento, tarjeta o extracto actual; la pastilla de posición se vuelve violeta y dice "Revisión neuronal · N restante". Haga clic en **Salir** para regresar exactamente al lugar donde se encontraba en su lectura: la revisión neuronal nunca altera su cola de prioridades o programación. Cuando la cola se agota, se recarga automáticamente desde el elemento que acaba de terminar.
 
@@ -747,154 +756,158 @@ Las conexiones más cercanas (un hijo directo, un documento casi idéntico, una 
 - La revisión neuronal es de solo lectura con respecto a su cola normal. Úselo libremente; No cambia nada sobre su orden de prioridad o fechas de vencimiento.
 
 
-### Colas inteligentes y ordenación adaptativa (DAQE)
+### Colas inteligentes y clasificación adaptativa (DAQE)
 
-Las colas inteligentes de Plethora combinan dos sistemas complementarios: las **Colas guardadas** (que filtran *qué* elementos forman parte de una sesión de estudio) y la **Ordenación adaptativa** (impulsada por el motor de cola adaptativo dinámico, o **DAQE**, que calcula el *orden* óptimo en el que se presentan los elementos candidatos).
+Las colas inteligentes en Plethora combinan dos sistemas complementarios: **Colas guardadas** (que filtran *qué* elementos pertenecen a una sesión de estudio) y **Clasificación adaptativa** (impulsada por el motor de cola adaptable dinámico, o **DAQE**, que calcula el *orden* óptimo en el que aparecen los elementos candidatos).
 
-#### Colas guardadas (Filtrado y alcance)
+#### Colas guardadas (filtrado y alcance)
 
-Cree colas personalizadas y enfocadas filtrando su colección por categoría, tipo de elemento, calificación o rango de prioridad:
+Cree colas enfocadas personalizadas filtrando su colección por categoría, tipo de elemento, calificación o rango de prioridad:
 
 **Colas de ejemplo:**
-- "Enfoque de hoy": Tarjetas vencidas de la categoría principal
+- "Enfoque de hoy": tarjetas vencidas de la categoría principal
 - "Revisión rápida": Tarjetas fáciles, prioridad < 50
-- "Deep Dive": Tarjetas complejas de la categoría de investigación
-- "Preparación para el examen": Todas las tarjetas de la categoría "Biología"
+- "Deep Dive": Tarjetas duras de la categoría de investigación
+- "Preparación para el examen": todas las tarjetas de la categoría "Biología"
 
-**Creación de una cola guardada:**
-1. Haga clic en **Cola** → **Colas guardadas** en la barra de herramientas.
-2. Haga clic en **Nueva cola**.
-3. Configure los filtros deseados (categorías, tipos de elementos, umbrales de prioridad).
-4. Asigne un nombre y guarde la cola.
+**Creando una cola guardada:**
+1. En la vista **Cola**, haga clic en el menú desplegable **Colas guardadas** en el encabezado (o haga clic en **Colas guardadas** en la barra de herramientas).
+2. Haga clic en **Nueva cola...** (o haga clic en **Personalizar sesión** y seleccione **Guardar como nueva cola**).
+3. Configure los filtros que desee (categorías, etiquetas, tipos de elementos, umbrales de prioridad, duración de la sesión).
+4. Ingrese un nombre y guarde la cola.
 
----
-
-#### Ordenación adaptativa (Motor de cola adaptativo dinámico DAQE)
-
-Mientras que los filtros deciden la **pertenencia** (qué entra en la sesión), la ordenación adaptativa decide el **orden** (qué debe leer en este preciso instante).
-
-En lugar de clasificar los elementos únicamente por la fecha de vencimiento o un número de prioridad estático, la ordenación adaptativa evalúa los candidatos en tiempo real considerando la urgencia de memoria, la alineación con su objetivo de aprendizaje actual, el ajuste de energía cognitiva, la alternancia temática y la resistencia observada.
-
-> [!IMPORTANT]
-> **La ordenación adaptativa gobierna solo el orden, nunca la programación.**
-> Ningún deslizador o preajuste modifica la estabilidad, dificultad, intervalo, capacidad de recuperación o fechas de vencimiento de FSRS. Los algoritmos de programación siguen decidiendo *cuándo* debe volver un elemento; la ordenación adaptativa simplemente decide *cuál de los elementos vencidos se muestra primero* en su sesión actual.
-
-##### Fórmula de puntuación compuesta de 5 términos
-
-En cada reordenación de la cola, DAQE calcula una puntuación compuesta determinista $S(i)$ para cada elemento candidato:
-
-$$S(i) = w_{\text{srs}} \cdot R_{\text{srs}}(i) + w_{\text{goal}} \cdot M_{\text{relevance}}(i) + w_{\text{fit}} \cdot M_{\text{energy\_fit}}(i, K_{\text{energy}}) - w_{\text{interleave}} \cdot P_{\text{interleave}}(i, H_{\text{recent}}) - w_{\text{friction}} \cdot P_{\text{friction}}(i)$$
-
-Cada término se normaliza al intervalo unitario $[0, 1]$ antes de aplicar su peso, evitando que un único factor domine silenciosamente:
-
-1. **Urgencia de memoria ($R_{\text{srs}}$)**:
-   Mide la urgencia de retención y repaso espaciado:
-   $$R_{\text{srs}}(i) = 0.5 \cdot \text{Urgencia}(i) + 0.3 \cdot \text{Atraso}(i) + 0.2 \cdot \text{PrioridadUsuario}(i)$$
-   - $\text{Urgencia}$: Proximidad al olvido ($1 - \text{Capacidad de recuperación}$ calculada según la curva de olvido $R = 0.9^{t/S}$; en documentos, calculada a partir de la prioridad de documentos FSRS).
-   - $\text{Atraso}$: Días de retraso respecto a la fecha prevista (con un límite de saturación de 14 días).
-   - $\text{PrioridadUsuario}$: El deslizador de prioridad 0–100% asignado al elemento.
-2. **Relevancia para el objetivo ($M_{\text{relevance}}$)**:
-   Mide la alineación temática con su **Objetivo de la sesión** actual (p. ej., *"Fundamentos de computación cuántica y demostraciones de entrelazamiento"*). Se resuelve en tres niveles sucesivos:
-   - *Nivel 1 (Medido)*: Puntuación continua de 0 a 1 generada por un modelo de decisión conectado (`evaluateScore`).
-   - *Nivel 2 (Estimado / Predeterminado)*: Coincidencia léxica local de palabras clave entre el objetivo y el texto del elemento si no hay un modelo activo.
-   - *Nivel 3 (Afinidad por etiquetas)*: Combinación de relevancia basada en etiquetas si no se especificó ningún objetivo de sesión.
-   - También incorpora los *impulsos de clúster* ganados al interactuar activamente con contenidos del mismo grupo temático. Si no existe objetivo ni señal, se muestra con total transparencia como *No medido* (0.0).
-3. **Ajuste de energía ($M_{\text{energy\_fit}}$)**:
-   Mide la distancia entre la complejidad cognitiva del elemento y su objetivo de energía $K_{\text{energy}}$ ($1\text{--}5$):
-   $$M_{\text{energy\_fit}} = 1 - \frac{|\text{ComplejidadDelElemento}(i) - K_{\text{energy}}|}{4}$$
-   La complejidad es clasificada por el modelo de decisión (*Lectura rápida superficial* = 1, *Análisis medio* = 3, *Fundamental profundo* = 5) o estimada deterministamente según el tipo de elemento (Documento = 4, Extracto = 3, Tarjeta = 2).
-   *Reducción automática por fatiga*: Si su velocidad de lectura en los últimos 30 días cae por debajo del 40% de su línea base histórica ($\ge 5$ sesiones), DAQE reduce automáticamente el objetivo de energía efectivo hacia materiales más ligeros para evitar el agotamiento cognitivo.
-4. **Penalización por tema repetido ($P_{\text{interleave}}$)**:
-   Calcula la similitud temática con los elementos repasados recientemente en la sesión ($H_{\text{recent}}$). Un mayor valor de `interleavingDiversity` penaliza los elementos que comparten conceptos con lo que acaba de leer, fomentando la práctica intercalada. Si no hay coincidencia temática, la penalización es 0.
-5. **Penalización por resistencia ($P_{\text{friction}}$)**:
-   Acumula penalizaciones según la fricción real observada:
-   - Aplazamientos repetidos (+0.10 cada uno, máximo 4)
-   - Omisiones rápidas (+0.10 cada una, máximo 4)
-   - Sesiones abandonadas (+0.15 cada una, máximo 3)
-   - Predominio de inactividad (tiempo de ausencia superior al 50% sin interacción, aportando hasta +0.35)
-   Los elementos evitados sistemáticamente se desplazan hacia abajo de forma suave para facilitar decisiones de división o descarte. Los elementos sin telemetría no sufren penalización.
+**Cambiar y administrar colas guardadas:**
+- Cambie instantáneamente entre colas guardadas usando el selector desplegable **Colas guardadas** en el encabezado de la cola, el botón de la barra de herramientas **Colas guardadas** o la paleta de comandos (`Ctrl/Cmd+K` → busque su cola).
+- Haga clic en **Administrar colas...** en el menú desplegable para cambiar el nombre de las colas, eliminarlas o configurar su cola predeterminada.
 
 ---
 
-##### Los seis controles de orden (deslizadores)
+Elija **Manual estricto** en **Configuración → Colas inteligentes → Modo de pedido en cola** para ordenar los artículos elegibles según su prioridad guardada de 0 a 100. Las prioridades iguales se ordenan por instante de vencimiento y luego por tipo de elemento e ID. Los filtros de cola guardada y la composición óptima de la sesión aún controlan qué elementos pueden aparecer. La prioridad cero explícita es el valor más bajo. Cuando la recuperación automática está habilitada, Strict Manual mantiene hasta 50 elementos activos pendientes y protege las prioridades de 70 o más, incluso si eso excede la capacidad.
 
-Puede ajustar cada parámetro en **Configuración → Colas inteligentes** o en el modal **Personalizar sesión**:
+#### Clasificación adaptable (motor de cola adaptable dinámico)
 
-| Control | Rango | Predeterminado | Propósito |
+Mientras que los filtros deciden la *membresía* (lo que ingresa a la sesión), el ranking adaptativo decide el *orden* (lo que debes leer ahora mismo).
+
+En lugar de clasificar los elementos únicamente por estado vencido o un número de prioridad estático, Adaptive Ranking evalúa los elementos candidatos en tiempo real en función de la urgencia de la memoria, la alineación con su objetivo de aprendizaje actual, la adecuación de la energía cognitiva, la intercalación de temas y la fricción de lectura pasada.
+
+> [!IMPORTANTE]
+> **La clasificación adaptativa rige únicamente el orden, nunca la programación.**
+> Las perillas y los ajustes preestablecidos nunca cambian la estabilidad, la dificultad, el intervalo, la capacidad de recuperación o las fechas de vencimiento de FSRS. Los programadores todavía determinan *cuándo* debe devolverse un artículo; La clasificación adaptativa simplemente decide *qué elemento debe aparecer primero* en su sesión actual.
+
+##### La fórmula de puntuación compuesta de 5 términos
+
+En cada reordenación de cola, DAQE calcula una puntuación compuesta determinista $S(i)$ para cada elemento candidato:
+
+$$S(i) = w_{\text{srs}} \cdot R_{\text{srs}}(i) + w_{\text{meta}} \cdot M_{\text{relevancia}}(i) + w_{\text{ajuste}} \cdot M_{\text{energía\_fit}}(i, K_{\text{energía}}) - w_{\text{intercalado}} \cdot P_{\text{intercalado}}(i, H_{\text{reciente}}) - w_{\text{fricción}} \cdot P_{\text{fricción}}(i)$$
+
+Cada término se normaliza al intervalo unitario $[0, 1]$ antes de aplicar su ponderación, evitando que un solo factor domine silenciosamente:
+
+1. **Urgencia de la memoria ($R_{\text{srs}}$)** es $0.8T + 0.2P$, donde $T$ es la urgencia temporal y $P$ es la señal de prioridad adaptativa. Desktop DAQE utiliza la prioridad del elemento en la biblioteca cuando está disponible y puede recurrir a su control deslizante guardado o clasificación heredada. Manual estricto utiliza el valor guardado de 0 a 100 para la presentación.
+   - **Rotación de lectura** (documentos y extractos) utiliza la fecha de vencimiento. Los artículos nuevos comienzan con urgencia neutral. Los artículos futuros tienen urgencia temporal cero.
+   - **Recall** (fichas) también considera la recuperabilidad estimada del programador. Para una tarjeta vencida, la urgencia temporal tiene el mayor riesgo de recuperación y preparación vencida.
+   - La preparación vencida crece suavemente con el paso de los días. Catorce días es la constante de tiempo de la curva. No hay límite el día 14.
+2. **Relevancia del objetivo ($M_{\text{relevancia}}$)**:
+   Mide la alineación temática con su **Objetivo de la sesión** activo (por ejemplo, *"Fundamentos de la computación cuántica y pruebas de entrelazamiento"*). Evaluado en tres niveles:
+   - *Nivel 1 (medido)*: puntuación continua de 0 a 1 de un modelo de decisión de IA conectado (`evaluateScore`).
+   - *Nivel 2 (estimado/predeterminado)*: coincidencia de palabras clave léxicas locales entre el objetivo y el texto del elemento cuando no hay ningún modelo de decisión activo.
+   - *Nivel 3 (Afinidad de etiquetas)*: combinación de relevancia basada en etiquetas cuando no se especifica ningún objetivo.
+   - También absorbe *impulsos de promoción de grupos* obtenidos cuando interactúa activamente con material relacionado en el mismo grupo de conocimientos. Si no existe ningún objetivo o señal, el término informa claramente *No medido* (0,0).
+3. **Ajuste energético ($M_{\text{energy\_fit}}$)**:
+   Mide la proximidad entre la complejidad cognitiva de un elemento y su nivel de energía objetivo $K_{\text{energía}}$ ($1\text{--}5$):
+   $$M_{\text{energía\_fit}} = 1 - \frac{|\text{ItemComplexity}(i) - K_{\text{energía}}|}{4}$$
+   La complejidad del elemento se clasifica según el modelo de decisión (*Surface Skim* = 1, *Medium Analysis* = 3, *Deep Foundational* = 5) o se clasifica por defecto de forma determinista por tipo de elemento (Documento = 4, Extracto = 3, Flashcard = 2).
+   *Descenso de fatiga*: si su velocidad de lectura durante los últimos 30 días cae por debajo del 40% del valor inicial (más de $\ge 5$ sesiones), DAQE cambia automáticamente el objetivo de energía efectiva hacia abajo a material más liviano para prevenir el agotamiento cognitivo.
+4. **Penalización por variedad de tema ($P_{\text{interleave}}$)**:
+   Calcula el tema y la similitud semántica con respecto a la ventana del historial de revisiones recientes ($H_{\text{recent}}$). Una mayor "diversidad intercalada" penaliza los elementos que comparten etiquetas o conceptos con elementos que acaba de revisar, lo que fomenta la práctica intercalada. Los elementos sin superposición de temas no tienen penalización.
+5. **Penalización por resistencia ($P_{\text{fricción}}$)**:
+   Acumula puntos de resistencia por interacciones registradas:
+   - Aplazamientos repetidos (+0,10 cada uno, con un límite de 4)
+   - Saltos rápidos (+0,10 cada uno, con un límite de 4)
+   - Reseñas abandonadas (+0,15 cada una, con un límite de 3)
+   - Dominio inactivo (permanencia inactiva superior al 50% del tiempo total sin interacción, contribuyendo hasta +0,35)
+   Los elementos que evitas repetidamente se degradan suavemente, lo que genera oportunidades de conservar o dividir. Los artículos no medidos incurren en penalización cero.
+
+---
+
+##### Las seis perillas de clasificación
+
+Puede ajustar cada dimensión de la fórmula de clasificación en **Configuración → Colas inteligentes** o mediante el modo **Personalizar sesión**:
+
+| Perilla | Gama | Predeterminado | Propósito |
 |---|---|---|---|
-| **Urgencia de memoria** (`srsDecayWeight`) | `0.00`–`1.00` | `0.40` | Cuánto se adelantan los elementos atrasados o en riesgo de olvido. |
-| **Relevancia para el objetivo** (`goalRelevance`) | `0.00`–`1.00` | `0.30` | Cuánto se adelantan los elementos acordes al objetivo actual. |
-| **Objetivo de energía** (`energyTarget`) | `1`–`5` (entero) | `3` | Profundidad cognitiva deseada (1 = lectura rápida, 5 = fuentes primarias densas). |
-| **Variedad temática** (`interleavingDiversity`) | `0.00`–`1.00` | `0.20` | Con qué fuerza se hunde un tema repetido para favorecer la variedad. |
-| **Poda** (`pruningAggressiveness`) | `0.00`–`1.00` | `0.10` | Con qué fuerza se hunden los elementos omitidos o aplazados repetidamente. |
-| **Tiempo de ausencia** (`afkIdleTimeoutMs`) | `15`–`120` s | `45` s | Tiempo sin actividad antes de pausar el registro y considerarlo ausencia. |
+| **Urgencia de la memoria** (`srsDecayWeight`) | `0,00`–`1,00` | `0,40` | Con qué fuerza se llevan a la cima los artículos vencidos y en riesgo. |
+| **Relevancia del objetivo** (`relevancia del objetivo`) | `0,00`–`1,00` | `0,30` | Con qué fuerza se impulsan los elementos que coinciden con el objetivo de su sesión activa. |
+| **Objetivo energético** (`energyTarget`) | `1`–`5` (entero) | `3` | Su profundidad cognitiva objetivo (1 = lecturas superficiales ligeras, 5 = fuentes primarias densas). |
+| **Variedad de temas** (`interleavingDiversity`) | `0,00`–`1,00` | `0,20` | Con qué fuerza se reprimen los temas repetitivos para promover la variedad. |
+| **Poda** (`podaAgresividad`) | `0,00`–`1,00` | `0,10` | Qué tan agresivamente se penalizan los elementos omitidos y pospuestos. |
+| **Tiempo de espera de ausencia** (`afkIdleTimeoutMs`) | `15`–`120` s | `45`s | Umbral de inactividad antes de que el seguimiento de permanencia se detenga y marque el tiempo como inactivo. |
 
-Cualquier cambio en un deslizador se aplica de inmediato reordenando la cola, sin necesidad de confirmación manual.
+Cada ajuste del control deslizante entra en vigor inmediatamente sin necesidad de presionar el botón "Aplicar".
 
 ---
 
-##### Preajustes seleccionados
+##### Ajustes preestablecidos seleccionados
 
-Los preajustes son vectores preconfigurados de los seis controles. Puede alternar entre ellos desde el selector de la barra de herramientas de la cola o en Configuración:
+Los ajustes preestablecidos son vectores preconfigurados de los seis mandos. Puede cambiar los ajustes preestablecidos desde el menú desplegable de la barra de herramientas Cola o en Configuración:
 
-- **Sprint de trabajo profundo (Deep Work Sprint)**: Objetivo de energía `4`, Relevancia para el objetivo `0.50`, Variedad temática `0.10`. Diseñado para sesiones de alta concentración en fuentes primarias densas minimizando los saltos temáticos.
-- **Cansado / De camino (Tired / Mobile Commute)**: Objetivo de energía `2`, Urgencia de memoria `0.20`, Variedad temática `0.40`. Prioriza contenidos cortos, repasos ligeros y diversidad temática para desplazamientos o momentos de baja energía.
-- **Triaje despiadado (Ruthless Triage)**: Poda `0.60`, Urgencia de memoria `0.40`. Saca a relucir el material postergado reiteradamente para forzar una decisión clara: conservar, dividir en extractos manejables o descartar.
-- **Descubrimiento equilibrado (Balanced Discovery)**: Urgencia de memoria `0.35`, Relevancia para el objetivo `0.25`, Variedad temática `0.25`, Poda `0.15`, Objetivo de energía `3`. Equilibrio uniforme recomendado como punto de partida.
+- **Sprint de trabajo profundo**: Objetivo de energía `4`, Relevancia del objetivo `0,50`, Variedad de tema `0,10`. Diseñado para un estudio enfocado de fuentes primarias densas con un mínimo cambio de tema.
+- **Desplazamiento cansado/móvil**: objetivo de energía "2", urgencia de memoria "0,20", variedad de tema "0,40". Muestra artículos cortos, de baja fricción y temas variados para lecturas de viaje o sesiones de baja energía.
+- **Triaje despiadado**: Poda `0.60`, Urgencia de memoria `0.40`. Trae al frente los elementos evitados y pospuestos, lo que obliga a tomar una decisión clara: conservar, dividir en extractos más pequeños o eliminar.
+- **Descubrimiento equilibrado**: Urgencia de la memoria `0,35`, Relevancia del objetivo `0,25`, Variedad de tema `0,25`, Poda `0,15`, Objetivo energético `3`. Un valor predeterminado imparcial que equilibra la retención, los objetivos y la variedad.
 
-*Atribución honesta*: La interfaz muestra el nombre del preajuste únicamente cuando sus controles coinciden de forma exacta con la definición; si ajusta un deslizador, la etiqueta indica limpiamente una configuración personalizada.
+*Honestidad en la atribución*: la interfaz de usuario muestra el nombre preestablecido solo cuando sus perillas coinciden exactamente con su definición. Si empuja un control deslizante, la insignia cambia suavemente para indicar configuraciones personalizadas.
 
 ---
 
 ##### Modelos de decisión y privacidad local primero
 
-La ordenación adaptativa puede conectarse opcionalmente a un modelo de decisión que implemente el protocolo ligero **System One** (`evaluateScore`, `evaluateChoice`, `evaluateNoul`):
+Adaptive Ranking puede conectarse opcionalmente a un modelo de decisión de IA que implemente el protocolo de evaluación liviano **System One** (`evaluateScore`, `evaluateChoice`, `evaluateNoul`):
 
-- **Ninguno (Alternativa local determinista)**: Modo predeterminado. Cero peticiones de red, cero coste de tokens, 100% sin conexión. Aplica heurísticas locales basadas en palabras clave y tipo de elemento.
-- **Columna vertebral (Spine)**: Canaliza las evaluaciones mediante el proveedor de IA configurado en Configuración → IA.
-- **Laya (En tu máquina)**: Modelo abierto de Convai (Apache 2.0, ~0.4B parámetros). Permite descargar pesos directamente desde Configuración o conectar un servidor local (`http://127.0.0.1:8000`). Ningún dato sale del equipo.
-- **Jev (Hospedado)**: Modelo especializado de TypeSafe AI ($0.042 por millón de tokens de entrada, salida gratuita; requiere clave API de Jev).
-- **Clef (Cloudflare Workers AI)**: Modelo abierto hospedado en Workers AI (`clef-flash` 9B, `clef` 27B; requiere token de API y cuenta de Cloudflare).
-- **Modelos de decisión OpenRouter**: Incluye opciones como `inception/mercury-decide:free` (gratuito), `liquid/d1` y `upstage/solar-decide`.
-- **Modelos de decisión OpenAI**: Modelos en tiempo real mediante la API de Decisions.
+- **Ninguno (reserva local determinista)**: el valor predeterminado. Sin solicitudes de red, costos de token cero, 100% fuera de línea. Utiliza la concordancia de palabras clave locales para objetivos y heurísticas de complejidad de tipo de elemento.
+- **Spine**: dirige las evaluaciones a través de su proveedor principal de IA configurado en Configuración → AI.
+- **Laya (Local/En el dispositivo)**: modelo pequeño de peso abierto Apache 2.0 (~0,4 mil millones de parámetros según Convai). Se ejecuta completamente en su máquina a través de pesas descargadas o un servidor local (`http://127.0.0.1:8000`). Los datos nunca salen de su dispositivo.
+- **Jev (Alojado)**: modelo de decisión especializado de TypeSafe AI ($0,042/M tokens de entrada, tokens de salida gratuitos; requiere clave API).
+- **Clef (Cloudflare Workers AI)**: modelo abierto Apache 2.0 alojado en Workers AI (`clef-flash` 9B, `clef` 27B; requiere token API de Cloudflare e ID de cuenta).
+- **OpenRouter Decisions**: acceso a modelos de decisión como `inception/mercury-decide:free` (de uso gratuito), `liquid/d1` y `upstage/solar-decide`.
+- **OpenAI Decisions**: modelos de decisión OpenAI en tiempo real a través de la API Decisions.
 
-> [!TIP]
-> **Garantía de privacidad**: El contenido de los elementos nunca sale del dispositivo sin su consentimiento explícito. Incluso al optar por proveedores remotos, Plethora solo transmite **esquemas estructurales no identificables** (esqueleto de encabezados, tipo de elemento, longitud de caracteres), nunca el texto completo del cuerpo, notas privadas ni marcadores. Todas las decisiones se almacenan en caché SQLite local mediante hash de contenido.
-
----
-
-##### Telemetría de permanencia y bucle de aprendizaje adaptativo
-
-Plethora registra **tiempo de lectura activo** en lugar de tiempo pasivo en pantalla:
-- Tras el tiempo de ausencia configurado (p. ej. 45 segundos) sin interacción, el estado pasa a `idle` y descuenta retroactivamente ese período inactivo de sus estadísticas.
-- Registra evidencias de interacción como extractos generados, profundidad de desplazamiento y acciones de salida (*extracto creado*, *siguiente elemento*, *aplazar*, *descartar*, *reordenar prioridad*).
-
-El bucle de aprendizaje en segundo plano aprovecha esta telemetría sin necesidad de reentrenamiento de modelos:
-- **Promoción de clústeres**: La lectura activa prolongada ($\ge 1$ min) con generación de extractos o subrayados eleva la prioridad de los contenidos afines en la misma colección o clúster semántico.
-- **Recomendaciones de resistencia**: Si un elemento se omite $\ge 3$ veces seguidas, se marcará como **Candidato a división**. Si un elemento presenta $>50\%$ de tiempo inactivo sin interacción, se sugerirá un **Descenso automático**. Ambos avisos son recomendaciones informativas; nunca se altera ni elimina material de forma automática.
+> [!CONSEJO]
+> **Privacy Gate**: el contenido del artículo nunca sale de su dispositivo sin una suscripción explícita. Incluso cuando los modelos remotos están habilitados, Plethora transmite solo esquemas estructurales no identificables (esqueleto de encabezado, tipo de elemento, longitud de caracteres), nunca texto del cuerpo, resaltados o notas de usuario. Todos los juicios del modelo se almacenan en caché localmente en SQLite mediante hash de contenido.
 
 ---
 
-##### Desglose explicable de la puntuación
+##### Telemetría permanente y el circuito de aprendizaje adaptativo
 
-Ninguna posición en la cola es arbitraria:
-- Al hacer clic en los detalles de posición de un elemento (o en el menú contextual móvil), se despliega **Por qué esta posición**.
-- Se muestra la puntuación compuesta $S(i)$ y el valor individual de los 5 términos junto a sus pesos ponderados.
-- Cada término indica con transparencia su estado:
-  - **MEDIDO**: Obtenido directamente de telemetría o de la evaluación del modelo de decisión.
-  - **ESTIMADO**: Estimado mediante reglas locales y tipos de elemento ante la ausencia de un modelo.
-  - **NO MEDIDO**: Señal no disponible; computa limpiamente como 0 sin falsear el orden.
-- Si se ha aplicado una reducción automática por fatiga, se muestra tanto el objetivo de energía efectivo como el configurado originalmente.
+Plétora rastrea la **permanencia activa** en lugar del tiempo de pantalla pasivo:
+- La inactividad más allá del tiempo de espera configurado (por ejemplo, 45 segundos) hace que el seguimiento pase a "inactivo" y cierra retroactivamente el bloque inactivo, evitando que las ventanas accidentales inflen sus métricas de lectura.
+- Acumula evidencia de interacción, como extractos creados, profundidad de recorrido de desplazamiento y acciones de salida (*extraer-creado*, *siguiente elemento*, *posponer*, *descartar*, *volver a priorizar*).
+
+El bucle de aprendizaje en segundo plano utiliza esta telemetría para adaptarse sin necesidad de ajustar el modelo:
+- **Promoción de grupo**: Dedicar tiempo activo sostenido ($\ge 1$ min) a crear extractos o aspectos destacados promueve la colección del elemento y el grupo de temas semánticos, haciendo emerger el conocimiento relacionado antes.
+- **Recomendaciones de resistencia**: un elemento omitido $\ge 3$ veces recibe una sugerencia de **Candidato dividido** (que le solicita que lo desglose). Un elemento con $>50\%$ de tiempo de inactividad y sin interacción recibe una recomendación de **Degradación automática**. Ambas son sugerencias orientadas al usuario; Tampoco altera tus artículos automáticamente.
 
 ---
 
-##### Configuración de objetivos de sesión
+##### Desglose de puntuación explicable
 
-Para orientar una sesión hacia un tema específico:
-1. Abra la **Cola** y haga clic en **Personalizar sesión** (icono de deslizadores).
-2. Introduzca su objetivo en el campo **Objetivo de la sesión** (hasta 200 caracteres, p. ej., *"Fisiología cardiovascular y hemodinámica"*).
-3. O bien, haga clic en una de las etiquetas de **Objetivos recientes** para reutilizar una meta anterior.
-4. La cola se reordenará instantáneamente favoreciendo los elementos que mejor se ajusten a dicho objetivo.
+Ninguna puntuación en Plethora es una caja negra. En la lista de cola o lector:
+- Haga clic en los detalles de la clasificación o en la insignia de posición en cualquier elemento (o toque el menú de la fila en el dispositivo móvil) para ver **Por qué esta posición**.
+- Muestra la puntuación compuesta $S(i)$ junto con cada uno de los 5 términos y sus pesos con signo.
+- Cada término muestra una insignia de estado honesto:
+  - **MEDIDO**: Calculado directamente a partir de telemetría en vivo o evaluación del modelo de decisión.
+  - **ESTIMADO**: Derivado de heurísticas deterministas (como la complejidad del tipo de elemento).
+  - **NO MEDIDO**: Señal de entrada no disponible; contribuyó limpiamente con 0 sin distorsionar la cola.
+- Si se ha producido una reducción de fatiga, la lectura muestra explícitamente su objetivo de energía efectiva junto con el objetivo que estableció originalmente.
+
+---
+
+##### Gestión de objetivos de sesión
+
+Para establecer un objetivo de aprendizaje temporal para un bloque de estudio:
+1. Abra la **Cola** y haga clic en **Personalizar sesión** (o el ícono de controles deslizantes).
+2. Ingrese su objetivo en la entrada **Objetivo de la sesión** (hasta 200 caracteres, por ejemplo, *"Fisiología y hemodinámica cardiovascular"*).
+3. Alternativamente, haga clic en uno de sus chips **Objetivos recientes** para volver a aplicar un objetivo anterior.
+4. La cola se reordena instantáneamente para extraer documentos, extractos y tarjetas didácticas de actualidad.
 
 ### Programación basada en etiquetas (TAS)
 
@@ -1001,51 +1014,120 @@ El índice de madurez general es `matureCount / itemCount`.
 - **Mira la tasa de bloqueo**. Si muchos elementos permanecen bloqueados, reduzca el vencimiento.
   relación o simplificar el gráfico de requisitos previos.
 - **Force-show es tu válvula de seguridad**. Si TAS es demasiado agresivo para un
-  elemento en particular, muéstrelo a la fuerza: no se dañan los datos de programación subyacentes.
+  elemento en particular, muéstrelo a la fuerza: no se daña ningún dato de programación subyacente.
 
 ---
 
-## Planes de estudio y rutas de lectura guiada (Reading Trails)
+## Aprendizaje de idiomas
 
-Convierte tus libros, artículos y transcripciones en un currículo estructurado basado en objetivos con **Planes de estudio** y **Rutas de lectura guiada**.
+Utilice Plethora para aprender un idioma mientras lee, mira y revisa. Las funciones de idioma funcionan en documentos, videos, colas y planes de estudio: usted crea un **perfil de idioma**, echa un vistazo a las palabras a medida que las encuentra, pide ayuda a un **tutor de IA**, practica con **el seguimiento, el dictado, la pronunciación y la escritura** y deja que la **evidencia del alumno** sugiera en qué trabajar a continuación.
 
-### Vistas: Cola, Lista y Grafo
+### Activando el aprendizaje de idiomas
 
-Dentro de la pestaña **Esquema del currículo** de cualquier Plan de estudio, cambia entre tres vistas:
+1. Abra **Configuración → Aprendizaje de idiomas** y habilite **Aprendizaje de idiomas**.
+2. Abra la pestaña **Aprendizaje de idiomas** y cree un **perfil de idioma**: elija su idioma de destino, su idioma base y un dominio estimado.
+3. Configure un proveedor de IA en Configuración (en la nube o local): los modos de tutor, traducción y escritura necesitan uno. Los modos de voz (sombreado, dictado, pronunciación) también necesitan un proveedor de reconocimiento de voz (por ejemplo, Groq) y permiso de micrófono.
 
-- **Cola (Study Queue)**: Tu cola de lectura paso a paso, destacando la siguiente lectura recomendada (`Continuar aprendiendo`), el tiempo estimado, las próximas asignaciones, los requisitos previos bloqueados y los elementos completados.
-- **Lista**: Explora y edita los nodos del currículo, los objetivos de aprendizaje y los pasajes vinculados.
-- **Grafo**: Visualiza las dependencias de requisitos previos entre temas en un grafo interactivo.
+Los perfiles controlan todo lo siguiente: el tutor de IA se adapta a su vocabulario y el vistazo al diccionario rastrea su estado de conocimiento por palabra.
 
-### Generar y personalizar una ruta de lectura
+### Vistazo al diccionario
 
-1. Abre un Plan de estudio y selecciona la vista **Cola** en **Esquema del currículo**.
-2. Haz clic en **Generar ruta de estudio** (o **Reconstruir ruta de estudio** tras editar fuentes u objetivos).
-3. Plethora analiza la estructura de tus fuentes seleccionadas — filtrando automáticamente índices, bibliografías y menciones incidentales — y empareja cada objetivo de aprendizaje con segmentos coherentes ordenados por requisitos previos.
-4. Haz clic en **Previsualizar y editar ruta** para revisar la procedencia de cada segmento, intercambiar pasajes alternativos, ajustar el orden manual, posponer elementos o reportar coincidencias irrelevantes.
+Seleccione cualquier palabra o frase en un documento, transcripción o video:
+
+- La ventana emergente **Language Peek** muestra la definición, la traducción, la pronunciación y (cuando esté disponible) un ejemplo de oración.
+- **Memorizar** envía la palabra a **Flashcard Studio** como borrador de idioma.
+- **Extracto** lo guarda como un extracto de estudio; **Reproducir** reproduce el audio original cuando existe una grabación alineada.
+
+### Tutor de IA
+
+El tutor es un asistente conversacional que entiende tu nivel y el texto que estás estudiando.
+
+**Iniciando una sesión de tutoría:**
+- En un documento: seleccione una oración, luego elija **Tutor** (o **Explicar**) en el menú de selección.
+- Desde el vistazo del diccionario: toque **Explicar** en la palabra.
+- En un vídeo: utiliza el botón **Tutor** en la frase actual.
+- En la cola: los clips de extractos de vídeo muestran un chip **Preguntar al tutor**.
+
+**Modos:** Explicar, Juego de roles, Reescribir, Gramática, Pronunciación, Colocación, Traducir, Pareja mínima, Conversación, Corrección y Práctica. Cada respuesta indica cómo se produjo (**fundamentada** (a partir de su material fuente), **generada** o **general**) y qué ruta de privacidad utilizó (local o en la nube; el análisis en la nube requiere su consentimiento).
+
+**Historial de sesiones:** las respuestas completadas del tutor se guardan en un panel local de **Historial del tutor** (las 50 más recientes). Desde allí puedes **eliminar** una sesión individual, **borrar todo** o **exportar** el historial como un archivo JSON. Eliminar o exportar solo afecta su historial local: los datos del proveedor nunca se modifican.
+
+**Cancelar y volver a intentar:** detener una respuesta en vuelo con **Cancelar**; Vuelva a ejecutar la misma solicitud con **Reintentar**.
+
+### Modos de práctica
+
+El área **Práctica** (pestaña Aprendizaje de idiomas) ofrece:
+
+- **Sombreado**: repetir después del audio nativo. La sesión utiliza el clip de audio original del texto o video que estaba estudiando cuando hay uno disponible y, de lo contrario, recurre a la conversión de texto a voz.
+- **Dictado**: escucha y escribe lo que escuchas, usando el mismo rango de audio original.
+- **Pronunciación**: compara tu grabación con la pronunciación objetivo.
+- **Escritura**: escribe respuestas y obtén correcciones.
+- **Conversación de voz**: chatea en voz alta con el tutor.
+
+Los intentos aparecen en **Intentos recientes** en el centro de práctica.
+
+### Alineación de vídeo y medios
+
+En un vídeo, cada frase tiene su propia fila de control: **Reproducir**, **Bucle**, **Pausa automática**, **Traducir**, **Mío**, **Tutor** y **Práctica**. La reproducción prefiere el **audio original** en la posición exacta de la oración; Si la grabación falta, está obsoleta, es ambigua o tiene poca confianza, se recurre a la conversión de texto a voz. **El mío** crea un borrador de tarjeta didáctica que mantiene el **rango de medios** del clip, para que la tarjeta recuerde exactamente de qué parte del video proviene. Los lanzamientos de práctica reutilizan el mismo rango, por lo que el seguimiento y el dictado reproducen el clip correcto.
+
+### Estudio de tarjetas flash
+
+Los borradores de idiomas llegan a Flashcard Studio desde **Memorize** (vistazo al diccionario), **Mine** (video) y práctica del idioma. Los borradores conservan su **procedencia** (el documento o vídeo de origen, el rango exacto de medios y el perfil de idioma) para que siempre puedas rastrear una tarjeta hasta el lugar donde la encontraste.
+
+### Planes de estudio
+
+Los planes de estudio van de la mano con el aprendizaje de idiomas:
+
+1. Al crear o editar un plan, vincule un **perfil de idioma** (y, opcionalmente, establezca un dominio objetivo y un enfoque en el idioma).
+2. Abra el plan y busque el panel **Evidencia del alumno**. Compara los objetivos del plan con sus datos de aprendizaje reales y recomienda los siguientes pasos:
+   - **Cobertura de vocabulario**: cuando los términos de un objetivo apenas se superponen con su vocabulario conocido.
+   - **Actualización de práctica**: cuando tengas pocos intentos de práctica aceptados en las últimas dos semanas.
+   - **Extracción de tarjetas didácticas**: cuando su colección de tarjetas didácticas vinculadas al idioma aún es pequeña.
+3. Cada recomendación tiene un botón **Abrir aprendizaje de idiomas** que salta directamente a la pestaña Aprendizaje de idiomas.
+
+---
+
+## Planes de estudio y rutas de lectura guiadas
+
+Convierta sus libros, artículos y expedientes académicos en un plan de estudios estructurado y basado en objetivos con **Planes de estudio** y **Rutas de lectura guiadas**.
+
+### Vistas de cola de estudio, lista y gráfico
+
+Dentro de la pestaña **Esquema del plan de estudios** de cualquier plan de estudio, cambie entre tres vistas complementarias:
+
+- **Cola**: Su **Cola de estudio** paso a paso, destacando la siguiente tarea de lectura recomendada ("Continuar aprendiendo"), el tiempo de lectura estimado, las próximas tareas, los requisitos previos bloqueados y los elementos completados.
+- **Lista**: explore y edite nodos del plan de estudios, objetivos de aprendizaje y pasajes de lectura vinculados.
+- **Gráfico**: visualiza las dependencias de requisitos previos entre temas en un gráfico curricular interactivo.
+
+### Generación y personalización de una ruta de estudio
+
+1. Abra un plan de estudio y seleccione la vista **Cola** en **Esquema del plan de estudios**.
+2. Haga clic en **Generar ruta de estudio** (o **Reconstruir ruta de estudio** después de editar fuentes u objetivos).
+3. Plethora analiza la estructura de los documentos fuente seleccionados (filtrando automáticamente tablas de contenido, bibliografías y menciones incidentales) y combina cada objetivo de aprendizaje con segmentos de lectura coherentes y ordenados según requisitos previos.
+4. Haga clic en **Vista previa y edición de ruta** para inspeccionar la procedencia del segmento, intercambiar pasajes alternativos, ajustar el orden manual, diferir elementos o informar coincidencias irrelevantes.
 
 ### Modo de lectura guiada
 
-Al hacer clic en **Iniciar lectura guiada**, el pasaje asignado se abre directamente en el Visor de documentos con la barra lateral **Modo de lectura guiada**:
+Al hacer clic en **Iniciar lectura guiada** se abre el pasaje asignado directamente en el Visor de documentos con una barra lateral dedicada **Modo de lectura guiada**:
 
-- **Límites y contexto**: Muestra los marcadores de inicio y fin, la duración estimada y por qué se seleccionó el segmento para el objetivo.
-- **Seguimiento de progreso**: Registra tu progreso dentro del rango asignado (puedes seguir leyendo más allá de los límites en cualquier momento).
-- **Navegación de cola (`Anterior` / `Siguiente`)**: Muévete directamente entre las lecturas del plan mediante **Anterior** / **Siguiente** (o **Siguiente: \<Tema\>**) sin salir del lector.
-- **Notas, extractos y tutor socrático**: Toma notas o abre el panel persistente del **Asistente** (cuyas conversaciones se guardan por documento y vídeo).
+- **Límites y contexto asignados**: muestra los marcadores de la sección de inicio/final, la duración estimada y por qué se seleccionó este segmento para el objetivo de aprendizaje.
+- **Seguimiento de progreso**: realiza un seguimiento de su progreso de lectura dentro del rango asignado (puede continuar leyendo más allá de los límites en cualquier momento).
+- **Navegación en cola (`Anterior` / `Siguiente`)**: muévase directamente entre las tareas de lectura en su plan de estudio usando los controles **Anterior** / **Siguiente** (o **Siguiente: \<Tema\>**) sin regresar a la pestaña Planes de estudio.
+- **Notas, extractos y tutor socrático**: captura notas/extractos o abre el panel persistente **Asistente** (cuyas conversaciones se guardan por documento y video) mientras lees.
 
 ### Comprobaciones de comprensión de opción múltiple
 
-Al terminar una lectura, haz clic en **Finalizar lectura → Comprobar comprensión** para abrir una **Comprobación de comprensión (formativa)**:
+Después de terminar una tarea de lectura, haga clic en **Finalizar lectura → Verificar comprensión** para abrir una **Verificación de comprensión (formativa)** de bajo riesgo:
 
-- **Opción múltiple por defecto**: Presenta una pregunta de 4 opciones (`A`–`D`) basada en el pasaje leído (generada por IA si hay proveedor configurado, o mediante respaldo determinista sin conexión y respetuoso con la privacidad).
-- **Enfoques flexibles**: Cambia entre *Explicar con tus propias palabras*, *Aplicar a un nuevo ejemplo*, *Distinguir ideas relacionadas*, *Seguir el argumento*, *Detectar un error común* y *Síntesis basada en la fuente*, o pulsa **Nueva pregunta**.
-- **Respuesta escrita opcional**: Haz clic en **Escribir mi propia respuesta** si prefieres redactar una explicación abierta.
-- **Retroalimentación inmediata y siguiente lectura**: Al comprobar, se resalta la opción correcta, se muestra la explicación y aparece el botón **Siguiente: \<Tema\>** para pasar de inmediato a la siguiente lectura. Las comprobaciones formativas nunca alteran tus calificaciones formales ni los intervalos FSRS.
+- **Opción múltiple de forma predeterminada**: presenta una pregunta de opción múltiple de 4 opciones (`A`–`D`) basada en el pasaje que acaba de leer (generada por IA cuando se configura un proveedor, con un respaldo determinista fuera de línea/seguro para la privacidad).
+- **Ángulos de preguntas flexibles**: cambie entre *Explicar con sus propias palabras*, *Aplicar a un nuevo ejemplo*, *Distinguir ideas relacionadas*, *Rastrear el argumento*, *Detectar un concepto erróneo* y *Síntesis basada en fuentes*, o haga clic en **Nueva pregunta**.
+- **Modo escrito opcional**: haga clic en **Escribir mi propia respuesta** en cualquier momento si prefiere escribir una explicación en formato libre.
+- **Comentarios inmediatos y siguiente tarea**: verificar su respuesta resalta la opción correcta, explica el razonamiento y proporciona un botón **Siguiente: \<Tema\>** para avanzar directamente a la siguiente tarea de lectura. Las comprobaciones formativas nunca modifican las calificaciones de sus exámenes formales ni los intervalos de las tarjetas didácticas de FSRS.
 
-### Remediación dirigida y elegibilidad de evaluación
+### Elegibilidad de evaluación y remediación dirigida
 
-- **Remediación dirigida**: Las lagunas de aprendizaje aparecen automáticamente como elementos de remediación en tu cola, enlazando con los conceptos previos o el pasaje correspondiente.
-- **Elegibilidad de evaluación**: Controla la preparación para evaluaciones formales bajo políticas **Guiada**, **Abierta** o **Exención por examen (Test-Out)**.
+- **Remediación dirigida**: las brechas de aprendizaje no satisfechas aparecen automáticamente como elementos de remediación en su cola de estudio, vinculándose a conceptos de requisitos previos o al pasaje relevante.
+- **Elegibilidad de evaluación**: realice un seguimiento de la preparación para las evaluaciones formales del plan de estudio según las políticas **guiadas**, **abiertas** o **de prueba**.
 
 ---
 
@@ -1055,10 +1137,10 @@ Al terminar una lectura, haz clic en **Finalizar lectura → Comprobar comprensi
 
 El panel de Analytics proporciona información completa:
 
-**Today's Horizon y puente con Planes de estudio:**
-- **Hitos descendentes (Top-Down)**: muestra planes de estudio activos, próximos temas y evaluaciones pendientes con lanzamiento en un clic (**Resume Milestone**).
-- **Descubrimiento orgánico ascendente (Bottom-Up)**: muestra repasos FSRS pendientes y extractos prioritarios con **Launch Queue Session** en un clic.
-- **Inyectar conceptos débiles en la cola**: en cualquier *Knowledge Gap Card*, pulsa **Inject Weak Concepts into Queue** para crear un extracto urgente (`Prioridad 8`) y una tarjeta vinculada al pasaje origen.
+**Puente Horizonte y Planes de Estudio de hoy:**
+- **Hitos de arriba hacia abajo**: muestra planes de estudio activos, próximos temas del plan de estudios y evaluaciones pendientes con un iniciador de **Reanudar hitos** con 1 clic.
+- **Descubrimiento orgánico ascendente**: muestra revisiones pendientes de FSRS y extractos de alta prioridad con un iniciador de **Iniciar sesión de cola** de 1 clic.
+- **Inyectar conceptos débiles en la cola**: en cualquier tarjeta de brecha de conocimiento, haga clic en **Inyectar conceptos débiles en la cola** para generar un extracto de alta urgencia (`Prioridad 8`) y una tarjeta didáctica vinculada del pasaje fuente subyacente.
 
 **Métricas clave:**
 - **Tarjetas vencidas hoy**: número en espera de revisión
@@ -1134,58 +1216,58 @@ Exporte sus datos para su análisis:
 
 ---
 
-## Seguimiento del sueño e información de aprendizaje (Learning Insights)
+## Seguimiento del sueño e información sobre el aprendizaje
 
-Conecte sus patrones de sueño, ritmos circadianos y telemetría fisiológica directamente con su rendimiento de estudio en la pestaña **Learning Insights** (accesible mediante el icono HeartPulse en la barra de herramientas o navegación móvil).
+Conecte su historial de sueño, ritmos circadianos y telemetría fisiológica directamente con su rendimiento de aprendizaje en la pestaña **Learning Insights** (accesible a través del ícono HeartPulse en la barra de herramientas del escritorio o en la navegación móvil).
 
-Inspirado en el clásico SleepChart del Dr. Piotr Woźniak en SuperMemo, Plethora moderniza el seguimiento del sueño vinculando observaciones objetivas con la retención de memoria espaciada (FSRS-7), sesiones de lectura y planes de estudio.
+Inspirándose en el clásico SleepChart del Dr. Piotr Woźniak en SuperMemo, Plethora moderniza el sueño y el seguimiento circadiano al combinar observaciones objetivas del sueño con retención de memoria de repeticiones espaciadas (FSRS-7), sesiones de lectura y dominio del plan de estudio.
 
-### Panel de control y Sleep Chart interactivo
+### Panel de control y gráfico interactivo del sueño
 
-El **Sleep Chart** visualiza su historial de sueño y estudio en una línea de tiempo interactiva multimensual:
+El **Tabla de sueño** visualiza tu historial de sueño y estudio en una línea de tiempo interactiva unificada de varios meses:
 
-- **Anclaje por fecha biológica de despertar**: Los episodios de sueño se anclan a la fecha biológica en que despierta (seguro ante zonas horarias y horario de verano), asignando siestas y descanso nocturno al día cognitivo correcto.
-- **Fases del sueño y siestas**: Muestra fases detalladas (profundo, REM, ligero y despierto), además de siestas diurnas e interrupciones.
-- **Superposición de sesiones de estudio**: Superpone repasos de tarjetas, sesiones de lectura e intentos de exámenes para visualizar con precisión cuándo estudió en relación con su descanso y fase circadiana.
-- **Inspección de fechas y resolución de conflictos**: Haga clic en cualquier día para consultar métricas, desglose de fases, procedencia de fuentes y resolver discrepancias entre dispositivos.
+- **Anclaje biológico de la fecha de vigilia**: los episodios de sueño están anclados a la fecha biológica de vigilia (zona horaria y horario de verano seguro), lo que garantiza que el sueño nocturno y las siestas diurnas se atribuyan al día cognitivo correcto.
+- **Etapas del sueño y siestas**: muestra las etapas del sueño detalladas (profundo, REM, ligero y despierto) junto con las siestas diurnas y las interrupciones del sueño.
+- **Superposiciones de sesiones de estudio**: superpone sesiones de revisión de tarjetas didácticas, sesiones de lectura e intentos de evaluación directamente en la línea de tiempo, mostrando exactamente cuándo estudió en relación con sus bloques de sueño y su fase circadiana.
+- **Inspección de fechas y resolución de conflictos**: haga clic en cualquier día para inspeccionar métricas detalladas, desglose de las etapas del sueño, procedencia de la fuente y cualquier discrepancia entre dispositivos múltiples.
 
 ### Inteligencia circadiana y del sueño
 
-Plethora evalúa la calidad y los horarios de descanso sin necesidad de instrumental clínico:
+Plethora analiza la calidad y el momento del sueño sin necesidad de equipo clínico:
 
-- **Índice de Regularidad del Sueño (SRI)**: Mide la consistencia diaria de sus horarios (calculando la probabilidad de encontrarse en el mismo estado —dormido o despierto— con 24 horas de diferencia). Mayor regularidad se asocia firmemente a un rendimiento cognitivo estable.
-- **Modelo de dos procesos de Borbély**: Simulación exploratoria no clínica que combina la presión homeostática de sueño (Proceso S) y la alerta circadiana (Proceso C) para identificar sus ventanas óptimas de concentración y valles de energía.
-- **Duración y deuda de sueño**: Compara los totales móviles con su línea base personal para vigilar la privación acumulada y la recuperación.
-- **Recuperación fisiológica**: Grafica la variabilidad de la frecuencia cardíaca nocturna (VFC/HRV con desglose de RMSSD y SDNN) y la frecuencia cardíaca en reposo (FCR/RHR).
+- **Índice de regularidad del sueño (SRI)**: Mide la consistencia de tu horario de sueño día a día (calculando la probabilidad de que estés en el mismo estado (dormido o despierto) con 24 horas de diferencia). Una mayor regularidad se correlaciona fuertemente con un rendimiento cognitivo estable.
+- **Modelo de dos procesos de Borbély**: muestra una simulación de estado de alerta exploratoria y no clínica que combina la presión homeostática del sueño (Proceso S) y el estado de alerta circadiano (Proceso C) para resaltar sus ventanas de aprendizaje pico naturales y sus caídas circadianas.
+- **Duración y deuda del sueño**: realiza un seguimiento de los totales de sueño en comparación con su línea de base para monitorear la privación aguda del sueño y la recuperación.
+- **Recuperación fisiológica**: visualiza la variabilidad de la frecuencia cardíaca durante la noche (HRV con seguimiento RMSSD y SDNN separado) y la frecuencia cardíaca en reposo (RHR) para reflejar la recuperación y preparación autónoma.
 
-### Rendimiento de aprendizaje y correlación con la memoria
+### Rendimiento del aprendizaje y correlación de la memoria
 
-En lugar de asumir que correlación implica causalidad, Plethora aplica métodos estadísticos conservadores:
+En lugar de asumir que la correlación es igual a la causalidad, Plethora aplica métodos estadísticos conservadores para evaluar cómo el sueño afecta la retención de la memoria:
 
-- **Residuales de recuerdo FSRS-7**: Para cada repaso, calcula `recuerdo_observado - retención_predicha` cronológicamente antes de registrar la calificación, aislando el impacto fisiológico del sueño de la antigüedad y dificultad intrínseca de la tarjeta.
-- **Latencia de respuesta**: Examina la latencia logarítmica winsorizada para medir la velocidad de recuperación y claridad mental.
-- **Control de factores de confusión**: Controla ritmos circadianos horarios (`sin`/`cos`), dificultad de tarjetas y carga de estudio previa mediante regresión múltiple intraindividual.
-- **Inspector de evidencia**: Haga clic en **Inspeccionar evidencia** en cualquier patrón detectado para revisar tamaños muestrales, intervalos de confianza bootstrap y control de tasa de falso descubrimiento (FDR de Benjamini-Hochberg).
-- **Tarjeta de salud en planes de estudio**: Paneles integrados en el progreso de los planes de estudio reflejan cómo su descanso respalda el dominio de los temas y las calificaciones en exámenes.
+- **Residuos de recuperación de FSRS-7**: para cada revisión de tarjetas didácticas, Plethora calcula `recuperación_observada - capacidad_de_recuperación predicha` cronológicamente antes de la calificación. Esto aísla el efecto fisiológico del sueño de la edad de la tarjeta y de la dificultad inherente.
+- **Latencia de respuesta**: analiza la latencia de registro winsorizada para medir la velocidad de recuperación y el esfuerzo de recuperación en diferentes estados de sueño.
+- **Análisis ajustado por factores de confusión**: controles para los ritmos circadianos de la hora del día (`sin`/`cos`), dificultad de la tarjeta y carga de trabajo del estudio previo de 24 horas mediante regresión múltiple intrapersonal.
+- **Inspector de evidencia**: haga clic en **Inspeccionar evidencia** en cualquier patrón personal para inspeccionar los tamaños de muestra, los intervalos de confianza de arranque de bloques agrupados por días y el control de la tasa de descubrimiento falso (FDR) de Benjamini-Hochberg. Plethora marca explícitamente asociaciones donde los datos son insuficientes en lugar de presentar conclusiones prematuras.
+- **Tarjeta de información sobre la salud del plan de estudio**: aparecen resúmenes de salud integrados en las vistas de Progreso del plan de estudio y Inicio, que muestran cómo la regularidad y duración del sueño se alinean con los hitos del plan de estudios y el desempeño en los exámenes.
 
-### Fuentes de datos y dispositivos portátiles
+### Fuentes de datos y conexiones portátiles
 
-Plethora ofrece opciones integrales, desde registro totalmente manual hasta ecosistemas de dispositivos portátiles:
+Plethora admite una gama completa de opciones de recopilación de datos, desde seguimiento manual sin dispositivos portátiles hasta ecosistemas portátiles de múltiples dispositivos:
 
-- **Sin necesidad de dispositivos (Registro manual)**: Use **Registrar sueño** para introducir horas de acostarse y levantarse, calidad y fases opcionales.
-- **Datos de muestra interactivos**: Explore todas las herramientas con un conjunto de datos sintético temporal cargado en memoria sin modificar sus registros reales.
-- **Importación y exportación de archivos**: Importe historiales de Apple Health (`export.xml`), Plethora Health JSON o CSV. Exporte copias estándar o paquetes cifrados protegidos por contraseña (`.plethora-health.enc` con PBKDF2 y AES-256-GCM).
-- **Puentes móviles nativos**: Conexión con **Apple HealthKit** en iOS y **Android Health Connect** en Android con sincronización en segundo plano.
-- **Proveedores en la nube**: Conectores OAuth 2.0 PKCE para **Oura Ring** (Cloud API v2), **WHOOP** (v2) y **Google Health** (v4, Pixel Watch y Fitbit).
-- **Prioridad de fuentes**: Si varios dispositivos registran el mismo intervalo, el orden de prioridad configurado en Ajustes resuelve automáticamente las redundancias.
+- **Se requiere cero dispositivo portátil (registro manual)**: haga clic en **Registrar sueño** para registrar el sueño manualmente (hora de acostarse, hora de despertarse, clasificación de calidad y etapas opcionales).
+- **Datos de muestra interactivos**: haga clic en **Datos de muestra** para explorar el conjunto completo de funciones utilizando un conjunto de datos sintético temporal cargado en una bóveda en memoria sin modificar sus registros reales.
+- **Importación y exportación de archivos**: importe registros de salud y sueño desde hojas de cálculo Apple Health (`export.xml`), Plethora Health JSON o CSV. Exporte sus datos como JSON/CSV estándar o como un paquete cifrado protegido con frase de contraseña (`.plethora-health.enc` usando PBKDF2 y AES-256-GCM).
+- **Puentes móviles nativos**: en iOS, conecte **Apple HealthKit**; en Android, conecte **Android Health Connect** para una sincronización en segundo plano incremental y automatizada.
+- **Proveedores de dispositivos portátiles en la nube**: conectores directos OAuth 2.0 PKCE para **Oura Ring** (Cloud API v2), **WHOOP** (Developer API v2) y **Google Health** (v4, que cubre Pixel Watch y Fitbit).
+- **Prioridad de fuente**: cuando varios dispositivos registran la misma ventana de suspensión (por ejemplo, Apple Watch y Oura Ring), Plethora deduplica los registros según la prioridad de su proveedor preferido configurada en Configuración.
 
-### Arquitectura de privacidad local
+### Arquitectura de privacidad local primero
 
-Los datos de salud se aíslan localmente de forma estricta:
+Los datos de salud son confidenciales y están sujetos a un estricto aislamiento local:
 
-- **Bóveda de salud dedicada**: Base de datos SQLite separada (`<app_data_dir>/health/health.db`), aislada de la biblioteca principal (`plethora.db`).
-- **Cero fugas hacia la nube o IA**: Los datos de salud jamás se incluyen en copias en la nube, sincronización E2EE, índices semánticos ni prompts de modelos de lenguaje (IA/LLM).
-- **Eliminación segura**: Posibilidad de borrar registros puntuales o vaciar y compactar completamente la bóveda en **Ajustes → Integraciones → Salud y dispositivos portátiles**.
+- **Bóveda de salud dedicada**: almacenada en una base de datos SQLite separada en el dispositivo (`<app_data_dir>/health/health.db`), aislada físicamente de la base de datos de la biblioteca principal (`plethora.db`).
+- **Nube cero y salida de IA**: los registros de salud nunca se incluyen en las copias de seguridad de Plethora Cloud, la sincronización de dispositivos E2EE, la indexación de fragmentos semánticos o los contextos de avisos de AI/LLM.
+- **Eliminación segura de la bóveda**: elimine entradas individuales o realice una limpieza completa de la bóveda con compactación de la base de datos en **Configuración → Integraciones → Salud y dispositivos portátiles**.
 
 ---
 
@@ -1232,31 +1314,13 @@ Los datos de salud se aíslan localmente de forma estricta:
 
 #### Selección de algoritmo
 
-Plethora admite cuatro algoritmos de programación. Elige el que mejor se adapte a tu estilo de aprendizaje:
+Plethora programa revisiones de tarjetas con **FSRS-7**, el algoritmo de repetición espaciada de producción. La configuración de aprendizaje muestra FSRS-7 como el único programador; Los algoritmos heredados (SM-18, SM-20, Plethora Classic) permanecen compilados para investigación y migración, pero están ocultos para el selector.
 
-**FSRS-6 (Recomendado):**
-- Moderno, respaldado por investigaciones
-- Se adapta a la memoria individual
-- Predice tiempos de olvido
-- Mejor retención con menos reseñas
-
-**SM-20:**
-- Algoritmo más avanzado, diseñado a partir del binario de referencia de SM-20 mediante Ghidra
-- Utiliza la fórmula de intervalo V4 (SM-20 propiamente dicha); La programación Classic 19 está disponible a través del scheduler Classic separado
-- El suavizado bayesiano aprende intervalos óptimos a partir de los datos de revisión reales
-- Desarrolla conocimiento a lo largo del tiempo a través de matrices persistentes de intervalo/recuento de 21×21×21
-
-**SM-18:**
-- El planificador más avanzado de la familia, reimplementado a partir de la aplicación original.
-- Utiliza una matriz de búsqueda 3D SInc (aumento de estabilidad) en dificultad, estabilidad y recuperabilidad.
-- Seguimiento explícito de dificultades con actualizaciones del promedio final
-- Modelo de curva de olvido exponencial: `R = 0,9^(t/S)`
-- Manejo sofisticado de fallas con reducción de estabilidad dependiente del lapso
-
-**Plethora Classic (Clásico):**
-- El algoritmo clásico tradicional (documentado públicamente)
-- Más simple, predecible
-- Se requieren más revisiones
+**FSRS-7 (Producción):**
+- Modelo de memoria de doble traza (trazas de estabilidad lentas + rápidas)
+- Programación fraccionada de tiempo transcurrido para revisiones el mismo día
+- Modelo de 34 parámetros con optimización personal opcional
+- Clasificaciones de cuatro botones con intervalos de vista previa
 
 #### Parámetros
 
@@ -1381,7 +1445,7 @@ En **Sincronización de archivos**, elija la agresividad con la que se cargan lo
 
 #### Cifrado de extremo a extremo (opcional)
 
-La sincronización se ejecuta en modo "solo TLS" de forma predeterminada: sus datos viajan cifrados a través de la red y el código de sincronización actúa como un secreto compartido. Si desea una protección más sólida, puede habilitar el **cifrado de extremo a extremo**, que cifra los datos de su dispositivo antes de salir, de modo que el servidor de sincronización solo vea texto cifrado.
+La sincronización se ejecuta en modo "solo TLS" de forma predeterminada: sus datos viajan cifrados a través de la red y el código de sincronización actúa como un secreto compartido. Si desea una protección más sólida, puede habilitar el **cifrado de extremo a extremo**, que cifra sus datos en su dispositivo antes de que salga, de modo que el servidor de sincronización solo vea texto cifrado.
 
 Cuando el cifrado está activado, el código QR incorpora el secreto de tu habitación; compártelo solo con dispositivos en los que confíes.
 
@@ -1458,7 +1522,7 @@ Plethora proporciona un sistema completo de copia de seguridad y restauración p
 
 **Notas importantes:**
 - **Preservación de programación**: todos los datos de programación (estabilidad, dificultad, fechas de vencimiento) para todos los tipos de algoritmos se conservan exactamente
-- **Rutas de archivos**: al importar sin archivos, deberá volver a importar los documentos originales. Plethora los unirá por hash de contenido y restaurará los metadatos.
+- **Rutas de archivos**: al importar sin archivos, deberá volver a importar los documentos originales. Plethora los comparará por hash de contenido y restaurará los metadatos
 - **Compatibilidad de versiones**: las copias de seguridad son compatibles con versiones posteriores, pero es posible que no funcionen con versiones anteriores de la aplicación.
 - **Almacenamiento**: mantenga las copias de seguridad seguras: contienen sus datos personales de aprendizaje
 
@@ -1516,7 +1580,7 @@ Plethora proporciona un sistema completo de copia de seguridad y restauración p
 **Opciones de sincronización:**
 - Sincronización con Anki al crear la tarjeta
 - Intervalos de sincronización de Anki
-- Mapeo de mazo (categoría Plethora → mazo Anki)
+- Mapeo de mazos (categoría Plethora → mazo Anki)
 - Sincronización de etiquetas
 
 #### Integración de obsidiana
@@ -1604,7 +1668,7 @@ Utilice NotebookLM dentro de Plethora para investigar, generar artefactos de est
 
 **Solución de problemas:**
 - Si la vista previa del artefacto indica que los medios no están disponibles, espere a que finalice la generación de NotebookLM y vuelva a abrir el artefacto.
-- Si no se muestra un video, audio, infografía o diapositivas, vuelva a abrir el artefacto: el video/audio y la infografía vuelven a intentarlo a través de una ruta de medios alternativa automáticamente; Las presentaciones de diapositivas ofrecen la opción "Abrir con visor alternativo" cuando no se cargan.
+- Si un video, audio, infografía o diapositivas no se muestran, vuelva a abrir el artefacto: el video/audio y la infografía vuelven a intentarlo a través de una ruta de medios alternativa automáticamente; Las presentaciones de diapositivas ofrecen la opción "Abrir con visor alternativo" cuando no se cargan.
 - Si utiliza el proveedor `cli`, asegúrese de que el sidecar/CLI de NotebookLM esté disponible en su compilación.
 - Si cambió de proveedor o la autenticación expiró, vuelva a conectarse en Integraciones → NotebookLM.
 
@@ -1617,16 +1681,16 @@ Escriba `#` en el Asistente (o en Flashcard Studio) para mencionar parte de un d
 - Si tiene texto **seleccionado** en el documento, su selección aparece como la primera entrada; al elegirla, se adjunta exactamente el texto seleccionado como contexto (truncado al presupuesto de contexto si es necesario, con un aviso).
 - Si el documento no tiene texto extraíble, la ventana emergente lo dice explícitamente en lugar de mostrar una lista vacía.
 
-#### Integración de salud y dispositivos portátiles (Health & Wearables)
+#### Integración de salud y wearables
 
-Gestione conexiones de dispositivos, prioridades de fuentes y almacenamiento local:
+Administre conexiones portátiles, prioridad de fuentes de datos y almacenamiento en bóveda local:
 
-1. Vaya a **Ajustes → Integraciones → Salud y dispositivos portátiles**.
-2. **Bóveda de salud local**: Consulte espacio ocupado, cantidad de registros y última optimización.
-3. **Conectar proveedores**: Enlace plataformas nativas (HealthKit en iOS, Health Connect en Android) o cuentas en la nube (Oura, WHOOP, Google Health).
-4. **Prioridad de fuentes**: Ordene sus fuentes para definir qué dispositivo prevalece ante registros superpuestos.
-5. **Transferencia de datos**: Importe archivos de salud o exporte copias de seguridad cifradas `.plethora-health.enc`.
-6. **Vaciar bóveda**: Elimine permanentemente todos los registros locales de salud y sueño con compactación SQLite automática.
+1. Vaya a **Configuración → Integraciones → Salud y dispositivos portátiles**.
+2. **Bóveda de estado local**: revise el tamaño de almacenamiento de la base de datos, el recuento de registros y la fecha de la última optimización.
+3. **Conectar proveedores**: conecte plataformas nativas compatibles (Apple HealthKit en iOS, Health Connect en Android) o proveedores de nube (Oura, WHOOP, Google Health).
+4. **Prioridad de fuente**: Organice el orden de prioridad de sus fuentes conectadas para controlar qué proveedor tiene prioridad cuando se registran datos de sueño superpuestos.
+5. **Transferencia de datos**: importe archivos de salud locales o exporte copias de seguridad `.plethora-health.enc` cifradas con contraseña.
+6. **Wipe Vault**: borre completamente todos los registros locales de salud y sueño con la compactación automatizada de SQLite.
 
 #### Servidores MCP
 
@@ -1664,117 +1728,117 @@ Configure proveedores de IA para la generación de tarjetas:
 - Fichas máximas
 - Aviso del sistema
 
-#### On-Device Apple Intelligence (Mac & iPhone)
+#### Inteligencia de Apple en el dispositivo (Mac y iPhone)
 
-En dispositivos Apple compatibles, Plethora puede ejecutar muchas funciones de IA con **Apple Foundation Models**: el modelo de lenguaje integrado de Apple que funciona en el dispositivo. Es independiente de los proveedores en la nube (OpenAI, Ollama, etc.) y **no requiere clave API**.
+En dispositivos Apple compatibles, Plethora puede ejecutar muchas funciones de IA utilizando **Apple Foundation Models**, el modelo de lenguaje integrado en el dispositivo de Apple. Esto es independiente de los proveedores de nube (OpenAI, Ollama, etc.) y **no requiere una clave API**.
 
-**Qué es:** generación de texto en el dispositivo para tareas como etiquetado inteligente, resúmenes, creación de tarjetas didácticas y respuestas de Preguntar a la biblioteca.
+**Qué es:** Generación de texto en el dispositivo para tareas como etiquetado inteligente, resúmenes, generación de tarjetas didácticas y respuestas de Ask Library.
 
-**Qué no es:** Apple Foundation Models **no** transcribe vídeos ni audio, **no** lee texto en voz alta (TTS) y **no** analiza fotos. Para esas tareas, use **Configuración → Transcripción de audio** y **Configuración → Texto a voz**.
+**Lo que no es:** Apple Foundation Models **no** transcribe videos o audio, **no** lee texto en voz alta (TTS) y **no** analiza fotografías. Utilice la configuración **Transcripción de audio** y **TTS** de Plethora para esos trabajos.
 
 **Requisitos:**
-- **Mac:** macOS 26 o posterior, Apple Silicon, Apple Intelligence activado en Ajustes del sistema
-- **iPhone / iPad:** iOS 26 o posterior, Apple Intelligence activado, dispositivo compatible
+- **Mac:** macOS 26 o posterior, Apple Silicon, Apple Intelligence activados en Configuración del sistema
+- **iPhone/iPad:** iOS 26 o posterior, dispositivo compatible con Apple Intelligence habilitado
 
-**Cómo activarlo:**
-1. Abra **Configuración → Ajustes de proveedores de IA**
-2. Desplácese hasta **IA en el dispositivo**
-3. Active **Preferir IA en el dispositivo**
-4. Compruebe que **Foundation Models** (o **Apple Intelligence**) muestre **Listo**
+**Cómo encenderlo:**
+1. Abra **Configuración → Configuración del proveedor de IA**
+2. Desplázate hasta **IA en el dispositivo**
+3. Activa **Preferir IA en el dispositivo**
+4. Verifique que **Foundation Models** (o **Apple Intelligence**) muestre **Listo**
 
-Cuando aparece Listo, Plethora usa automáticamente la IA de Apple en el dispositivo para las tareas compatibles. No hace falta añadir Apple a la lista de proveedores en la nube.
+Cuando está listo, Plethora utiliza automáticamente la IA de Apple en el dispositivo para las tareas admitidas. No agrega Apple a la lista de proveedores de la nube.
 
-**Qué puede hacer con la IA de Apple en el dispositivo:**
+**Qué puedes hacer con la IA de Apple en el dispositivo:**
 
-| Función | ¿Funciona en el dispositivo? |
-|---------|------------------------------|
+| Característica | ¿Funciona en el dispositivo? |
+|---------|------------------|
 | Etiquetado inteligente | Sí |
 | Resumir / explicar un pasaje | Sí |
-| Preguntar a la biblioteca (respuestas desde su biblioteca) | Sí |
+| Pregunta a la Biblioteca (respuestas de tu biblioteca) | Sí |
 | Generar tarjetas didácticas a partir de texto | Sí |
-| Extraer puntos clave, preguntas de estudio | Sí |
-| Sugerencias de revisión en Studio | Sí |
-| Transcribir vídeos o audiolibros | No — use **Configuración → Transcripción de audio** |
-| Leer texto en voz alta (TTS) | No — use **Configuración → Texto a voz** |
-| Describir imágenes / OCR | No — use OCR o funciones de visión |
+| Extraiga puntos clave, preguntas de estudio | Sí |
+| Consejos para revisar el estudio | Sí |
+| Transcribir vídeos o audiolibros | No: use **Configuración → Transcripción de audio** |
+| Leer texto en voz alta (TTS) | No: utilice **Configuración → Texto a voz** |
+| Describir imágenes / OCR | No: utilice OCR o funciones de visión |
 
 **Privacidad:**
-- El procesamiento se queda **en su dispositivo** de forma predeterminada
-- **Permitir reserva en la nube** está desactivado por defecto: si la IA en el dispositivo no puede completar una tarea, Plethora **no** envía su contenido en silencio a un proveedor en la nube de pago
-- Puede activar la reserva en la nube si quiere que Plethora reintente con su proveedor en la nube configurado cuando la IA en el dispositivo no esté disponible
+- El procesamiento permanece **en su dispositivo** de forma predeterminada
+- **Permitir respaldo en la nube** está desactivado de forma predeterminada: si la IA en el dispositivo no puede completar una tarea, Plethora **no** enviará silenciosamente su contenido a un proveedor de nube pago.
+- Puede habilitar el respaldo de la nube si desea que Plethora vuelva a intentarlo con su proveedor de nube configurado cuando la IA en el dispositivo no esté disponible
 
 **Si el estado no es Listo:**
 
-| Estado | Qué significa | Qué probar |
-|--------|--------------|------------|
-| Listo | La IA en el dispositivo está disponible | Use las funciones de IA con normalidad |
-| Descargando… | El sistema aún está instalando el modelo | Espere y pulse **Actualizar** en IA en el dispositivo |
-| Desactivado | Apple Intelligence está desactivado | Active Apple Intelligence en Ajustes del sistema |
-| No compatible | El dispositivo o la región no lo admiten | Use un proveedor en la nube o local |
-| SO no compatible | macOS/iOS anterior a la versión 26 | Actualice el sistema o use otro proveedor |
+| Estado | Lo que significa | Qué probar |
+|--------|---------------|-------------|
+| Listo | La IA en el dispositivo está disponible | Comience a utilizar las funciones de IA con normalidad |
+| Descargando… | El modelo del sistema aún se está instalando | Espere y luego toque **Actualizar** en IA en el dispositivo |
+| Discapacitado | La inteligencia de Apple está apagada | Habilite Apple Intelligence en la configuración del sistema |
+| No elegible | El dispositivo o la región no lo admiten | Utilice una nube o un proveedor local en su lugar |
+| SO no compatible | macOS/iOS inferior a la versión 26 | Actualice su sistema o utilice otro proveedor |
 
-**Consejo:** Los documentos largos se gestionan automáticamente: Plethora los divide en fragmentos que caben en la ventana de contexto del dispositivo y combina los resultados. No tiene que configurar nada.
+**Consejo:** Los documentos largos se manejan automáticamente: Plethora los divide en partes que se ajustan a la ventana contextual del dispositivo y luego combina los resultados. No es necesario configurar esto.
 
-#### IA local en Windows (Windows 11)
+#### IA de Windows en el dispositivo (Windows 11)
 
 En el escritorio de Windows, Plethora puede ejecutar tareas de IA **en su PC** sin enviar el contenido de su biblioteca a OpenAI, Anthropic u otras API en la nube que configure por separado. Windows ofrece dos rutas complementarias en el dispositivo:
 
-1. **IA del sistema en el dispositivo** — API de IA integradas de Windows para texto y OCR cuando su PC y versión de Windows las admiten
-2. **Foundry Local** — servidor local opcional compatible con OpenAI que usted instala (funciona en muchas GPU, incluso sin NPU Copilot+)
+1. **IA del sistema en el dispositivo**: API de IA de Windows integradas para tareas de texto y OCR cuando su PC y la versión de Windows las admiten.
+2. **Foundry Local**: un servidor local opcional compatible con OpenAI que usted mismo instala (funciona en muchas GPU, incluido el hardware sin una NPU Copilot+)
 
-Estas rutas son independientes de los proveedores en la nube y **no usan su clave API de OpenAI** a menos que active la reserva en la nube.
+Estas rutas son independientes de los proveedores de la nube y **no utilice su clave API de OpenAI** a menos que habilite el respaldo de la nube.
 
-**Qué es:** Generación de texto en el dispositivo para etiquetado inteligente, resumir pasajes, ideas de tarjetas, respuestas de Preguntar a la biblioteca y atajos de flujo de trabajo — más **OCR del sistema Windows** para PDF e imágenes escaneadas cuando está activado en **Configuración → Documentos → OCR**.
+**Qué es:** Generación de texto en el dispositivo para etiquetado inteligente, resumen de pasajes, ideas para tarjetas didácticas, respuestas de Ask Library y accesos directos al flujo de trabajo, además de **OCR del sistema de Windows** para archivos PDF e imágenes escaneados cuando está habilitado en **Configuración → Documentos → OCR**.
 
-**Qué no es:** La IA del sistema en el dispositivo **no transcribe** audio ni vídeo (use **Configuración → Transcripción de audio**), **no lee** texto en voz alta (use **Configuración → Texto a voz**) y **no funciona en todos los PC con Windows**. Las funciones NPU Copilot+ (IA de texto Phi Silica y OCR del sistema Windows) requieren hardware y versiones de Windows que muchos PC de juegos no cumplen — **Foundry Local**, **Tesseract** o un proveedor en la nube siguen siendo las opciones prácticas.
+**Lo que no es:** La IA del sistema en el dispositivo **no** transcribe audio o video (use **Configuración → Transcripción de audio**), **no** lee texto en voz alta (use **Configuración → Texto a voz**) y **no** se ejecuta en todas las PC con Windows. Las funciones de Copilot+ NPU (Phi Silica text AI y Windows System OCR) requieren hardware y las versiones de Windows que muchas PC para juegos no cumplen: **Foundry Local**, **Tesseract** o un proveedor de nube siguen siendo las opciones prácticas allí.
 
 **Requisitos:**
-- **Windows 11 versión 24H2 o posterior** (compilación 26100+) para las comprobaciones de estado de la IA del sistema
-- **Identidad de paquete** registrada en la instalación (el instalador de Windows de Plethora registra automáticamente una identidad MSIX sparse; si falla, la IA del sistema permanece inactiva)
-- **Hardware Copilot+ / NPU** para el modelo de idioma Phi Silica de Microsoft — muchas GPU discretas (por ejemplo GeForce antiguas) no pueden usar la IA de texto de nivel 1 aunque Foundry Local funcione bien
-- **Foundry Local:** cualquier PC con Windows donde instale y active la runtime de Foundry Local
+- **Windows 11 versión 24H2 o posterior** (compilación 26100+) para verificaciones de estado de IA en el dispositivo del sistema
+- **Identidad del paquete** registrada durante la instalación (el instalador de Windows de Plethora registra automáticamente una identidad MSIX escasa; si el registro falla, la IA del sistema en el dispositivo permanece inactiva)
+- **Hardware de clase Copilot+/NPU** para el modelo de lenguaje Phi Silica de Microsoft: muchas GPU discretas (por ejemplo, tarjetas GeForce más antiguas) no pueden usar IA de texto de nivel 1 incluso cuando Foundry Local funciona bien
+- **Foundry Local:** cualquier PC con Windows donde instale y habilite el tiempo de ejecución de Foundry Local
 
-**Cómo activarlo:**
-1. Abra **Configuración → Proveedores de IA**
-2. Desplácese a **IA en el dispositivo**
-3. Active **Preferir IA en el dispositivo**
-4. Revise las filas de estado de **IA del sistema en el dispositivo** y **Foundry Local**
+**Cómo encenderlo:**
+1. Abra **Configuración → Configuración del proveedor de IA**
+2. Desplázate hasta **IA en el dispositivo**
+3. Activa **Preferir IA en el dispositivo**
+4. Revise las filas de estado de **AI en el dispositivo del sistema** y **Foundry Local**
 
-Con **Preferir IA en el dispositivo** activado, Plethora intenta primero la IA del sistema en Windows, luego Foundry Local si está habilitado, antes de su proveedor en la nube — salvo que **Permitir reserva en la nube** esté desactivado (entonces los fallos permanecen en el dispositivo).
+Cuando **Preferir IA en el dispositivo** está activado, Plethora prueba la IA del sistema en el dispositivo primero en Windows, luego Foundry Local si está habilitado, antes que su proveedor de nube configurado, a menos que **Permitir respaldo en la nube** esté desactivado, en cuyo caso las fallas permanecen en el dispositivo.
 
-**Qué puede hacer:**
+**Qué puedes hacer:**
 
-| Función | IA del sistema en el dispositivo | Foundry Local |
-|---------|----------------------------------|---------------|
-| Etiquetado inteligente | Cuando está listo | Cuando runtime + modelo listos |
-| Resumir / explicar un pasaje | Cuando está listo | Cuando está listo |
-| Preguntar a la biblioteca | Cuando está listo | Cuando está listo |
-| Generar tarjetas desde texto | Cuando está listo | Cuando está listo |
-| OCR en importación / PDF (OCR del sistema Windows) | Cuando OCR listo | No — use Tesseract u OCR en la nube |
+| Característica | Sistema de IA en el dispositivo | Local de Fundición |
+|---------|---------------------|--------------|
+| Etiquetado inteligente | Cuando esté listo | Cuando el tiempo de ejecución + modelo está listo |
+| Resumir / explicar un pasaje | Cuando esté listo | Cuando esté listo |
+| Pregunte a la Biblioteca | Cuando esté listo | Cuando esté listo |
+| Generar tarjetas didácticas a partir de texto | Cuando esté listo | Cuando esté listo |
+| OCR al importar / PDF (OCR del sistema Windows) | Cuando esté listo el OCR | No: utilice Tesseract o OCR en la nube |
 | Transcribir audio o vídeo | No | No |
 | Leer texto en voz alta (TTS) | No | No |
 
-**Documentos → OCR:** Si aparece **OCR del sistema Windows** en **Configuración → Documentos → OCR**, selecciónelo directamente o active **Preferir OCR del sistema Windows** para usarlo automáticamente en importación y OCR de PDF cuando esté disponible. Usa la misma base de IA de Windows y recurre a Tesseract o su proveedor OCR elegido si no está disponible.
+**Documentos → OCR:** Cuando aparezca **OCR del sistema Windows** en **Configuración → Documentos → OCR**, selecciónelo directamente o habilite **Preferir OCR del sistema Windows** para usarlo automáticamente para importar y OCR de PDF cuando esté disponible. Utiliza la misma pila de IA de Windows que la anterior y recurre a Tesseract o al proveedor de OCR elegido cuando no está disponible.
 
 **Privacidad:**
-- **Preferir IA en el dispositivo** dirige primero las tareas admitidas a backends en el dispositivo
-- **Permitir reserva en la nube** está desactivado por defecto — Plethora **no** envía en silencio su biblioteca a API en la nube de pago si falla la IA en el dispositivo
-- Foundry Local mantiene la inferencia en su máquina; solo se contacta su endpoint local configurado
+- **Prefiere la IA en el dispositivo** enruta primero las tareas admitidas a los backends en el dispositivo
+- **Permitir respaldo en la nube** está desactivado de forma predeterminada: Plethora **no** enviará silenciosamente el contenido de su biblioteca a las API pagas en la nube cuando falle la IA en el dispositivo.
+- Foundry Local mantiene la inferencia en su máquina; sólo se contacta con su punto final local configurado
 
 **Si el estado no es Listo:**
 
-| Estado | Qué significa | Qué probar |
-|--------|---------------|------------|
-| Disponible / Listo | La función está preparada | Use la IA con normalidad; abra **Diagnóstico** si algo falla |
-| Descargable / Descargando… | El modelo de IA de Windows aún no está instalado | Espere la actualización o instalación del modelo, luego **Actualizar** |
-| Identidad de paquete faltante | MSIX sparse no registrado | Reinstale o repare Plethora; revise rutas MSIX en **Diagnóstico** |
-| Acceso limitado denegado | Phi Silica necesita desbloqueo LAF de Microsoft | Solo configuración avanzada; no necesario para Foundry Local |
-| Hardware no compatible | El PC no tiene la NPU requerida para esta función | Active **Foundry Local**, use proveedor en la nube o Tesseract para OCR |
-| SO no compatible | Compilación de Windows inferior a 24H2 | Actualice Windows o use Foundry Local / nube |
+| Estado | Lo que significa | Qué probar |
+|--------|---------------|-------------|
+| Disponible / Listo | La función está lista | Utilice las funciones de IA con normalidad; abra **Diagnóstico** si algo aún falla |
+| Descargable / Descargando | El modelo Windows AI aún no está instalado | Espere a que se instale Windows Update o el modelo, luego toque **Actualizar** |
+| Falta la identidad del paquete | MSIX disperso no registrado | Reinstale o repare Plethora; verifique las rutas MSIX dispersas en **Diagnóstico** |
+| Acceso limitado denegado | Phi Silica necesita un desbloqueo de Microsoft LAF | Sólo configuración avanzada; no requerido para Foundry Local |
+| Hardware no compatible | La PC carece de la NPU requerida para esta función de IA de Windows | Habilite **Foundry Local**, use un proveedor de nube o use Tesseract para OCR |
+| SO no compatible | Compilación de Windows por debajo de 24H2 | Actualice Windows o use Foundry Local/nube |
 
-Abra **Configuración → IA en el dispositivo → Diagnóstico** en Windows para identidad de paquete, disponibilidad del bridge, estado OCR y salud del endpoint Foundry Local.
+Abra **Configuración → IA en el dispositivo → Diagnóstico** en Windows para conocer la identidad del paquete, la disponibilidad del puente, el estado de preparación para OCR y el estado del endpoint local de Foundry.
 
-**Consejo:** En un PC de juegos con GPU potente pero sin NPU Copilot+, **Foundry Local** suele ser la ruta realista de IA en el dispositivo. El estado de la IA del sistema sigue siendo útil para ver por qué Phi Silica u OCR del sistema Windows no están disponibles en su hardware.
+**Consejo:** En una PC para juegos con una GPU potente pero sin NPU Copilot+, **Foundry Local** suele ser la ruta realista de IA en el dispositivo. El estado de la IA del sistema en el dispositivo sigue siendo útil para ver por qué Phi Silica o el OCR del sistema de Windows no están disponibles en su hardware.
 
 #### Generación automática
 
@@ -1792,9 +1856,15 @@ Abra **Configuración → IA en el dispositivo → Diagnóstico** en Windows par
 #### Ventana de contexto
 
 **Límites de tokens:**
-- Máximo de tokens por solicitud
+- Máximo de tokens por solicitud (longitud de la respuesta)
 - Contexto de tarjetas relacionadas.
 - Longitud del fragmento del documento
+
+**Modelos locales (Ollama):**
+- **Ventana de contexto** es el tamaño de caché KV en tiempo de ejecución enviado como `num_ctx` (cuánto mensaje + respuesta puede caber). Comience entre 8K y 16K; los valores más altos utilizan más GPU/RAM.
+- **Tokens de respuesta máxima** es un límite separado en la longitud generada (`num_predict`). No es la ventana de contexto.
+- La resolución automática alcanza un valor práctico entre 4K y 16K, nunca el máximo teórico del modelo.
+- Los proveedores de la nube todavía usan solo la configuración de respuesta máxima para la longitud de salida.
 
 ---
 
@@ -1821,8 +1891,8 @@ Visualice las conexiones entre sus conocimientos:
 - Resaltar elementos relacionados
 - Exportar como imagen
 - Identificar lagunas de conocimiento
-- **Modos de mapa de calor**: alterna entre **Default**, **Retrievability / Leech** (carmesí para `4+` fallos, ámbar para baja recuperabilidad, esmeralda para recuerdo sano) y **Extract Density** (extractos sin procesar).
-- **Lazo `Mayús+Arrastrar` a la cola**: mantén `Mayús` y arrastra un recuadro sobre nodos en el lienzo 2D para seleccionar los nodos encerrados y pulsar **Launch Cram** o **Create Focused Assessment**.
+- **Modos de mapa de calor**: cambie entre **Predeterminado**, **Recuperabilidad/sanguijuela** (carmesí para sanguijuelas con lapsos de `4+`, ámbar para baja recuperabilidad, esmeralda para una recuperación saludable) y **Densidad de extracto** (coloreado según el recuento de extractos sin procesar).
+- **`Shift+Arrastrar` Lazo a cola**: Mantenga presionado `Shift` y arrastre un cuadro de marquesina sobre los nodos en el lienzo 2D para seleccionarlos y **Iniciar Cram** o **Crear evaluación enfocada** desde la barra de acción flotante.
 
 ### Lector RSS
 
@@ -1878,7 +1948,7 @@ Plethora puede descubrir automáticamente canales RSS de plataformas de boletine
 La mayoría de las plataformas de boletines publican canales RSS:
 
 | Plataforma | Patrón de alimentación RSS | Ejemplo |
-|----------|------------------|---------|
+|----------|------------------|-----------------|
 | Subpila | `https://[autor].substack.com/feed` | `https://stratechery.substack.com/feed` |
 | Abeja | `https://[boletín].beehiiv.com/feed` | `https://banklesshq.beehiiv.com/feed` |
 | Fantasma | `https://[blog].ghost.io/rss/` | `https://blog.ghost.io/rss/` |
@@ -1924,7 +1994,7 @@ La mayoría de las plataformas de boletines publican canales RSS:
 **Importación de vídeo:**
 1. Copie la URL de YouTube
 2. Importar como documento
-3. El incremento recupera:
+3. Plétora recupera:
    - Metadatos de vídeo
    - Transcripción (si está disponible)
    - Información del capítulo
@@ -1945,28 +2015,38 @@ La mayoría de las plataformas de boletines publican canales RSS:
 **Extractos de vídeo:**
 1. Abra **Paneles** → **Extractos de vídeo**
 2. Haga clic en **Nuevo**
-3. Establecer inicio/fin y texto de transcripción opcional
-4. Guarde para crear un clip reutilizable.
+3. Establezca el inicio/fin, un título y un texto de transcripción opcional
+4. Elija **Agregar a la cola de revisión** para que el clip sea elegible de inmediato, o elija
+   **Comience a revisar** una fecha futura para mantenerlo fuera de la cola hasta entonces
+5. Guárdelo para crear un clip reutilizable
+
+Un extracto guardado aparece inmediatamente en el panel Extractos del vídeo fuente y en
+pestaña **Extractos** de la barra de herramientas. Su estado muestra **Nuevo**, **Visto · No revisado**,
+o **Revisado**, además de si está en la cola. Abrir un elemento de la cola busca
+el segmento y lo marca como Visto sólo después de confirmar la reproducción; calificando el
+el extracto cambia solo el cronograma de ese extracto. **Eliminar de la cola** mantiene el
+clip guardado y su historial de revisión, y **Revisar ahora** realiza una revisión programada para el futuro.
+clip elegible inmediatamente.
 
 **Integración de SponsorBlock:**
-- Omite segmentos patrocinados en vídeos de YouTube, vídeos locales y
-  audiolibros, con datos aportados por la comunidad desde sponsor.ajay.app
-- Activa por defecto; un segmento omitido muestra un aviso con su categoría y
-  un **Deshacer** que vuelve al inicio del segmento
+- Salta automáticamente segmentos patrocinados en videos de YouTube, videos locales y audiolibros.
+  utilizando datos enviados por la comunidad desde patrocinador.ajay.app
+- Activado de forma predeterminada; un segmento omitido muestra una notificación que nombra su categoría,
+  con un **Deshacer** que regresa al inicio del segmento
 
-**Configurar SponsorBlock:** [Ajustes] → [Integraciones] → **SponsorBlock**
-- **Activar SponsorBlock** — si está desactivado no se solicitan datos de
-  segmentos y la reproducción nunca avanza por sí sola
-- **Omitir automáticamente** — si está desactivado los segmentos se cargan y se
-  muestran, pero la reproducción no avanza
-- **Mostrar avisos de omisión**
-- **Modo privado** — no enviar datos de visualización al servicio
-- **Categorías que se omitirán** — solo las marcadas provocan una omisión
-- **Reutilizar datos de segmentos durante (horas)** — cuánto se reutiliza una
-  lista de segmentos para el mismo vídeo; usa 0 para descargarla cada vez
+**Configurando SponsorBlock:** [Configuración] → [Integraciones] → **SponsorBlock**
+- **Habilitar SponsorBlock**: cuando está desactivado, no se solicita ningún dato del segmento y
+  la reproducción nunca se mueve por sí sola
+- **Omitir automáticamente**: cuando está desactivado, los segmentos aún se cargan y se muestran, pero
+  la reproducción no se mueve
+- **Mostrar notificaciones de omisión**
+- **Modo de privacidad**: no envía datos de visualización al servicio
+- **Categorías a omitir**: solo las categorías marcadas causan omisión
+- **Reutilizar datos de segmentos durante (horas)**: durante cuánto tiempo se reutiliza una lista de segmentos recuperada
+  para el mismo vídeo; configúrelo en 0 para volver a buscar en cada jugada
 
-Estos ajustes se aplican a la reproducción. Los recortes predescargados usan
-siempre el conjunto completo de categorías por defecto de SponsorBlock.
+Estas configuraciones se aplican a la reproducción. Los precortes descargados siempre utilizan SponsorBlock
+conjunto de categorías predeterminado completo.
 
 **Seguimiento del progreso:**
 - Reanudar desde la última posición
@@ -1982,18 +2062,18 @@ Genere transcripciones para archivos de video locales en la aplicación de escri
 3. Elige modelo e idioma
 4. Haga clic en **Generar transcripción**
 
-**Extracción de fragmentos de vídeo desde la transcripción:**
-- Selecciona texto a lo largo de uno o varios segmentos de transcripción (YouTube o vídeo local) para mostrar **Capture Video Slice `[mm:ss - mm:ss]`** y crear un extracto de vídeo con marcas de tiempo en tu cola.
+**Extracción de transcripción del primer fragmento de vídeo:**
+- Resalte cualquier intervalo en uno o más segmentos de transcripción en YouTube o transcripciones de video locales para revelar **Capturar segmento de video `[mm:ss - mm:ss]`**, creando un extracto de video con marca de tiempo directamente en su cola.
 
-**Reproducción multimedia local instantánea y streaming HLS:**
-- Los archivos locales de audio/vídeo y las transmisiones HLS comienzan a reproducirse al instante mediante solicitudes de rango sin esperar a cargar el archivo completo.
+**Reproducción instantánea de medios locales y transmisión HLS:**
+- Los archivos de audio/video locales y las transmisiones HLS comienzan a reproducirse inmediatamente a través de solicitudes de rango de transmisión sin esperar a que se almacene el archivo completo en el búfer.
 
-### Reproductor TTS PiP persistente y voces por rol (`MiniAudioPlayer`)
+### TTS PiP persistente y voces de rol (`MiniAudioPlayer`)
 
-- **PiP plegable abajo a la derecha**: contrae la barra de audio a una píldora flotante compacta mientras lees o repasas.
-- **Barra de onda y velocidad (`1.0x–2.5x`)**: haz clic en la onda para buscar y alterna entre `1.0x`, `1.25x`, `1.5x`, `2.0x` y `2.5x`.
-- **Voces por rol y campanilla de transición**: distingue la narración de **Extracto** de las indicaciones de **P&R / Resumen** con una campanilla sutil y voces separadas.
-- **`[B]` Marcar los últimos 30 s**: pulsa `B` (fuera de campos de texto) o haz clic en **[B] 30s** para guardar los últimos 30 segundos como marcador de audio.
+- **PiP plegable en la parte inferior derecha**: colapsa la barra de audio en una pastilla flotante compacta mientras lees o revisas.
+- **Frog y velocidad de forma de onda (`1.0x–2.5x`)**: haga clic en cualquier lugar de la barra de forma de onda para buscar y alternar la velocidad de reproducción entre `1.0x`, `1.25x`, `1.5x`, `2.0x` y `2.5x`.
+- **Voces de rol y timbre de transición**: distingue la narración **Extraer** de las indicaciones de **Preguntas y respuestas/Resumen** con un timbre de transición sutil e identificaciones de voz separadas.
+- **`[B]` Marcar los últimos 30 segundos**: presione `B` (fuera de las entradas de texto) o haga clic en **[B] 30 segundos** para capturar los últimos 30 segundos de la transcripción hablada como un fragmento de marcador de audio.
 
 Notas:
 - La transcripción se ejecuta localmente en su máquina
@@ -2017,7 +2097,7 @@ Notas:
 Extraer texto de imágenes:
 
 **Proveedores admitidos:**
-- Motor de visión Mirage (Local) — análisis visual en ingesta de documentos, oclusión de imágenes, búsqueda FTS5 y recortes web
+- Mirage Vision Engine (Local): indexación visual a través de la ingesta de documentos, oclusión de imágenes, búsqueda FTS5 y clips del navegador.
 - GLM-OCR (Local) — OCR multimodal a través de llama.cpp o vLLM
 - Teseracto (Local)
 - Visión de la nube de Google
@@ -2065,7 +2145,7 @@ llama.cpp proporciona un servidor LLM local liviano para GLM-OCR sin requerir un
      --puerto 8080 --host 0.0.0.0 -c 16384 -t $(nproc)
    ```
 
-4. **Configurar en incremento**:
+4. **Configurar en Plethora**:
    - Configuración → OCR → Proveedor: **GLM-OCR (Local)**
    - Backend: **vLLM (GPU)** (este es el modo llama.cpp/vLLM; funciona para ambos)
    - Punto final: `http://localhost:8080/v1`
@@ -2126,11 +2206,11 @@ Acceso rápido a todos los comandos:
 - "Crear tarjeta"
 - "Abrir configuración"
 - "Exportar datos"
-- "Toggle Zen / Architect Density Mode" (`Ctrl/Cmd + \`)
-- "Queue Ordering: Adaptive / Strict Manual"
-- "Open Docked Q&A Creator" (`Ctrl/Cmd + Shift + Q`)
-- "Chained Cloze from Selection"
-- "Cycle Theme"
+- "Alternar modo de densidad Zen/Arquitecto" (`Ctrl/Cmd + \`)
+- "Ordenación de colas: Manual adaptativo / estricto"
+- "Abrir creador de preguntas y respuestas acoplado" (`Ctrl/Cmd + Shift + Q`)
+- "Cloze encadenado de la selección"
+- "Tema del ciclo"
 
 ### Modo Vimium
 
@@ -2175,13 +2255,13 @@ Búsqueda avanzada en todo el contenido:
 
 **Búsquedas guardadas:**
 1. Realizar búsqueda
-2. Haga clic en "Guardar búsqueda".
+2. Haga clic en "Guardar búsqueda"
 3. Nombra y guarda
 4. Accede desde el menú desplegable de búsqueda
 
 ### Extensión del navegador
 
-Conecta Plethora con la navegación web:
+Conecte Plethora con la navegación web:
 
 **Características:**
 - Resaltar páginas web
@@ -2453,38 +2533,38 @@ La función **Intervalo de vista previa** le muestra exactamente cuándo aparece
 2. **Verifique la ruta binaria**: configure la ruta binaria de Ollama si no está en la ubicación predeterminada
 3. **Permisos de Linux**: Es posible que necesite `sudo` para instalar o ejecutar el servicio Ollama
 
-#### Windows: «La aplicación no se pudo iniciar porque su configuración en paralelo no es correcta»
+#### Windows: "La aplicación no pudo iniciarse porque su configuración en paralelo es incorrecta"
 
-**Síntomas:** En Windows, `plethora-tauri.exe` (o `pdf-reflow-diag.exe`) no abre ninguna ventana. En su lugar aparece un cuadro de diálogo que indica que la configuración en paralelo («side-by-side configuration») de la aplicación no es correcta y sugiere `sxstrace.exe`. No se escribe nada en los registros de Plethora, porque el proceso se detiene **antes de que se ejecute cualquier código de la aplicación**.
+**Síntomas:** En Windows, `plethora-tauri.exe` (o `pdf-reflow-diag.exe`) nunca abre una ventana. En su lugar, aparece un cuadro de diálogo que dice que la configuración en paralelo de la aplicación es incorrecta y sugiere "sxstrace.exe". No se escribe nada en los propios registros de Plethora, porque el proceso se detiene **antes de que se ejecute cualquier código de aplicación**.
 
-**Confirmación:** Abre el Visor de eventos → Registros de Windows → Aplicación y busca `SideBySide`, identificador de evento 62, con un mensaje como:
+**Confirmación:** Abra Visor de eventos → Registros de Windows → Aplicación y busque `SideBySide`, ID de evento 62, con un mensaje como:
 
 ```
-Activation context generation failed for "...\plethora-tauri.exe".
-Error in manifest or policy file "...\plethora-tauri.exe" on line 1.
-The required attribute "packageName" is missing from element "msix".
+Error al generar el contexto de activación para "...\plethora-tauri.exe".
+Error en el archivo de manifiesto o política "...\plethora-tauri.exe" en la línea 1.
+Falta el atributo requerido "nombredelpaquete" en el elemento "msix".
 ```
 
 ```powershell
-Get-WinEvent -LogName Application -MaxEvents 300 |
-  Where-Object { $_.ProviderName -eq 'SideBySide' } |
-  Select-Object -First 3 TimeCreated, Id, Message | Format-List
+Get-WinEvent -LogName Aplicación -MaxEvents 300 |
+  Donde-Objeto { $_.ProviderName -eq 'SideBySide' } |
+  Seleccionar objeto: primeras 3 veces creadas, ID, mensaje | Lista de formatos
 ```
 
-**Causa:** El **manifiesto de aplicación incrustado** del ejecutable no cumple el esquema del manifiesto. Por eso el generador de contextos de activación en paralelo de Windows rechaza todo el manifiesto en la línea 1 y cancela la creación del proceso. Es un defecto de empaquetado del build que instalaste, no un problema de tu equipo. Está corregido a partir de Plethora 3.3.1 para el instalador de Windows.
+**Causa:** El **manifiesto de aplicación integrado** del ejecutable no se ajusta al esquema del manifiesto, por lo que el generador de contexto de activación en paralelo de Windows rechaza todo el manifiesto en la línea 1 y aborta la creación del proceso. Este es un defecto de embalaje en la versión que instaló, no un problema con su PC. Se solucionó desde Plethora 3.3.1 en adelante para el instalador de Windows.
 
 **Soluciones:**
-1. **Instala el Plethora actual para Windows**: descarga el instalador más reciente e instálalo sobre la copia existente. Una instalación 3.3.0 defectuosa no puede actualizarse sola, porque la aplicación no arranca: hay que descargar y reinstalar; tu biblioteca y tus ajustes se conservan.
-2. **Comprueba qué instalaste** (opcional, requiere las herramientas de línea de comandos del Windows SDK): extrae el manifiesto y mira el elemento `<msix>`:
+1. **Instale el Plethora actual para Windows**: descargue el instalador más reciente e instálelo sobre la copia existente. En una instalación defectuosa de 3.3.0, la aplicación no puede iniciarse en absoluto, por lo que no puede actualizarse sola; se requiere el paso de descarga y reinstalación, y su biblioteca y configuración se conservan.
+2. **Confirme lo que instaló** (opcional, necesita las herramientas de línea de comandos del SDK de Windows): extraiga el manifiesto y observe el elemento `<msix>`:
    ```
    mt.exe -inputresource:"C:\Ruta\A\plethora-tauri.exe";#1 -out:%TEMP%\plethora.manifest
    ```
-   Un manifiesto correcto contiene un único elemento `<msix ... />` vacío con los atributos `packageName`, `publisher` y `applicationId`.
-3. **No** reinstales Microsoft Visual C++ Redistributable, ni ejecutes `sfc /scannow`, ni vuelvas a registrar DLL. El fallo ocurre antes de que se cargue ninguna DLL, y el manifiesto solo depende del ensamblado Microsoft Common Controls, que forma parte de Windows. Esos pasos no pueden cambiar el resultado, y el texto del error no apunta a ellos.
+   Un manifiesto saludable contiene un único elemento `<msix... />` vacío con los atributos `packageName`, `publisher` y `applicationId`.
+3. **No** reinstale Microsoft Visual C++ Redistributable, ejecute `sfc /scannow` ni vuelva a registrar las DLL. El error ocurre antes de que se cargue cualquier DLL y la única dependencia del manifiesto es el ensamblado de controles comunes de Microsoft que forma parte de Windows. Estos pasos no pueden cambiar el resultado y el texto de error no los señala.
 
 **Notas:**
-- La identidad de paquete (funciones de IA de Windows) solo está disponible si se puede registrar el paquete de identidad que se distribuye con el instalador, lo que requiere que esté firmado por un certificado en el que tu equipo ya confíe. Si no se puede registrar, Plethora funciona con normalidad y solo quedan inactivas las funciones de IA de Windows que dependen de la identidad — Ajustes → IA en el dispositivo indica el motivo.
-- A partir de Windows 10 2004, ese mismo elemento del manifiesto es el que concede esa identidad; en sistemas anteriores la aplicación se ejecuta sin ella.
+- La identidad del paquete (funciones AI de Windows) solo está disponible cuando se puede registrar el paquete de identidad enviado con el instalador, lo que requiere que esté firmado con un certificado en el que su máquina ya confíe. Si no se puede registrar, Plethora se ejecuta normalmente y solo las funciones de IA de Windows que dependen de las identidades permanecen desactivadas: Configuración → IA en el dispositivo muestra por qué.
+- En Windows 10 2004 y posteriores, el mismo elemento manifiesto es lo que otorga esa identidad; en sistemas más antiguos, la aplicación se ejecuta sin él.
 
 ### Obteniendo ayuda
 
@@ -2530,7 +2610,9 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 
 **Sesión de revisión**: un período de recuperación activa y calificación de tarjetas
 
-**FSRS**: Programador de repetición espaciada libre, algoritmo moderno que optimiza el tiempo de revisión (FSRS-6 es la versión actual)
+**FSRS**: Programador de repetición espaciada libre; FSRS-7 es la versión de producción actual con un modelo de memoria de doble traza (trazas de estabilidad lentas y rápidas)
+
+**Estabilidad (rápida)**: El rastreo rápido en el modelo de rastreo dual de FSRS-7; combinado con estabilidad para la recuperabilidad
 
 **Intervalo**: tiempo entre revisiones (p. ej., 7 días)
 
@@ -2570,10 +2652,10 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 | `Ctrl/Cmd + R` | Iniciar revisión |
 | `Ctrl/Cmd + O` | Abrir documento |
 | `Ctrl/Cmd + N` | Documento de importación (alternativo) |
-| `Ctrl/Cmd + +` | Ampliar el zoom de la interfaz (escritorio, 70–150 %) |
-| `Ctrl/Cmd + -` | Reducir el zoom de la interfaz (escritorio, 70–150 %) |
-| `Ctrl/Cmd + 0` | Restablecer el zoom de la interfaz al 100 % (escritorio) |
-| `Ctrl/Cmd + \` | Alternar modo de densidad Zen / Architect |
+| `Ctrl/Cmd + +` | Aumentar el zoom de la interfaz (escritorio, 70–150%) |
+| `Ctrl/Cmd + -` | Disminuir el zoom de la interfaz (escritorio, 70–150%) |
+| `Ctrl/Cmd + 0` | Restablecer el zoom de la interfaz al 100% (escritorio) |
+| `Ctrl/Cmd + \` | Alternar modo de densidad de interfaz de usuario Zen / Architect |
 | `Ctrl/Cmd + /` | Mostrar atajos de teclado |
 | `?` | Mostrar atajos de teclado (sin modificador) |
 
@@ -2612,14 +2694,14 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 | `Ctrl/Cmd + C` | Copiar texto seleccionado |
 | `Ctrl/Cmd + E` | Crear extracto de la selección |
 | `Ctrl/Cmd + H` | Selección destacada |
-| `Ctrl/Cmd + Mayús + Q` | Abrir/cerrar creador acoplado de P&R |
-| `Ctrl/Cmd + J` | Abrir/cerrar hilo socrático anclado a la selección |
-| `C` | Crear Cloze encadenado en 1 tecla desde la selección |
-| `B` | Guardar marcador de los últimos 30 s de TTS/audio (fuera de campos) |
-| `Alt` (mantener) | Vista previa fantasma de contexto en revisión de extractos |
-| `Mayús + Rueda` | Ajustar prioridad ±5 % en el chip de prioridad |
-| `Mayús + Arrastrar` | Seleccionar con lazo nodos en el Grafo 2D |
-| `Ctrl/Cmd + Scroll` | Ampliar el documento (también hay controles en la barra de herramientas) |
+| `Ctrl/Cmd + Mayús + Q` | Alternar creador de preguntas y respuestas divididas acoplado |
+| `Ctrl/Cmd + J` | Alternar hilo de margen socrático anclado a selección |
+| `C` | Crear Cloze encadenado con 1 tecla a partir de la selección |
+| `B` | Marcar y extraer los últimos 30 de TTS/audio activo (entradas externas) |
+| `Alt` (mantener) | Vistazo al contexto fantasma en el interior Extracto de revisión |
+| `Mayús + Rueda` | Prioridad de empuje ±5% en el chip de prioridad SelectionActionBar |
+| `Mayús + Arrastrar` | Seleccione nodos con lazo en Knowledge Graph 2D |
+| `Ctrl/Cmd + Desplazamiento` | Ampliar el documento (los controles de la barra de herramientas también están disponibles) |
 | `F11` | Pantalla completa |
 
 ---
@@ -2628,7 +2710,7 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 
 **P: ¿Cómo agrego boletines a Plethora?**
 R: Puedes agregar boletines de dos maneras:
-1. **Directorio de boletines**: haga clic en RSS → Icono de boletín (📬) → Explore y suscríbase a boletines seleccionados.
+1. **Directorio de boletines**: haga clic en RSS → Ícono de boletín (📬) → Explore y suscríbase a boletines seleccionados
 2. **URL directa**: Copie la URL de cualquier boletín (Substack, Beehiiv, etc.) → RSS → Agregar fuente → Pegar URL. Plethora descubrirá automáticamente la fuente RSS.
 
 **P: ¿Por qué no se muestran los videos, audios, infografías o presentaciones de diapositivas de mi NotebookLM?**
@@ -2647,7 +2729,7 @@ R: Tantos como quieras, pero céntrate en la calidad sobre la cantidad. 10-20 ca
 R: 90% es el valor predeterminado recomendado. Ajústelo al 85% si tiene demasiadas reseñas, o al 95% para material crítico.
 
 **P: ¿Puedo usar Plethora para idiomas?**
-R: ¡Absolutamente! Es excelente para tarjetas de vocabulario, gramática y oraciones. Utilice tarjetas cloze para patrones gramaticales.
+R: ¡Absolutamente! Consulte la sección [Aprendizaje de idiomas](#language-learning) para conocer el flujo de trabajo completo: perfiles, vistazo al diccionario, el tutor de IA, práctica de seguimiento/dictado/pronunciación/escritura, repetición alineada con los medios y recomendaciones para las brechas en el plan de estudio. También es excelente para tarjetas de vocabulario, gramática y oraciones; use tarjetas cloze para patrones gramaticales.
 
 **P: ¿Cómo manejo las ecuaciones matemáticas?**
 R: Utilice la sintaxis LaTeX en las tarjetas. Para OCR, utilice el proveedor Mathpix para obtener mejores resultados con contenido matemático.

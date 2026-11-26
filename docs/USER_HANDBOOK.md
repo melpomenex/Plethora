@@ -13,15 +13,16 @@
 5. [Deck Manager](#deck-manager)
 6. [Review Process](#review-process)
 7. [Queue Management](#queue-management)
-8. [Study Plans & Guided Reading Trails](#study-plans--guided-reading-trails)
-9. [Analytics & Progress Tracking](#analytics--progress-tracking)
-10. [Sleep Tracking & Learning Insights](#sleep-tracking--learning-insights)
-11. [Settings & Customization](#settings--customization)
+8. [Language Learning](#language-learning)
+9. [Study Plans & Guided Reading Trails](#study-plans--guided-reading-trails)
+10. [Analytics & Progress Tracking](#analytics--progress-tracking)
+11. [Sleep Tracking & Learning Insights](#sleep-tracking--learning-insights)
+12. [Settings & Customization](#settings--customization)
    - [NotebookLM Integration](#notebooklm-integration)
    - [Health & Wearables Integration](#health--wearables-integration)
-12. [Advanced Features](#advanced-features)
-13. [Tips & Best Practices](#tips--best-practices)
-14. [Troubleshooting](#troubleshooting)
+13. [Advanced Features](#advanced-features)
+14. [Tips & Best Practices](#tips--best-practices)
+15. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -1036,6 +1037,75 @@ overall maturity ratio is `matureCount / itemCount`.
   ratio or simplify the prerequisite graph.
 - **Force-show is your safety valve**. If TAS is too aggressive for a
   particular item, force-show it — no underlying scheduling data is harmed.
+
+---
+
+## Language Learning
+
+Use Plethora to learn a language while you read, watch, and review. The language features work across documents, videos, the queue, and study plans: you build a **language profile**, peek at words as you encounter them, ask an **AI tutor** for help, practice with **shadowing, dictation, pronunciation, and writing**, and let **learner evidence** suggest what to work on next.
+
+### Turning on Language Learning
+
+1. Open **Settings → Language Learning** and enable **Language Learning**.
+2. Open the **Language Learning** tab and create a **language profile**: choose your target language, your base language, and an estimated proficiency.
+3. Configure an AI provider in Settings (cloud or local) — the tutor, translation, and writing modes need one. Speech modes (shadowing, dictation, pronunciation) additionally need a speech-recognition provider (for example Groq) and microphone permission.
+
+Profiles drive everything below: the AI tutor adapts to your vocabulary, and dictionary peek tracks your knowledge state per word.
+
+### Dictionary Peek
+
+Select any word or phrase in a document, transcript, or video:
+
+- The **Language Peek** popover shows the definition, translation, pronunciation, and (where available) a sentence example.
+- **Memorize** sends the word to **Flashcard Studio** as a language draft.
+- **Extract** saves it as a studying extract; **Replay** replays the original audio when an aligned recording exists.
+
+### AI Tutor
+
+The tutor is a conversational assistant that understands your level and the text you are studying.
+
+**Starting a tutor session:**
+- In a document: select a sentence, then choose **Tutor** (or **Explain**) from the selection menu.
+- From the dictionary peek: tap **Explain** on the word.
+- In a video: use the **Tutor** button on the current sentence.
+- In the queue: video-extract clips show an **Ask tutor** chip.
+
+**Modes:** Explain, Roleplay, Rewrite, Grammar, Pronunciation, Collocation, Translate, Minimal Pair, Conversation, Correction, and Practice. Every reply states how it was produced — **grounded** (from your source material), **generated**, or **general** — and which privacy path it used (local or cloud; cloud analysis requires your consent).
+
+**Session history:** completed tutor responses are saved to a local **Tutor history** panel (the newest 50). From there you can **delete** an individual session, **clear all**, or **export** the history as a JSON file. Deleting or exporting only affects your local history — provider data is never modified.
+
+**Cancelling & retrying:** stop an in-flight reply with **Cancel**; re-run the same request with **Retry**.
+
+### Practice Modes
+
+The **Practice** area (Language Learning tab) offers:
+
+- **Shadowing** — repeat after native audio. The session uses the original audio clip from the text or video you were studying when one is available, and falls back to text-to-speech otherwise.
+- **Dictation** — listen and type what you hear, using the same original-audio range.
+- **Pronunciation** — compare your recording with the target pronunciation.
+- **Writing** — write responses and get corrections.
+- **Voice conversation** — chat out loud with the tutor.
+
+Attempts appear under **Recent attempts** in the practice hub.
+
+### Video & Media Alignment
+
+In a video, each sentence gets its own control row: **Replay**, **Loop**, **Auto-Pause**, **Translate**, **Mine**, **Tutor**, and **Practice**. Replay prefers the **original audio** at the exact sentence position; if the recording is missing, stale, ambiguous, or low-confidence, it falls back to text-to-speech. **Mine** creates a flashcard draft that keeps the clip's **media range**, so the card remembers exactly where in the video it came from. Practice launches reuse the same range, so shadowing and dictation play the right clip.
+
+### Flashcard Studio
+
+Language drafts arrive in Flashcard Studio from **Memorize** (dictionary peek), **Mine** (video), and language practice. Drafts keep their **provenance** — the source document or video, the exact media range, and the language profile — so you can always trace a card back to where you met it.
+
+### Study Plans
+
+Study plans work hand-in-hand with language learning:
+
+1. When creating or editing a plan, link a **language profile** (and optionally set a target proficiency and language focus).
+2. Open the plan and look for the **Learner evidence** panel. It compares the plan's goals against your real learning data and recommends next steps:
+   - **Vocabulary coverage** — when a goal's terms barely overlap your known vocabulary.
+   - **Practice refresh** — when you have few accepted practice attempts in the last two weeks.
+   - **Flashcard mining** — when your language-linked flashcard collection is still small.
+3. Each recommendation has an **Open Language Learning** button that jumps straight to the Language Learning tab.
 
 ---
 
@@ -2681,7 +2751,7 @@ A: As many as you want, but focus on quality over quantity. 10-20 well-made card
 A: 90% is the recommended default. Adjust to 85% if you have too many reviews, or 95% for critical material.
 
 **Q: Can I use Plethora for languages?**
-A: Absolutely! It's excellent for vocabulary, grammar, and sentence cards. Use cloze cards for grammar patterns.
+A: Absolutely! See the [Language Learning](#language-learning) section for the full workflow — profiles, dictionary peek, the AI tutor, shadowing/dictation/pronunciation/writing practice, media-aligned replay, and study-plan gap recommendations. It's also excellent for vocabulary, grammar, and sentence cards — use cloze cards for grammar patterns.
 
 **Q: How do I handle math equations?**
 A: Use LaTeX syntax in cards. For OCR, use Mathpix provider for best results with math content.
