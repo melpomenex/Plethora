@@ -24,6 +24,11 @@ import { resolveStudySourceScope } from '../../api/study-sources';
 import { studyErrorMessage } from '../../lib/study-plans/studyErrorMessage';
 import { SourceScopePicker } from './SourceScopePicker';
 import { CurriculumGenerator } from './CurriculumGenerator';
+import {
+  LanguageProfileSection,
+  EMPTY_LANGUAGE_LINKAGE,
+  type StudyPlanLanguageLinkage,
+} from './LanguageProfileSection';
 import { Button } from '../md3/Button';
 import { StudyPlansScrollContainer } from './StudyPlansScrollContainer';
 import { t as translateRecentFeature, useI18n } from "../../lib/i18n";
@@ -73,6 +78,10 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
     tagIds: initialPrefill?.tagIds ?? [],
   });
 
+  const [languageLinkage, setLanguageLinkage] = useState<StudyPlanLanguageLinkage>(
+    EMPTY_LANGUAGE_LINKAGE
+  );
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -117,6 +126,11 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
         knowledgeAuthority: knowledgePolicy === 'model-only'
           ? { kind: 'model-only' }
           : { kind: 'library', policy: knowledgePolicy },
+        languageProfileId: languageLinkage.languageProfileId,
+        targetProficiency: languageLinkage.targetProficiency,
+        languageFocus: languageLinkage.languageFocus?.freeText?.trim()
+          ? { freeText: languageLinkage.languageFocus.freeText.trim() }
+          : null,
       };
       const detail = await createPlanAction(input);
 
@@ -367,6 +381,9 @@ export const StudyPlanCreateForm: React.FC<StudyPlanCreateFormProps> = ({
             })}
           </div>
         </fieldset>
+
+        {/* Optional Language Profile Linkage */}
+        <LanguageProfileSection value={languageLinkage} onChange={setLanguageLinkage} />
 
         {/* Material Scope */}
         {knowledgePolicy === 'model-only' ? (

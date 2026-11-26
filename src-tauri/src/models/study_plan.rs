@@ -219,6 +219,15 @@ pub struct StudyPlan {
     pub current_version: i64,
     pub draft_version_id: Option<String>,
     pub revision: i64,
+    /// Optional language-learning profile linkage (null = standalone plan).
+    #[serde(default)]
+    pub language_profile_id: Option<String>,
+    /// Optional target proficiency (e.g. beginner/intermediate/advanced/native).
+    #[serde(default)]
+    pub target_proficiency: Option<String>,
+    /// Optional language focus payload serialized as a JSON document.
+    #[serde(default)]
+    pub language_focus_json: Option<serde_json::Value>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -323,6 +332,15 @@ pub struct StudyPlanSummary {
     pub completed_node_count: i64,
     pub source_document_count: i64,
     pub has_draft: bool,
+    /// Optional language-learning profile linkage (null = standalone plan).
+    #[serde(default)]
+    pub language_profile_id: Option<String>,
+    /// Optional target proficiency (e.g. beginner/intermediate/advanced/native).
+    #[serde(default)]
+    pub target_proficiency: Option<String>,
+    /// Optional language focus payload serialized as a JSON document.
+    #[serde(default)]
+    pub language_focus_json: Option<serde_json::Value>,
     pub updated_at: String,
 }
 
@@ -336,6 +354,15 @@ pub struct CreateStudyPlanInput {
     pub source_scope: Option<serde_json::Value>,
     #[serde(default)]
     pub knowledge_authority: Option<StudyPlanKnowledgeAuthority>,
+    /// Optional language-learning profile linkage (null = standalone plan).
+    #[serde(default)]
+    pub language_profile_id: Option<String>,
+    /// Optional target proficiency (e.g. beginner/intermediate/advanced/native).
+    #[serde(default)]
+    pub target_proficiency: Option<String>,
+    /// Optional language focus payload serialized as a JSON document.
+    #[serde(default)]
+    pub language_focus_json: Option<serde_json::Value>,
     pub initial_nodes: Option<Vec<StudyPlanVersionNode>>,
     pub initial_prerequisites: Option<Vec<PlanPrerequisite>>,
 }

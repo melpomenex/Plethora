@@ -36,6 +36,7 @@ vi.mock('../../../lib/tauri', async (importOriginal) => {
 });
 
 vi.mock('../../../api/study-plans', () => ({
+  StudyApiError: class StudyApiError extends Error {},
   createStudyPlan: vi.fn(),
 }));
 

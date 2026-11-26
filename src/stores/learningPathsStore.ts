@@ -214,6 +214,9 @@ export const useLearningPathsStore = create<LearningPathsStoreState>()((set, get
           completedNodeCount: 0,
           sourceDocumentCount: 0,
           hasDraft: detail.plan.draftVersionId !== null,
+          languageProfileId: detail.plan.languageProfileId ?? null,
+          targetProficiency: detail.plan.targetProficiency ?? null,
+          languageFocus: detail.plan.languageFocus ?? null,
           updatedAt: detail.plan.updatedAt,
         };
         const legacy = mapDetailToLegacyPath(detail);

@@ -54,6 +54,25 @@ pub async fn update_study_plan_preferences(
 }
 
 #[tauri::command]
+pub async fn update_study_plan_language_linkage(
+    plan_id: String,
+    language_profile_id: Option<String>,
+    target_proficiency: Option<String>,
+    language_focus_json: Option<serde_json::Value>,
+    repo: State<'_, Repository>,
+) -> Result<(), String> {
+    repository(&repo)
+        .update_study_plan_language_linkage(
+            &plan_id,
+            language_profile_id.as_deref(),
+            target_proficiency.as_deref(),
+            language_focus_json.as_ref(),
+        )
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn get_study_plan(
     plan_id: String,
     version_id: Option<String>,
@@ -194,6 +213,9 @@ mod tests {
                 "indexCompleteness": "complete"
             })),
             knowledge_authority: None,
+            language_profile_id: None,
+            target_proficiency: None,
+            language_focus_json: None,
             initial_nodes: Some(vec![StudyPlanVersionNode {
                 node_id: "spn_c1".to_string(),
                 title: "Rust Commands".to_string(),

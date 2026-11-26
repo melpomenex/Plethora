@@ -126,6 +126,14 @@ export type PlanVersionState = 'draft' | 'published' | 'superseded';
 export type NodeActivity = 'not-started' | 'in-progress' | 'completed' | 'skipped';
 export type MaterialSupport = 'grounded' | 'unsupported' | 'not-validated';
 
+/** Optional language profile linkage payload stored on a Study Plan. */
+export interface StudyPlanLanguageFocus {
+  /** Free-form focus note entered by the user. */
+  freeText?: string;
+  /** Optional structured focus tags. */
+  tags?: string[];
+}
+
 export interface StudyPlan {
   id: string;
   title: string; // 1..120
@@ -136,6 +144,12 @@ export interface StudyPlan {
   currentVersion: number; // 0 only while initial draft exists
   draftVersionId: string | null;
   revision: number; // increments on head/draft switch/publish; CAS token
+  /** Optional linked language profile id (null = standalone plan). */
+  languageProfileId?: string | null;
+  /** Optional target proficiency (beginner/intermediate/advanced/native). */
+  targetProficiency?: string | null;
+  /** Optional language focus payload. */
+  languageFocus?: StudyPlanLanguageFocus | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -228,6 +242,12 @@ export interface StudyPlanSummary {
   completedNodeCount: number;
   sourceDocumentCount: number;
   hasDraft: boolean;
+  /** Optional linked language profile id (null = standalone plan). */
+  languageProfileId?: string | null;
+  /** Optional target proficiency (beginner/intermediate/advanced/native). */
+  targetProficiency?: string | null;
+  /** Optional language focus payload. */
+  languageFocus?: StudyPlanLanguageFocus | null;
   updatedAt: string;
 }
 
@@ -237,6 +257,12 @@ export interface CreateStudyPlanInput {
   depth: StudyDepth;
   sourceScope: StudySourceScopeV1 | Record<string, unknown> | null;
   knowledgeAuthority?: StudyPlanKnowledgeAuthority;
+  /** Optional linked language profile id (null = standalone plan). */
+  languageProfileId?: string | null;
+  /** Optional target proficiency (beginner/intermediate/advanced/native). */
+  targetProficiency?: string | null;
+  /** Optional language focus payload. */
+  languageFocus?: StudyPlanLanguageFocus | null;
   initialNodes?: StudyPlanVersionNode[];
   initialPrerequisites?: PlanPrerequisite[];
 }

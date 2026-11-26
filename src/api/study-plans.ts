@@ -236,3 +236,22 @@ export async function updateStudyPlanPreferences(
     throw normalizeStudyError(err);
   }
 }
+
+export async function updateStudyPlanLanguageLinkage(
+  planId: string,
+  languageProfileId: string | null,
+  targetProficiency: string | null,
+  languageFocus: unknown
+): Promise<void> {
+  ensureNativeSupport();
+  try {
+    await invokeCommand<void>('update_study_plan_language_linkage', {
+      planId,
+      languageProfileId: languageProfileId ?? null,
+      targetProficiency: targetProficiency ?? null,
+      languageFocus: languageFocus ?? null,
+    });
+  } catch (err) {
+    throw normalizeStudyError(err);
+  }
+}

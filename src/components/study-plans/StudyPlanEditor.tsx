@@ -39,6 +39,11 @@ import {
   recoverInterruptedStudyJobs,
   listStudyGenerationJobs,
 } from '../../api/study-generation';
+import { updateStudyPlanLanguageLinkage } from '../../api/study-plans';
+import {
+  LanguageProfileSection,
+  type StudyPlanLanguageLinkage,
+} from './LanguageProfileSection';
 import { PlanOutline } from './PlanOutline';
 import { PlanNodeEditor } from './PlanNodeEditor';
 import { PlanSourceList } from './PlanSourceList';
@@ -189,6 +194,14 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
   const [showPublishDiffModal, setShowPublishDiffModal] = useState(false);
   const [lockConflictsAcknowledged, setLockConflictsAcknowledged] = useState(false);
 
+  // Optional language profile linkage (plan-level, independent of draft edits).
+  const [languageLinkage, setLanguageLinkage] = useState<StudyPlanLanguageLinkage>({
+    languageProfileId: planDetail.plan.languageProfileId ?? null,
+    targetProficiency: planDetail.plan.targetProficiency ?? null,
+    languageFocus: planDetail.plan.languageFocus ?? null,
+  });
+  const [isSavingLinkage, setIsSavingLinkage] = useState(false);
+
   // Curriculum generator & interrupted jobs state
   const [isGeneratorOpen, setIsGeneratorOpen] = useState(false);
   const [recoveryJob, setRecoveryJob] = useState<StudyGenerationJob>();
@@ -232,6 +245,20 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
     setPrerequisites(planDetail.version.prerequisites);
     setIsDirty(false);
   }, [planDetail.version.id, planDetail.version.state, planDetail.plan.revision]);
+
+  useEffect(() => {
+    setLanguageLinkage({
+      languageProfileId: planDetail.plan.languageProfileId ?? null,
+      targetProficiency: planDetail.plan.targetProficiency ?? null,
+      languageFocus: planDetail.plan.languageFocus ?? null,
+    });
+  }, [
+    planDetail.plan.id,
+    planDetail.plan.revision,
+    planDetail.plan.languageProfileId,
+    planDetail.plan.targetProficiency,
+    planDetail.plan.languageFocus,
+  ]);
 
   useEffect(() => {
     if (!isEditingPlanTitle) setPlanTitleDraft(planDetail.plan.title);
@@ -371,6 +398,29 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
       setErrorBanner(studyErrorMessage(err, translateRecentFeature("studyPlans.ui.could-not-verify-sources-che.11dc35cc")));
     } finally {
       setIsVerifying(false);
+    }
+  };
+
+  const handleSaveLanguageLinkage = async () => {
+    if (isSavingLinkage) return;
+    setIsSavingLinkage(true);
+    setErrorBanner(null);
+    try {
+      await updateStudyPlanLanguageLinkage(
+        planDetail.plan.id,
+        languageLinkage.languageProfileId,
+        languageLinkage.targetProficiency,
+        languageLinkage.languageFocus?.freeText?.trim()
+          ? { freeText: languageLinkage.languageFocus.freeText.trim() }
+          : null
+      );
+      setSaveSuccessNotice('Language profile settings saved.');
+      void selectPlan(planDetail.plan.id)
+        .catch(() => setErrorBanner(translateRecentFeature("studyPlans.ui.could-not-reload-the-saved-d.dc93c7ff")));
+    } catch (err: unknown) {
+      setErrorBanner(studyErrorMessage(err, 'Could not save language profile settings.'));
+    } finally {
+      setIsSavingLinkage(false);
     }
   };
 
@@ -705,6 +755,35 @@ export const StudyPlanEditor: React.FC<StudyPlanEditorProps> = ({
           )}
       </div>
     </div>
+
+      {/* Optional Language Profile Linkage */}
+      <section
+        aria-label="Language Profile (optional)"
+        className="rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 p-4 space-y-3"
+      >
+        <LanguageProfileSection
+          value={languageLinkage}
+          onChange={setLanguageLinkage}
+          disabled={isSavingLinkage}
+        />
+        <div className="flex items-center justify-end gap-2">
+          <Button
+            variant="tonal"
+            size="sm"
+            disabled={isSavingLinkage}
+            onClick={() => void handleSaveLanguageLinkage()}
+          >
+            {isSavingLinkage ? (
+              <SpinnerGap size={16} className="animate-spin" />
+            ) : (
+              <CheckCircle size={16} />
+            )}
+            <span>
+              {isSavingLinkage ? 'Saving…' : 'Save language settings'}
+            </span>
+          </Button>
+        </div>
+      </section>
 
       {isVerifyPanelOpen && (
         <section aria-label={translateRecentFeature("studyPlans.ui.add-sources-and-verify.448fd354")} className="rounded-xl border border-surface-200 dark:border-surface-700 bg-surface-50 dark:bg-surface-800 p-4 space-y-3">

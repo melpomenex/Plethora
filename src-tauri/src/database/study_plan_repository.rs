@@ -32,6 +32,10 @@ pub const MAX_NODE_SUMMARY_CHARS: usize = 1000;
 pub const MAX_OBJECTIVES_COUNT: usize = 6;
 pub const MAX_OBJECTIVE_CHARS: usize = 240;
 
+fn parse_language_focus(raw: Option<String>) -> Option<serde_json::Value> {
+    raw.and_then(|json| serde_json::from_str(&json).ok())
+}
+
 fn has_resolved_documents(scope: Option<&serde_json::Value>) -> bool {
     scope
         .and_then(|value| value.get("resolvedDocuments"))
@@ -254,18 +258,27 @@ impl StudyPlanRepository {
             .await
             .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
 
+        let language_focus_json = input
+            .language_focus_json
+            .as_ref()
+            .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "null".to_string()));
+
         // 1. Create study_plan with NULL version pointers initially to satisfy FKs
         sqlx::query(
             "INSERT INTO study_plans (
                 id, title, goal, depth, status, current_version_id, draft_version_id,
-                current_version, revision, created_at, updated_at
-             ) VALUES (?1, ?2, ?3, ?4, 'active', NULL, NULL, 0, 1, ?5, ?5)",
+                current_version, revision, created_at, updated_at,
+                language_profile_id, target_proficiency, language_focus_json
+             ) VALUES (?1, ?2, ?3, ?4, 'active', NULL, NULL, 0, 1, ?5, ?5, ?6, ?7, ?8)",
         )
         .bind(&plan_id)
         .bind(title)
         .bind(goal)
         .bind(&depth_str)
         .bind(&now)
+        .bind(input.language_profile_id.as_deref())
+        .bind(input.target_proficiency.as_deref())
+        .bind(language_focus_json.as_deref())
         .execute(&mut *tx)
         .await
         .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
@@ -520,6 +533,41 @@ impl StudyPlanRepository {
         Ok(normalized)
     }
 
+    /// Updates the optional language profile linkage on a plan without touching
+    /// versions, node activity, or revision history. Passing None clears a
+    /// previously linked profile (keeping the plan standalone).
+    pub async fn update_study_plan_language_linkage(
+        &self,
+        plan_id: &str,
+        language_profile_id: Option<&str>,
+        target_proficiency: Option<&str>,
+        language_focus_json: Option<&serde_json::Value>,
+    ) -> Result<(), StudyCommandError> {
+        let language_focus_json = language_focus_json
+            .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "null".to_string()));
+        let now = Utc::now().to_rfc3339();
+        let updated = sqlx::query(
+            "UPDATE study_plans
+             SET language_profile_id = ?1, target_proficiency = ?2, language_focus_json = ?3,
+                 updated_at = ?4
+             WHERE id = ?5",
+        )
+        .bind(language_profile_id)
+        .bind(target_proficiency)
+        .bind(language_focus_json.as_deref())
+        .bind(&now)
+        .bind(plan_id)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| StudyCommandError::storage_failed(e.to_string()))?;
+        if updated.rows_affected() == 0 {
+            return Err(StudyCommandError::not_found(
+                "study_plan.error.plan_not_found",
+            ));
+        }
+        Ok(())
+    }
+
     /// Renames a plan without changing its version or draft revision.
     pub async fn rename_study_plan(
         &self,
@@ -581,7 +629,8 @@ impl StudyPlanRepository {
 
         let row = sqlx::query(
             "SELECT id, title, goal, depth, status, current_version_id, draft_version_id,
-                    current_version, revision, created_at, updated_at
+                    current_version, revision, created_at, updated_at,
+                    language_profile_id, target_proficiency, language_focus_json
              FROM study_plans WHERE id = ?1 LIMIT 1",
         )
         .bind(plan_id)
@@ -601,6 +650,9 @@ impl StudyPlanRepository {
             current_version: row.get("current_version"),
             draft_version_id: row.get("draft_version_id"),
             revision: row.get("revision"),
+            language_profile_id: row.get("language_profile_id"),
+            target_proficiency: row.get("target_proficiency"),
+            language_focus_json: parse_language_focus(row.get("language_focus_json")),
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         };
@@ -616,10 +668,12 @@ impl StudyPlanRepository {
         include_archived: bool,
     ) -> Result<Vec<StudyPlanSummary>, StudyCommandError> {
         let sql = if include_archived {
-            "SELECT id, title, goal, depth, status, current_version, revision, current_version_id, draft_version_id, updated_at
+            "SELECT id, title, goal, depth, status, current_version, revision, current_version_id, draft_version_id, updated_at,
+                    language_profile_id, target_proficiency, language_focus_json
              FROM study_plans ORDER BY updated_at DESC"
         } else {
-            "SELECT id, title, goal, depth, status, current_version, revision, current_version_id, draft_version_id, updated_at
+            "SELECT id, title, goal, depth, status, current_version, revision, current_version_id, draft_version_id, updated_at,
+                    language_profile_id, target_proficiency, language_focus_json
              FROM study_plans WHERE status = 'active' ORDER BY updated_at DESC"
         };
 
@@ -641,6 +695,7 @@ impl StudyPlanRepository {
             let current_version_id: Option<String> = r.get("current_version_id");
             let draft_version_id: Option<String> = r.get("draft_version_id");
             let updated_at: String = r.get("updated_at");
+            let language_focus_json = parse_language_focus(r.get("language_focus_json"));
 
             let active_version_id = current_version_id.as_ref().or(draft_version_id.as_ref());
 
@@ -691,6 +746,9 @@ impl StudyPlanRepository {
                 completed_node_count,
                 source_document_count,
                 has_draft: draft_version_id.is_some(),
+                language_profile_id: r.get("language_profile_id"),
+                target_proficiency: r.get("target_proficiency"),
+                language_focus_json,
                 updated_at,
             });
         }
@@ -706,7 +764,8 @@ impl StudyPlanRepository {
     ) -> Result<StudyPlanDetail, StudyCommandError> {
         let plan_row = sqlx::query(
             "SELECT id, title, goal, depth, status, current_version_id, draft_version_id,
-                    current_version, revision, created_at, updated_at
+                    current_version, revision, created_at, updated_at,
+                    language_profile_id, target_proficiency, language_focus_json
              FROM study_plans WHERE id = ?1 LIMIT 1",
         )
         .bind(plan_id)
@@ -732,6 +791,9 @@ impl StudyPlanRepository {
             current_version: plan_row.get("current_version"),
             draft_version_id: draft_version_id.clone(),
             revision: plan_row.get("revision"),
+            language_profile_id: plan_row.get("language_profile_id"),
+            target_proficiency: plan_row.get("target_proficiency"),
+            language_focus_json: parse_language_focus(plan_row.get("language_focus_json")),
             created_at: plan_row.get("created_at"),
             updated_at: plan_row.get("updated_at"),
         };
@@ -1748,6 +1810,9 @@ impl StudyPlanRepository {
                 "limitations": []
             })),
             knowledge_authority: None,
+            language_profile_id: None,
+            target_proficiency: None,
+            language_focus_json: None,
             initial_nodes: if initial_nodes.is_empty() {
                 None
             } else {
@@ -1835,6 +1900,9 @@ mod tests {
             depth: StudyDepth::Foundational,
             source_scope: Some(serde_json::json!({ "schemaVersion": 1 })),
             knowledge_authority: None,
+            language_profile_id: None,
+            target_proficiency: None,
+            language_focus_json: None,
             initial_nodes: Some(vec![StudyPlanVersionNode {
                 node_id: "spn_n1".to_string(),
                 title: "Processes".to_string(),
@@ -1879,6 +1947,9 @@ mod tests {
                 depth: StudyDepth::Foundational,
                 source_scope: None,
                 knowledge_authority: Some(authority.clone()),
+                language_profile_id: None,
+                target_proficiency: None,
+                language_focus_json: None,
                 initial_nodes: Some(vec![StudyPlanVersionNode {
                     node_id: "spn_model_only".to_string(),
                     title: "First topic".to_string(),
@@ -1922,6 +1993,9 @@ mod tests {
                 depth: StudyDepth::Survey,
                 source_scope: Some(serde_json::json!({ "schemaVersion": 1 })),
                 knowledge_authority: Some(StudyPlanKnowledgeAuthority::ModelOnly),
+                language_profile_id: None,
+                target_proficiency: None,
+                language_focus_json: None,
                 initial_nodes: None,
                 initial_prerequisites: None,
             })
@@ -1956,6 +2030,9 @@ mod tests {
                 depth: StudyDepth::Survey,
                 source_scope: None,
                 knowledge_authority: Some(StudyPlanKnowledgeAuthority::Manual),
+                language_profile_id: None,
+                target_proficiency: None,
+                language_focus_json: None,
                 initial_nodes: None,
                 initial_prerequisites: None,
             })
@@ -2040,6 +2117,95 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn test_language_profile_linkage_lifecycle() {
+        let pool = create_test_db().await;
+        let repo = StudyPlanRepository::new(pool.clone());
+
+        // Create a real language profile so the FK on language_profile_id holds.
+        sqlx::query(
+            "INSERT INTO language_profiles (id, name, target_language, base_language, created_at, updated_at)
+             VALUES ('lp_japanese', 'Japanese Study', 'ja', 'en', '2026-11-01T00:00:00Z', '2026-11-01T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let created = repo
+            .create_study_plan(CreateStudyPlanInput {
+                title: "Language linked plan".to_string(),
+                goal: "Learn Japanese".to_string(),
+                depth: StudyDepth::Survey,
+                source_scope: None,
+                knowledge_authority: Some(StudyPlanKnowledgeAuthority::Manual),
+                language_profile_id: None,
+                target_proficiency: None,
+                language_focus_json: None,
+                initial_nodes: None,
+                initial_prerequisites: None,
+            })
+            .await
+            .unwrap();
+        let plan_id = created.plan.id.clone();
+        let revision_before = created.plan.revision;
+
+        // No linkage by default.
+        assert_eq!(created.plan.language_profile_id, None);
+        assert_eq!(created.plan.target_proficiency, None);
+        assert_eq!(created.plan.language_focus_json, None);
+
+        // Link a profile.
+        repo.update_study_plan_language_linkage(
+            &plan_id,
+            Some("lp_japanese"),
+            Some("intermediate"),
+            Some(&serde_json::json!({ "freeText": "daily conversation" })),
+        )
+        .await
+        .unwrap();
+
+        let refreshed = repo.get_study_plan(&plan_id, None).await.unwrap();
+        assert_eq!(
+            refreshed.plan.language_profile_id.as_deref(),
+            Some("lp_japanese")
+        );
+        assert_eq!(
+            refreshed.plan.target_proficiency.as_deref(),
+            Some("intermediate")
+        );
+        assert_eq!(
+            refreshed.plan.language_focus_json,
+            Some(serde_json::json!({ "freeText": "daily conversation" }))
+        );
+
+        // Summaries carry the linkage.
+        let summaries = repo.list_study_plans(false).await.unwrap();
+        assert_eq!(
+            summaries[0].language_profile_id.as_deref(),
+            Some("lp_japanese")
+        );
+        assert_eq!(
+            summaries[0].language_focus_json,
+            Some(serde_json::json!({ "freeText": "daily conversation" }))
+        );
+
+        // Clearing the linkage works and never bumps revision.
+        repo.update_study_plan_language_linkage(&plan_id, None, None, None)
+            .await
+            .unwrap();
+        let cleared = repo.get_study_plan(&plan_id, None).await.unwrap();
+        assert_eq!(cleared.plan.language_profile_id, None);
+        assert_eq!(cleared.plan.language_focus_json, None);
+        assert_eq!(cleared.plan.revision, revision_before);
+
+        // Unknown plan id is a not-found error.
+        let err = repo
+            .update_study_plan_language_linkage("sp_missing", None, None, None)
+            .await
+            .unwrap_err();
+        assert_eq!(err.code, StudyErrorCode::NotFound);
+    }
+
+    #[tokio::test]
     async fn test_legacy_authority_row_falls_back() {
         let pool = create_test_db().await;
         let repo = StudyPlanRepository::new(pool.clone());
@@ -2055,6 +2221,9 @@ mod tests {
                 depth: StudyDepth::Survey,
                 source_scope: Some(library_scope.clone()),
                 knowledge_authority: None,
+                language_profile_id: None,
+                target_proficiency: None,
+                language_focus_json: None,
                 initial_nodes: None,
                 initial_prerequisites: None,
             })
@@ -2085,6 +2254,9 @@ mod tests {
                 depth: StudyDepth::Survey,
                 source_scope: None,
                 knowledge_authority: None,
+                language_profile_id: None,
+                target_proficiency: None,
+                language_focus_json: None,
                 initial_nodes: None,
                 initial_prerequisites: None,
             })
@@ -2114,6 +2286,9 @@ mod tests {
                 depth: StudyDepth::Survey,
                 source_scope: None,
                 knowledge_authority: Some(StudyPlanKnowledgeAuthority::Manual),
+                language_profile_id: None,
+                target_proficiency: None,
+                language_focus_json: None,
                 initial_nodes: Some(vec![StudyPlanVersionNode {
                     node_id: "spn_cas1".to_string(),
                     title: "Topic".to_string(),
@@ -2181,6 +2356,9 @@ mod tests {
                 knowledge_authority: Some(StudyPlanKnowledgeAuthority::Library {
                     policy: LibraryKnowledgePolicy::SourceOnly,
                 }),
+                language_profile_id: None,
+                target_proficiency: None,
+                language_focus_json: None,
                 initial_nodes: Some(vec![unsupported_node("spn_u1")]),
                 initial_prerequisites: None,
             })
@@ -2206,6 +2384,9 @@ mod tests {
                 knowledge_authority: Some(StudyPlanKnowledgeAuthority::Library {
                     policy: LibraryKnowledgePolicy::SourcePlusModelKnowledge,
                 }),
+                language_profile_id: None,
+                target_proficiency: None,
+                language_focus_json: None,
                 initial_nodes: Some(vec![unsupported_node("spn_u2")]),
                 initial_prerequisites: None,
             })
@@ -2237,6 +2418,9 @@ mod tests {
             depth: StudyDepth::Deep,
             source_scope: Some(serde_json::json!({ "schemaVersion": 1 })),
             knowledge_authority: None,
+            language_profile_id: None,
+            target_proficiency: None,
+            language_focus_json: None,
             initial_nodes: None,
             initial_prerequisites: None,
         };
@@ -2343,6 +2527,9 @@ mod tests {
             depth: StudyDepth::Survey,
             source_scope: Some(serde_json::json!({ "schemaVersion": 1 })),
             knowledge_authority: None,
+            language_profile_id: None,
+            target_proficiency: None,
+            language_focus_json: None,
             initial_nodes: Some(vec![StudyPlanVersionNode {
                 node_id: "spn_c1".to_string(),
                 title: "AST".to_string(),
