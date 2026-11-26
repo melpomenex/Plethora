@@ -200,6 +200,19 @@ export const languageTutorTask: AITaskDefinition<TutorRequest, AiTutorResponsePa
       lines.push(`Correction granularity: ${request.correctionLevel}`);
     }
 
+    if (request.context.recentEncounters?.length) {
+      lines.push(`Recent encounters: ${request.context.recentEncounters.slice(0, 8).join(", ")}`);
+    }
+
+    if (request.context.documents?.length) {
+      lines.push(`Active documents/interests: ${request.context.documents.slice(0, 6).join(", ")}`);
+    }
+
+    if (request.context.activitySummary) {
+      const a = request.context.activitySummary;
+      lines.push(`Activity evidence: lookups=${a.lookupsCount ?? 0}, reviews=${a.reviewsCount ?? 0}, activeMinutes=${a.activeMinutes ?? 0}`);
+    }
+
     lines.push(
       "Bounded learner vocabulary sample (use entry IDs only when directly referenced):",
       wrapUntrustedBlock("learner-vocabulary", formatBoundedContextItems(request)),

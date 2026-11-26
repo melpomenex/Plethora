@@ -3,6 +3,26 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { LanguageTutorHost } from "../LanguageTutorHost";
 import { LANGUAGE_HOST_ACTION_EVENT } from "../../../lib/languageHost";
 
+const aiMocks = vi.hoisted(() => ({
+  path: "ondevice" as "none" | "ondevice" | "cloud",
+  respond: vi.fn(),
+}));
+
+vi.mock("../../../lib/ai/useAiAvailability", () => ({
+  useAiAvailability: () => ({ path: aiMocks.path, ready: aiMocks.path !== "none" }),
+}));
+
+vi.mock("../../../lib/languageTutor/aiProvider", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../lib/languageTutor/aiProvider")>();
+  return {
+    ...actual,
+    createProductionLanguageTutorService: () => ({
+      supports: () => true,
+      respond: (...args: unknown[]) => aiMocks.respond(...args),
+    }),
+  };
+});
+
 const mocks = vi.hoisted(() => ({
   snapshot: {
     hostId: "host-tutor",
@@ -46,5 +66,37 @@ describe("language tutor host integration", () => {
     act(() => window.dispatchEvent(new CustomEvent(LANGUAGE_HOST_ACTION_EVENT, { detail: { action: "tutor", hostId: "host-tutor", source: { ...mocks.snapshot.source, contentFingerprint: "fp-old" }, sourceAnchor: { sourceType: "text", documentId: "doc-1", sourceId: "doc-1", contentFingerprint: "fp-old" }, selectedText: "Hola", profileId: "profile-1", languageTag: "es", origin: "reader" } })));
     expect(await screen.findByText("Tutor source changed")).toBeInTheDocument();
     expect(screen.queryByTestId("tutor-sheet")).toBeNull();
+  });
+
+  it("passes familiarity target and correction level, and supports Stop during in-flight generation", async () => {
+    aiMocks.path = "ondevice";
+    aiMocks.respond.mockImplementation(
+      ({ signal }: { signal?: AbortSignal }) =>
+        new Promise((_resolve, reject) => {
+          signal?.addEventListener("abort", () => reject(new Error("cancelled")));
+        }),
+    );
+    render(<LanguageTutorHost />);
+    act(() => window.dispatchEvent(new CustomEvent(LANGUAGE_HOST_ACTION_EVENT, { detail: { action: "tutor", hostId: "host-tutor", source: mocks.snapshot.source, sourceAnchor: { sourceType: "text", documentId: "doc-1", sourceId: "doc-1", contentFingerprint: "fp-current" }, selectedText: "Hola mundo", profileId: "profile-1", languageTag: "es", origin: "reader" } })));
+
+    await waitFor(() => expect(screen.getByLabelText("Target lexical familiarity")).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText("Target lexical familiarity"), { target: { value: "90" } });
+    fireEvent.change(screen.getByLabelText("Correction granularity"), { target: { value: "detailed" } });
+    fireEvent.click(screen.getByRole("button", { name: "Quick ask" }));
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Stop" })).toBeInTheDocument());
+    expect(aiMocks.respond).toHaveBeenCalledWith(
+      expect.objectContaining({ targetLexicalCoveragePercent: 90, correctionLevel: "detailed" }),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Stop" }));
+    await waitFor(() => expect(screen.queryByRole("button", { name: "Stop" })).toBeNull());
+  });
+
+  it("disables Quick ask when no AI provider is available", async () => {
+    aiMocks.path = "none";
+    render(<LanguageTutorHost />);
+    act(() => window.dispatchEvent(new CustomEvent(LANGUAGE_HOST_ACTION_EVENT, { detail: { action: "tutor", hostId: "host-tutor", source: mocks.snapshot.source, sourceAnchor: { sourceType: "text", documentId: "doc-1", sourceId: "doc-1", contentFingerprint: "fp-current" }, selectedText: "Hola mundo", profileId: "profile-1", languageTag: "es", origin: "reader" } })));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Quick ask" })).toBeDisabled());
+    aiMocks.path = "ondevice";
   });
 });

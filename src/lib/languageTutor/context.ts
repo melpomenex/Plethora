@@ -61,6 +61,9 @@ export function buildLearnerContext(input: {
   profile: ContextProfile;
   lexicon: readonly ContextLexiconRow[];
   currentSource?: { documentId?: string; text: string };
+  recentEncounters?: readonly string[];
+  documents?: readonly string[];
+  activitySummary?: { lookupsCount?: number; reviewsCount?: number; activeMinutes?: number };
   budget?: Partial<LearnerContextBudget>;
   now?: number;
 }): LearnerContextPacket {
@@ -73,6 +76,8 @@ export function buildLearnerContext(input: {
   const source = input.currentSource && budget.includeSourceText
     ? { documentId: input.currentSource.documentId, text: redact(input.currentSource.text, budget), redacted: true }
     : undefined;
+  const recentEncounters = input.recentEncounters?.slice(0, 10).map((s) => redact(s, budget));
+  const documents = input.documents?.slice(0, 8).map((s) => redact(s, budget));
   return {
     schemaVersion: 1,
     profileId: input.profile.id,
@@ -81,6 +86,9 @@ export function buildLearnerContext(input: {
     proficiency: input.profile.proficiency,
     items,
     lexiconSummary: summarizeLexicon(activeRows),
+    recentEncounters,
+    documents,
+    activitySummary: input.activitySummary,
     currentSource: source,
     generatedAt: input.now ?? Date.now(),
     freshness: ranked.length < input.lexicon.length ? "partial" : "fresh",

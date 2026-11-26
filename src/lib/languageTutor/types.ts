@@ -45,6 +45,9 @@ export interface LearnerContextPacket {
   proficiency?: string;
   items: readonly LearnerContextItem[];
   lexiconSummary?: LearnerLexiconSummary;
+  recentEncounters?: readonly string[];
+  documents?: readonly string[];
+  activitySummary?: { lookupsCount?: number; reviewsCount?: number; activeMinutes?: number };
   currentSource?: { documentId?: string; text: string; redacted: boolean };
   generatedAt: number;
   freshness: "fresh" | "stale" | "partial";

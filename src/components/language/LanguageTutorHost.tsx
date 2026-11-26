@@ -101,6 +101,8 @@ export function LanguageTutorHost() {
   const [modeResult, setModeResult] = useState<TutorResponse | null>(null);
   const [modeError, setModeError] = useState<string | null>(null);
   const [modeRunning, setModeRunning] = useState(false);
+  const [targetLexicalCoveragePercent, setTargetLexicalCoveragePercent] = useState<number>(80);
+  const [correctionLevel, setCorrectionLevel] = useState<"minimal" | "important" | "detailed">("important");
   const modeAbortRef = useRef<AbortController | null>(null);
 
   const cloudConfig = getActiveCloudConfig();
@@ -162,6 +164,8 @@ export function LanguageTutorHost() {
     )
       .then((lexicon) => {
         if (disposed) return;
+        const recentEncounters = lexicon.slice(0, 8).map((row) => row.surface);
+        const documents = Array.from(new Set(lexicon.map((row) => row.sourceDocumentId).filter((id): id is string => Boolean(id)))).slice(0, 6);
         setContext(
           buildLearnerContext({
             profile: {
@@ -171,10 +175,12 @@ export function LanguageTutorHost() {
               proficiency: snapshot.profile!.proficiency,
             },
             lexicon,
+            recentEncounters,
+            documents,
             currentSource: request.source.text
               ? { documentId: request.source.contentId, text: request.source.text }
               : undefined,
-            budget: { maxItems: 24, maxTextCodeUnits: 1200, includeSourceText: false },
+            budget: { maxItems: 24, maxTextCodeUnits: 1200, includeSourceText: Boolean(request.selectedText || request.source.text) },
           }),
         );
         setContextStatus("ready");
@@ -220,6 +226,8 @@ export function LanguageTutorHost() {
           mode: targetMode,
           message: materialText,
           context,
+          targetLexicalCoveragePercent,
+          correctionLevel,
           signal: controller.signal,
           cloudConsent: privacyPolicy.sendsMaterialOffDevice ? privacyPolicy.consented : undefined,
           privacy: privacyPolicy.sendsMaterialOffDevice && privacyPolicy.consented ? "allow-cloud" : "local-only",
@@ -245,7 +253,7 @@ export function LanguageTutorHost() {
         }
       }
     },
-    [context, privacyPolicy.consented, privacyPolicy.requiresConsent, privacyPolicy.sendsMaterialOffDevice, request, snapshot.profile, tutorService],
+    [context, correctionLevel, privacyPolicy.consented, privacyPolicy.requiresConsent, privacyPolicy.sendsMaterialOffDevice, request, snapshot.profile, targetLexicalCoveragePercent, tutorService],
   );
 
   if (!request || snapshot.status !== "ready" || !snapshot.profile) return null;
@@ -308,6 +316,26 @@ export function LanguageTutorHost() {
                 </option>
               ))}
             </select>
+            <select
+              aria-label="Target lexical familiarity"
+              className="rounded border border-border bg-background px-1.5 py-1 text-xs text-foreground"
+              value={targetLexicalCoveragePercent}
+              onChange={(event) => setTargetLexicalCoveragePercent(Number(event.target.value))}
+            >
+              <option value={70}>70% familiar</option>
+              <option value={80}>80% familiar</option>
+              <option value={90}>90% familiar</option>
+            </select>
+            <select
+              aria-label="Correction granularity"
+              className="rounded border border-border bg-background px-1.5 py-1 text-xs text-foreground"
+              value={correctionLevel}
+              onChange={(event) => setCorrectionLevel(event.target.value as "minimal" | "important" | "detailed")}
+            >
+              <option value="minimal">Minimal corrections</option>
+              <option value="important">Important corrections</option>
+              <option value="detailed">Detailed corrections</option>
+            </select>
             <button
               type="button"
               disabled={!context || modeRunning || !tutorService.supports(mode) || ai.path === "none" || (privacyPolicy.requiresConsent && !privacyPolicy.consented)}
@@ -316,6 +344,18 @@ export function LanguageTutorHost() {
             >
               {modeRunning ? "Running…" : "Quick ask"}
             </button>
+            {modeRunning && (
+              <button
+                type="button"
+                onClick={() => {
+                  modeAbortRef.current?.abort();
+                  setModeRunning(false);
+                }}
+                className="rounded border border-border px-2 py-1 text-xs text-foreground hover:bg-muted"
+              >
+                Stop
+              </button>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
             {context?.lexiconSummary && (
