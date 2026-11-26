@@ -123,4 +123,15 @@ describe("savedViewsStore", () => {
     expect(isSavedViewModified(view, baseConfig)).toBe(false);
     expect(isSavedViewModified(view, { ...baseConfig, query: "changed" })).toBe(true);
   });
+
+  it("syncs saved views across tabs on window storage event and via syncFromStorage", () => {
+    const external = [{ id: "ext-1", name: "External View", ...baseConfig, query: "from-other-tab" }];
+    window.localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify(external));
+    window.dispatchEvent(new StorageEvent("storage", { key: SAVED_VIEWS_KEY }));
+    expect(useSavedViewsStore.getState().savedViews.map((v) => v.id)).toEqual(["ext-1"]);
+
+    window.localStorage.setItem(SAVED_VIEWS_KEY, JSON.stringify([]));
+    useSavedViewsStore.getState().syncFromStorage();
+    expect(useSavedViewsStore.getState().savedViews).toEqual([]);
+  });
 });

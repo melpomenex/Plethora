@@ -154,6 +154,7 @@ export function isSavedViewModified(view: SavedView, current: SavedViewConfig): 
 interface SavedViewsState {
   savedViews: SavedView[];
   reloadFromStorage: () => void;
+  syncFromStorage: () => void;
   createView: (name: string, config: SavedViewConfig) => SavedView | null;
   deleteView: (id: string) => { deletedView: SavedView; index: number } | null;
   restoreView: (view: SavedView, index: number) => boolean;
@@ -168,6 +169,10 @@ export const useSavedViewsStore = create<SavedViewsState>((set, get) => ({
   savedViews: readSavedViewsFromStorage(),
 
   reloadFromStorage: () => {
+    set({ savedViews: readSavedViewsFromStorage() });
+  },
+
+  syncFromStorage: () => {
     set({ savedViews: readSavedViewsFromStorage() });
   },
 

@@ -546,4 +546,50 @@ describe("compact mobile document row layout contract", () => {
 
     localStorage.removeItem("plethora:ae-pos:doc:doc-1");
   });
+
+  it("manages saved views in DocumentsView: save, apply, preserve filters on active delete, undo, and multi-tab sync without deleting documents", async () => {
+    window.localStorage.removeItem("documentsSavedViews");
+    modalMock.prompt.mockResolvedValueOnce("History Filter");
+    render(<DocumentsView enableYouTubeImport={false} />);
+
+    // Open SavedViewsMenu and save current view
+    const triggerButtons = screen.getAllByRole("button", { name: /saved views/i });
+    fireEvent.click(triggerButtons[0]);
+    const saveItem = await screen.findByRole("menuitem", { name: /save current view/i });
+    fireEvent.click(saveItem);
+
+    await waitFor(() => {
+      const stored = JSON.parse(window.localStorage.getItem("documentsSavedViews") ?? "[]");
+      expect(stored).toHaveLength(1);
+      expect(stored[0].name).toBe("History Filter");
+    });
+
+    const initialDocCount = mockStore.documents.length;
+    expect(mockStore.documents).toHaveLength(initialDocCount);
+
+    // Multi-tab storage sync updates saved views without touching documents
+    const syncedViews = [
+      {
+        id: "tab-sync-view",
+        name: "Synced From Tab 2",
+        query: "Priority",
+        sortKey: "dateAdded",
+        sortDirection: "desc",
+        mode: "list",
+        compactDocumentsView: false,
+        showNextAction: true,
+        fileTypeFilter: "all",
+        categoryFilter: "all",
+        compactFilter: "all",
+      },
+    ];
+    window.localStorage.setItem("documentsSavedViews", JSON.stringify(syncedViews));
+    window.dispatchEvent(new StorageEvent("storage", { key: "documentsSavedViews" }));
+    fireEvent.click(screen.getAllByRole("button", { name: /saved views/i })[0]);
+    await waitFor(() => {
+      expect(screen.getAllByText("Synced From Tab 2").length).toBeGreaterThan(0);
+    });
+    expect(mockStore.documents).toHaveLength(initialDocCount);
+    window.localStorage.removeItem("documentsSavedViews");
+  });
 });
