@@ -17,7 +17,12 @@ import {
   type TranslationPrivacyMode,
   type TranslationSettings,
 } from "../../lib/languageTranslation";
-import { replayOriginalFirst, type SentenceAudioAlignment } from "../../lib/languageAudioAlignment";
+import {
+  replayOriginalFirst,
+  sharedAudioAlignmentRegistry,
+  type SentenceAudioAlignment,
+} from "../../lib/languageAudioAlignment";
+import { listLanguageAudioAlignments } from "../../api/languageEcosystem";
 import { useTTS } from "../../hooks/useTTS";
 import { useSettingsStore } from "../../stores/settingsStore";
 
@@ -150,27 +155,84 @@ export function LanguageReaderActionOverlay() {
       if (!detail || detail.hostId !== snapshot.hostId) return;
       if (detail.action === "replay") {
         const text = detail.selectedText ?? detail.source.text ?? "";
-        const range = audioRangeFromAnchor(detail.sourceAnchor);
-        const alignment: SentenceAudioAlignment | undefined = range ? {
-          id: `${detail.source.contentId}:${detail.sourceAnchor.sourceId ?? "sentence"}`,
-          profileId: snapshot.profile?.id,
-          sourceType: "audio",
-          sourceId: detail.source.contentId,
-          sentenceId: detail.sourceAnchor.sourceId ?? "sentence",
-          sourceAnchor: detail.sourceAnchor,
-          sourceFingerprint: detail.source.contentFingerprint ?? detail.sourceAnchor.contentFingerprint ?? "-",
-          range,
-          confidence: 1,
-          method: "manual",
-          status: "ready",
-          updatedAt: Date.now(),
-        } : undefined;
-        void replayOriginalFirst({
-          text,
-          resolution: alignment ? { kind: "original", tier: "exact", alignment } : { kind: "fallback", reason: "missing" },
-          playOriginal: (resolved) => { window.dispatchEvent(new CustomEvent("plethora-language-original-audio-range", { detail: { documentId: detail.source.contentId, ...resolved.range } })); },
-          speakTts: (value) => speakRef.current(value),
-        }).catch(() => undefined);
+        const sentenceKey = detail.sourceAnchor.sourceId ?? "sentence";
+        const sourceFp = detail.source.contentFingerprint ?? detail.sourceAnchor.contentFingerprint ?? "-";
+        void (async () => {
+          let resolution = sharedAudioAlignmentRegistry.resolve({
+            sourceId: detail.source.contentId,
+            sentenceId: sentenceKey,
+            sourceFingerprint: sourceFp,
+          });
+          if (resolution.kind !== "original") {
+            const dbAlignments = await listLanguageAudioAlignments(
+              detail.source.contentId,
+              snapshot.profile?.id,
+            ).catch(() => []);
+            if (dbAlignments.length > 0) {
+              for (const rec of dbAlignments) {
+                sharedAudioAlignmentRegistry.add({
+                  id: rec.id,
+                  profileId: rec.profileId,
+                  sourceType: rec.sourceType as SentenceAudioAlignment["sourceType"],
+                  sourceId: rec.sourceId,
+                  sentenceId: rec.sentenceId,
+                  sourceAnchor: detail.sourceAnchor,
+                  sourceFingerprint: rec.sourceFingerprint ?? sourceFp,
+                  range: {
+                    mediaId: rec.mediaId ?? rec.sourceId,
+                    startMs: rec.startMs,
+                    endMs: rec.endMs,
+                    mediaFingerprint: rec.mediaFingerprint ?? undefined,
+                  },
+                  confidence: rec.confidence ?? 0.85,
+                  method: (rec.method as SentenceAudioAlignment["method"]) ?? "manual",
+                  status: (rec.status as SentenceAudioAlignment["status"]) ?? "ready",
+                  updatedAt: Date.now(),
+                });
+              }
+              resolution = sharedAudioAlignmentRegistry.resolve({
+                sourceId: detail.source.contentId,
+                sentenceId: sentenceKey,
+                sourceFingerprint: sourceFp,
+              });
+            }
+          }
+          if (resolution.kind !== "original") {
+            const range = audioRangeFromAnchor(detail.sourceAnchor);
+            if (range) {
+              resolution = {
+                kind: "original",
+                tier: "exact",
+                alignment: {
+                  id: `${detail.source.contentId}:${sentenceKey}`,
+                  profileId: snapshot.profile?.id,
+                  sourceType: "audio",
+                  sourceId: detail.source.contentId,
+                  sentenceId: sentenceKey,
+                  sourceAnchor: detail.sourceAnchor,
+                  sourceFingerprint: sourceFp,
+                  range,
+                  confidence: 1,
+                  method: "manual",
+                  status: "ready",
+                  updatedAt: Date.now(),
+                },
+              };
+            }
+          }
+          await replayOriginalFirst({
+            text,
+            resolution,
+            playOriginal: (resolved) => {
+              window.dispatchEvent(
+                new CustomEvent("plethora-language-original-audio-range", {
+                  detail: { documentId: detail.source.contentId, ...resolved.range },
+                }),
+              );
+            },
+            speakTts: (value) => speakRef.current(value),
+          });
+        })().catch(() => undefined);
         return;
       }
       if (detail.action === "sentence-mode" || detail.action === "translate") setRequest(detail);

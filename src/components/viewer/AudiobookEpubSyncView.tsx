@@ -29,6 +29,7 @@ import {
   type TranscriptionWord,
 } from "../../lib/ebookAudiobookAlignment";
 import { speechSectionsToChapters, simpleContentHash } from "../../lib/ebookAudiobookAlignment/epubChapterExtract";
+import { alignmentsFromEbookAlignmentMap, sharedAudioAlignmentRegistry } from "../../lib/languageAudioAlignment";
 import { useAlignmentPlayback, useSeekToAlignedWord } from "../../hooks/useAlignmentPlayback";
 import { GLOBAL_AUDIO_PLAYBACK_ENABLED } from "../../services/audio/audioPlaybackRollout";
 import { runAudioAction } from "../audio/audioPlayerActions";
@@ -186,6 +187,13 @@ export function AudiobookEpubSyncView({
   );
 
   const playback = useAlignmentPlayback(alignmentMap, getAudioTimeSec, useWordSync);
+  useEffect(() => {
+    if (!alignmentMap) return;
+    const records = alignmentsFromEbookAlignmentMap(alignmentMap);
+    for (const record of records) {
+      sharedAudioAlignmentRegistry.add(record);
+    }
+  }, [alignmentMap]);
   const seekToWord = useSeekToAlignedWord(
     audioRef,
     playback.lookup,
