@@ -1000,6 +1000,16 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     targetId: "smartQueue.ranking",
   },
   {
+    id: "smartQueue.decisionModel",
+    kind: "group",
+    section: SettingsTab.SmartQueue,
+    label: k("daqeModel.title"),
+    description: k("daqeModel.scopeNote"),
+    aliases: [lit("laya"), lit("auto-launch laya"), lit("smart feeds model"), lit("decision model")],
+    keywords: ["decision model", "laya", "auto-launch", "autostart", "jev", "clef", "openrouter", "openai", "gemini", "smart feeds", "download model"],
+    targetId: "smartQueue.decisionModel",
+  },
+  {
     id: "smartQueue.autoRefresh",
     kind: "setting",
     section: SettingsTab.SmartQueue,

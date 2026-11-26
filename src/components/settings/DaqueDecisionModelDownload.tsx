@@ -1,14 +1,7 @@
 import React from "react";
-import { listen } from "@tauri-apps/api/event";
 import { Cpu, DownloadSimple, HardDrive, Play, Stop, Trash } from "@phosphor-icons/react";
-import {
-  getLayaServerStatus,
-  startLayaServer,
-  stopLayaServer,
-  type LayaServerStatus,
-} from "../../api/layaRuntime";
 import { useI18n } from "../../lib/i18n";
-import { isNativeMobile, isTauri } from "../../lib/tauri";
+import { useLayaServerStatus } from "../../hooks/useLayaServerStatus";
 import { useSettingsStore } from "../../stores/settingsStore";
 import { useHfModelStore } from "../../stores/useHfModelStore";
 import { cn } from "../../utils";
@@ -49,6 +42,7 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
 }) {
   const { t } = useI18n();
   const decisionEngine = useSettingsStore((s) => s.settings.daqe.decisionEngine);
+  const autoStartLaya = useSettingsStore((s) => s.settings.daqe.autoStartLaya ?? false);
   const updateSettingsCategory = useSettingsStore((s) => s.updateSettingsCategory);
 
   const installedModels = useHfModelStore((s) => s.installedModels);
@@ -60,30 +54,15 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
   const install = useHfModelStore((s) => s.install);
   const cancelInstall = useHfModelStore((s) => s.cancelInstall);
   const uninstall = useHfModelStore((s) => s.uninstall);
-  const [serverStatus, setServerStatus] = React.useState<LayaServerStatus | null>(null);
-  const [serverBusy, setServerBusy] = React.useState(false);
-  const [serverError, setServerError] = React.useState<string | null>(null);
-
-  React.useEffect(() => {
-    if (!isTauri() || isNativeMobile() || providerId !== LAYA_PROVIDER_ID) return;
-    let mounted = true;
-    let unlisten: (() => void) | undefined;
-    void listen<LayaServerStatus>("laya://server-status", (event) => {
-      if (mounted) setServerStatus(event.payload);
-    })
-      .then((stopListening) => {
-        if (mounted) unlisten = stopListening;
-        else stopListening();
-      })
-      .catch(() => {});
-    void getLayaServerStatus().then((status) => {
-      if (mounted) setServerStatus(status);
-    }).catch(() => {});
-    return () => {
-      mounted = false;
-      unlisten?.();
-    };
-  }, [providerId]);
+  const {
+    status: serverStatus,
+    busy: serverBusy,
+    starting: serverStarting,
+    error: serverError,
+    supported: layaSupported,
+    start: startLaya,
+    stop: stopLaya,
+  } = useLayaServerStatus(providerId === LAYA_PROVIDER_ID);
 
   React.useEffect(() => {
     if (
@@ -111,9 +90,6 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
   const showFor =
     providerId === LAYA_PROVIDER_ID || providerId === LOCAL_DECISION_ENGINE_PROVIDER_ID;
   const typedDecisionInstalled = layaInstalls[0]?.record?.installed ?? false;
-  const serverStarting =
-    serverBusy ||
-    ["preparing-model", "installing-runtime", "starting"].includes(serverStatus?.phase ?? "");
 
   if (!showFor) return null;
 
@@ -127,7 +103,7 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
         </div>
       </div>
 
-      {providerId === LAYA_PROVIDER_ID && isTauri() && !isNativeMobile() ? (
+      {providerId === LAYA_PROVIDER_ID && layaSupported ? (
         <div className="space-y-1.5 rounded border border-border p-2">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
@@ -150,17 +126,7 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
               serverStatus.managed ? (
                 <button
                   type="button"
-                  onClick={async () => {
-                    setServerBusy(true);
-                    setServerError(null);
-                    try {
-                      setServerStatus(await stopLayaServer());
-                    } catch (error) {
-                      setServerError(error instanceof Error ? error.message : String(error));
-                    } finally {
-                      setServerBusy(false);
-                    }
-                  }}
+                  onClick={() => void stopLaya()}
                   disabled={serverBusy}
                   className="flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-muted/50 disabled:opacity-50"
                 >
@@ -171,25 +137,7 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
             ) : (
               <button
                 type="button"
-                onClick={async () => {
-                  setServerBusy(true);
-                  setServerError(null);
-                  try {
-                    const status = await startLayaServer();
-                    setServerStatus(status);
-                    updateSettingsCategory("daqe", {
-                      decisionModelProviderId: LAYA_PROVIDER_ID,
-                      decisionEngine: {
-                        baseUrl: status.endpoint,
-                        model: decisionEngine?.model ?? "",
-                      },
-                    });
-                  } catch (error) {
-                    setServerError(error instanceof Error ? error.message : String(error));
-                  } finally {
-                    setServerBusy(false);
-                  }
-                }}
+                onClick={() => void startLaya({ selectProvider: true })}
                 disabled={!typedDecisionInstalled || serverStarting}
                 className="flex shrink-0 items-center gap-1 rounded border border-border px-2 py-1 text-xs hover:bg-muted/50 disabled:opacity-50"
               >
@@ -203,6 +151,22 @@ export const DaqueDecisionModelDownload = React.memo(function DaqueDecisionModel
               {serverError ?? serverStatus?.detail}
             </p>
           ) : null}
+          <label className="flex items-start gap-2 pt-1 text-[11px] cursor-pointer">
+            <input
+              type="checkbox"
+              checked={autoStartLaya}
+              onChange={(e) =>
+                updateSettingsCategory("daqe", { autoStartLaya: e.target.checked })
+              }
+              className="mt-0.5 accent-primary"
+            />
+            <span>
+              <span className="font-medium">{t("daqeDownload.autoStartLaya")}</span>
+              <span className="block text-[10px] opacity-65">
+                {t("daqeDownload.autoStartLayaDesc")}
+              </span>
+            </span>
+          </label>
           <p className="text-xs opacity-60">{t("daqeDownload.layaServerNote")}</p>
         </div>
       ) : null}

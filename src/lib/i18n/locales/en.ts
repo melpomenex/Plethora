@@ -1472,6 +1472,8 @@ export const en: Dict = {
   "daqeDownload.startLaya": "Set up & start",
   "daqeDownload.layaStarting": "Starting…",
   "daqeDownload.stopLaya": "Stop Laya",
+  "daqeDownload.autoStartLaya": "Auto-launch Laya on startup",
+  "daqeDownload.autoStartLayaDesc": "Automatically start the local Laya server when Plethora opens.",
   "daqeDownload.layaServerNote": "First start installs an isolated Python runtime and Laya server. Plethora stops its server when you quit.",
   "daqeModel.keySave": "Save to keychain",
   "daqeModel.keySaving": "Saving\u2026",

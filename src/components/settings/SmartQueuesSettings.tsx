@@ -191,12 +191,15 @@ export function SmartQueuesSettings({
               onPresetSelect={handlePresetSelect}
               onScheduleRerank={rerank}
             />
-
-            <SettingsSearchTarget id="smartQueue.decisionModel" label="Decision model" className="pt-4 border-t border-border/50">
-              <DaqeDecisionModelSettings onProviderChange={rerank} />
-            </SettingsSearchTarget>
           </>
         ) : null}
+      </section>
+
+      {/* ── Decision model (shared by Queue ranking and Smart Feeds) ──────── */}
+      <section className="bg-card border border-border rounded-xl p-5">
+        <SettingsSearchTarget id="smartQueue.decisionModel" label={t("daqeModel.title")}>
+          <DaqeDecisionModelSettings onProviderChange={rerank} />
+        </SettingsSearchTarget>
       </section>
 
       {/* ── Auto-refresh ──────────────────────────────────────────────────── */}

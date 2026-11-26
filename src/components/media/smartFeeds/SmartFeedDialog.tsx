@@ -24,6 +24,7 @@ import type {
 import { useI18n } from "../../../lib/i18n";
 import { ensureCloudAiDisclosure } from "../../../lib/privacy/cloudAiDisclosure";
 import { cn } from "../../../utils";
+import { SmartFeedsDecisionModelControl } from "./SmartFeedsDecisionModelControl";
 
 interface SmartFeedStarterExample {
   key: string;
@@ -727,6 +728,8 @@ export function SmartFeedDialog({
                 {t("smartFeeds.lexicalFallbackNotice")}
               </p>
             )}
+
+            <SmartFeedsDecisionModelControl variant="inline" />
 
             {needsCloudConsent && (
               <div className="mt-2 rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 space-y-2">

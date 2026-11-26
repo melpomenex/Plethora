@@ -647,6 +647,8 @@ interface DaqeSettings {
   allowRemoteDecisionModel: boolean;
   /** Master switch for adaptive ranking. */
   rankingEnabled: boolean;
+  /** Automatically start the local Laya server when Plethora launches (desktop). */
+  autoStartLaya?: boolean;
   /** A user-installed local decision engine, when one is configured. */
   decisionEngine?: { baseUrl: string; model: string; timeoutMs?: number } | null;
   /**
@@ -1529,6 +1531,7 @@ export const defaultSettings: Settings = {
     allowRemoteDecisionModel: false,
     // Off until the user opts in: see DaqeSettings.rankingEnabled.
     rankingEnabled: false,
+    autoStartLaya: false,
     decisionEngine: null,
     sessionGoal: "",
     recentGoals: [],

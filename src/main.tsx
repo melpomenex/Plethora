@@ -125,7 +125,7 @@ import { HashRouter, Routes, Route } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ThemeProvider } from "./contexts/ThemeContext";
 import { initializePWA } from "./lib/pwa";
-import { invokeCommand, isTauri } from "./lib/tauri";
+import { invokeCommand, isNativeMobile, isTauri } from "./lib/tauri";
 import { afterLocalStartupReady } from "./lib/startupOptionalWork";
 import { GlobalAudioHost } from "./components/audio/GlobalAudioHost";
 import { logBuildFingerprint } from "./lib/buildDiagnostics";
@@ -370,6 +370,22 @@ if (isTauri()) {
       console.warn("[startup] Optional native services failed:", error);
     });
   });
+  if (!isNativeMobile()) {
+    afterLocalStartupReady(() => {
+      void import("./stores/settingsStore")
+        .then(async ({ useSettingsStore }) => {
+          const autoStart = useSettingsStore.getState().settings.daqe?.autoStartLaya;
+          if (!autoStart) return;
+          const { startLayaServer } = await import("./api/layaRuntime");
+          await startLayaServer();
+          const { useSmartFeedsStore } = await import("./stores/smartFeedsStore");
+          await useSmartFeedsStore.getState().loadCapabilities();
+        })
+        .catch((error) => {
+          console.warn("[startup] Laya auto-launch failed:", error);
+        });
+    });
+  }
   afterLocalStartupReady(() => {
     import("./stores/llmProvidersStore")
       .then(({ syncPrimaryProviderToNativeAI, useLLMProvidersStore }) =>

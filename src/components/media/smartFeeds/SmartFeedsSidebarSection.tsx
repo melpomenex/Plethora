@@ -3,6 +3,7 @@ import { ArrowsClockwise, Check, PencilSimple, Plus, Sparkle, Trash, X } from "@
 import type { SmartFeedProgress, SmartFeedWithStats } from "../../../api/rss-smart-feeds";
 import { useI18n } from "../../../lib/i18n";
 import { cn } from "../../../utils";
+import { SmartFeedsDecisionModelControl } from "./SmartFeedsDecisionModelControl";
 
 interface SmartFeedsSidebarSectionProps {
   smartFeeds: SmartFeedWithStats[];
@@ -35,15 +36,18 @@ export function SmartFeedsSidebarSection({
           <Sparkle className="w-3.5 h-3.5 text-primary shrink-0" weight="fill" aria-hidden="true" />
           <span className="truncate">{t("smartFeeds.sectionTitle")}</span>
         </span>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
-          title={t("smartFeeds.createAction")}
-          aria-label={t("smartFeeds.createAction")}
-        >
-          <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-        </button>
+        <div className="flex items-center gap-0.5 shrink-0">
+          <SmartFeedsDecisionModelControl variant="icon" />
+          <button
+            type="button"
+            onClick={onCreate}
+            className="p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+            title={t("smartFeeds.createAction")}
+            aria-label={t("smartFeeds.createAction")}
+          >
+            <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+          </button>
+        </div>
       </div>
 
       {smartFeeds.length === 0 ? (

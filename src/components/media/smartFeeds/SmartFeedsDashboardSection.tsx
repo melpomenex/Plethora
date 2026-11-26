@@ -2,6 +2,7 @@ import { ArrowsClockwise, PencilSimple, Plus, Sparkle, X } from "@phosphor-icons
 import { formatFeedDate } from "../../../api/rss";
 import type { SmartFeedProgress, SmartFeedWithStats } from "../../../api/rss-smart-feeds";
 import { useI18n } from "../../../lib/i18n";
+import { SmartFeedsDecisionModelControl } from "./SmartFeedsDecisionModelControl";
 
 export interface SmartFeedsDashboardSectionProps {
   smartFeeds: SmartFeedWithStats[];
@@ -36,14 +37,17 @@ export function SmartFeedsDashboardSection({
             {t("smartFeeds.dashboardSubtitle")}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onCreate}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-semibold transition-colors"
-        >
-          <Plus className="w-3.5 h-3.5" aria-hidden="true" />
-          {t("smartFeeds.createAction")}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <SmartFeedsDecisionModelControl variant="pill" />
+          <button
+            type="button"
+            onClick={onCreate}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 text-xs font-semibold transition-colors"
+          >
+            <Plus className="w-3.5 h-3.5" aria-hidden="true" />
+            {t("smartFeeds.createAction")}
+          </button>
+        </div>
       </div>
 
       {smartFeeds.length === 0 ? (

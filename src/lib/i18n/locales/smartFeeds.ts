@@ -117,6 +117,10 @@ export const smartFeedsEn: Record<string, string> = {
   "smartFeeds.toastMarkedExclude": "Marked article as not belonging to this Smart Feed.",
   "smartFeeds.feedbackUndone": "Feedback undone.",
   "smartFeeds.backToFeeds": "Back to feeds",
+  "smartFeeds.configureDecisionModel": "Configure decision model",
+  "smartFeeds.startLayaAction": "Start Laya",
+  "smartFeeds.layaStatusRunning": "Running",
+  "smartFeeds.layaStatusStopped": "Off",
 };
 
 export const smartFeedsDe: Record<string, string> = {
