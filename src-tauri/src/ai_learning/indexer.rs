@@ -1400,6 +1400,16 @@ fn format_safe_embedding_error(reason: &str) -> String {
         "Embedding failed: embedding request timed out".to_string()
     } else if lower.contains("connection refused") || lower.contains("connect error") {
         "Embedding failed: could not connect to embedding provider".to_string()
+    } else if lower.contains("not found")
+        || lower.contains("try pulling")
+        || lower.contains("404 not found")
+    {
+        "Embedding failed: embedding model not found (pull or download it first)".to_string()
+    } else if lower.contains("model_downloadable") || lower.contains("not downloaded") {
+        "Embedding failed: on-device embedding model is not downloaded".to_string()
+    } else if lower.contains("empty embedding") {
+        "Embedding failed: model returned an empty embedding (check that it supports embeddings)"
+            .to_string()
     } else {
         "Embedding backend could not complete the request".to_string()
     }
@@ -2184,6 +2194,12 @@ mod tests {
         .await
         .expect("read safe embedding error");
         assert_eq!(error, "Embedding backend could not complete the request");
+        assert_eq!(
+            format_safe_embedding_error(
+                "Ollama error 404 Not Found: {\"error\":\"model \\\"embeddinggemma-2\\\" not found, try pulling it first\"}"
+            ),
+            "Embedding failed: embedding model not found (pull or download it first)"
+        );
         let chunks: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM semantic_chunks WHERE document_id = 'embedding-failure'",
         )

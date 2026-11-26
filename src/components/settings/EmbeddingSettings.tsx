@@ -78,6 +78,23 @@ export function EmbeddingSettings() {
     ])
   );
 
+  const isOllamaModelInstalled = (model: string): boolean => {
+    const normalized = model.trim();
+    if (!normalized) return false;
+    return installedOllamaModels.some((installed) => {
+      if (installed === normalized) return true;
+      if (!normalized.includes(":") && installed === `${normalized}:latest`) return true;
+      return false;
+    });
+  };
+
+  const selectedOllamaModel = settings.ollamaModel ?? ollamaModels[0];
+  const showUnpulledOllamaWarning =
+    settings.provider === "ollama" &&
+    ollamaStatus === "connected" &&
+    Boolean(selectedOllamaModel) &&
+    !isOllamaModelInstalled(selectedOllamaModel);
+
   const providerOptions = [
     { value: "openai", label: t("embeddings.providerOpenai"), modelKey: "openaiModel" as const, models: ["text-embedding-3-small", "text-embedding-3-large", "text-embedding-ada-002"] },
     { value: "cohere", label: t("embeddings.providerCohere"), modelKey: "cohereModel" as const, models: ["embed-english-v3.0", "embed-multilingual-v3.0"] },
@@ -142,10 +159,23 @@ export function EmbeddingSettings() {
           >
             {activeProvider.models.map((m) => (
               <option key={m} value={m}>
-                {m}
+                {settings.provider === "ollama" &&
+                ollamaStatus === "connected" &&
+                !isOllamaModelInstalled(m)
+                  ? `${m} (not installed)`
+                  : m}
               </option>
             ))}
           </select>
+          {showUnpulledOllamaWarning && (
+            <p className="text-xs text-amber-600 dark:text-amber-400 flex items-start gap-1.5 pt-1">
+              <Warning className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+              <span>
+                Model <code className="font-mono">{selectedOllamaModel}</code> is not installed in Ollama. Run{" "}
+                <code className="font-mono">ollama pull {selectedOllamaModel}</code> or select an installed model.
+              </span>
+            </p>
+          )}
         </div>
 
         {settings.provider === "ollama" && (

@@ -93,4 +93,26 @@ describe("EmbeddingSettings", () => {
       expect(options).toContain("new-installed-model:latest");
     });
   });
+
+  it("warns when the selected Ollama model is not installed", async () => {
+    vi.mocked(aiApi.listOllamaModels).mockResolvedValueOnce(["nomic-embed-text:latest"]);
+
+    await act(async () => {
+      render(<EmbeddingSettings />);
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/is not installed in Ollama/i)).toBeTruthy();
+    });
+
+    const select = screen.getByRole("combobox");
+    const nomicOption = Array.from(select.querySelectorAll("option")).find(
+      (o) => o.value === "nomic-embed-text"
+    );
+    expect(nomicOption?.textContent).toBe("nomic-embed-text");
+    const gemmaOption = Array.from(select.querySelectorAll("option")).find(
+      (o) => o.value === "embeddinggemma-2"
+    );
+    expect(gemmaOption?.textContent).toBe("embeddinggemma-2 (not installed)");
+  });
 });
