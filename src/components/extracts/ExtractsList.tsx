@@ -34,6 +34,7 @@ import { EditableContentPalette } from "../common/EditableContentPalette";
 import { CompactTagEditor } from "../common/CompactTagEditor";
 import { CreateExtractDialog } from "./CreateExtractDialog";
 import { applyAnchoredTextHighlights, buildTextSelectionContext, type AnchoredTextHighlight } from "../../utils/textHighlights";
+import { matchesExtractSearch } from "../../utils/extractSearch";
 import { SubwayMinimap, SubwayMinimapIcon } from "../viewer/SubwayMinimap";
 import type { TextSelectionContext } from "../../types/selection";
 import type { ExtractSourceContext } from "../../types/extractNavigation";
@@ -42,6 +43,7 @@ interface ExtractsListProps {
   documentId: string;
   documentTitle?: string;
   focusedExtractId?: string;
+  searchQuery?: string;
   sourceContext?: ExtractSourceContext;
   onBackToSource?: () => void;
   onResumeQueue?: () => void;
@@ -106,6 +108,7 @@ export function ExtractsList({
   documentId,
   documentTitle,
   focusedExtractId,
+  searchQuery,
   sourceContext,
   onBackToSource,
   onResumeQueue,
@@ -344,8 +347,19 @@ export function ExtractsList({
     });
   };
 
+  const visibleExtracts = useMemo(() => {
+    const trimmed = searchQuery?.trim();
+    if (!trimmed) return extracts;
+    return extracts.filter((extract) =>
+      matchesExtractSearch(extract, trimmed, documentTitle),
+    );
+  }, [extracts, searchQuery, documentTitle]);
+
+  const allVisibleSelected =
+    visibleExtracts.length > 0 && visibleExtracts.every((e) => selectedIds.has(e.id));
+
   const selectAll = () => {
-    setSelectedIds(new Set(extracts.map(e => e.id)));
+    setSelectedIds(new Set(visibleExtracts.map(e => e.id)));
   };
 
   const clearSelection = () => {
@@ -484,7 +498,11 @@ export function ExtractsList({
 
       <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-2xl font-bold text-foreground">
-          {t("extracts.title")} ({extracts.length})
+          {t("extracts.title")} (
+          {searchQuery?.trim() && visibleExtracts.length !== extracts.length
+            ? `${visibleExtracts.length} / ${extracts.length}`
+            : visibleExtracts.length}
+          )
         </h2>
         <button
           type="button"
@@ -501,7 +519,7 @@ export function ExtractsList({
         <SubwayMinimap
           documentTitle={documentTitle || sourceContext?.sourceTitle || "Document"}
           activeExtractId={focusedExtractId}
-          extracts={extracts.map((ext) => ({
+          extracts={visibleExtracts.map((ext) => ({
             id: ext.id,
             title: ext.content.slice(0, 72) || "Untitled extract",
             stability: ext.memory_state?.stability,
@@ -596,23 +614,23 @@ export function ExtractsList({
       {/* Select All Header */}
       <div className="flex items-center gap-2 p-2 bg-muted/30 rounded-md">
         <button
-          onClick={selectedIds.size === extracts.length ? clearSelection : selectAll}
+          onClick={allVisibleSelected ? clearSelection : selectAll}
           className="p-2 hover:bg-muted rounded transition-colors"
-          title={selectedIds.size === extracts.length ? t("extracts.deselectAll") : t("extracts.selectAll")}
+          title={allVisibleSelected ? t("extracts.deselectAll") : t("extracts.selectAll")}
         >
-          {selectedIds.size === extracts.length ? (
+          {allVisibleSelected ? (
             <CheckSquare className="w-4 h-4 text-primary" />
           ) : (
             <Square className="w-4 h-4 text-muted-foreground" />
           )}
         </button>
         <span className="text-sm text-muted-foreground">
-          {selectedIds.size === extracts.length ? t("extracts.allSelected") : t("extracts.selectAll")}
+          {allVisibleSelected ? t("extracts.allSelected") : t("extracts.selectAll")}
         </span>
       </div>
 
       <div className="grid gap-4">
-        {extracts.map((extract) => (
+        {visibleExtracts.map((extract) => (
           <div
             key={extract.id}
             id={`extract-card-${extract.id}`}

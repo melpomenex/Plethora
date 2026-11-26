@@ -28,6 +28,7 @@ import {
   getRatingLabel,
 } from '../../api/video-extracts';
 import { useAllVideoExtracts, useCreateVideoExtract, useDeleteVideoExtract, useSetVideoExtractQueueMembership, useVideoExtractReviewCandidates } from '../../hooks/useVideoExtracts';
+import { matchesVideoExtractSearch } from '../../utils/extractSearch';
 import { useVideoExtractReview } from '../../hooks/useVideoExtractReview';
 import { useDocumentStore } from '../../stores/documentStore';
 import {
@@ -543,6 +544,7 @@ export function VideoExtractsList({
 
 interface VideoExtractLibraryListProps {
   collectionId?: string;
+  searchQuery?: string;
   onPlayExtract?: (extract: VideoExtract) => void;
   className?: string;
 }
@@ -550,6 +552,7 @@ interface VideoExtractLibraryListProps {
 /** Library-wide video extracts grouped by their source video. */
 export function VideoExtractLibraryList({
   collectionId,
+  searchQuery,
   onPlayExtract,
   className = '',
 }: VideoExtractLibraryListProps) {
@@ -562,8 +565,14 @@ export function VideoExtractLibraryList({
   const toast = useToast();
 
   const groups = useMemo(() => {
+    const trimmedQuery = searchQuery?.trim() ?? '';
     const byDocument = new Map<string, VideoExtract[]>();
     for (const extract of query.data ?? []) {
+      const doc = documents.find((candidate) => candidate.id === extract.document_id);
+      const resolvedTitle = doc?.title ?? extract.document_title ?? t('videoExtract.unknownSource');
+      if (trimmedQuery && !matchesVideoExtractSearch(extract, trimmedQuery, resolvedTitle)) {
+        continue;
+      }
       const list = byDocument.get(extract.document_id) ?? [];
       list.push(extract);
       byDocument.set(extract.document_id, list);
@@ -577,7 +586,7 @@ export function VideoExtractLibraryList({
         extracts,
       };
     });
-  }, [documents, query.data, t]);
+  }, [documents, query.data, searchQuery, t]);
 
   if (query.isLoading) {
     return <div className={`py-6 text-sm text-muted-foreground ${className}`}>{t('videoExtract.loadingExtracts')}</div>;

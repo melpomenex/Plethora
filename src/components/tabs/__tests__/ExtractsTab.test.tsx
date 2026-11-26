@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ExtractsTab } from "../ExtractsTab";
 import type { Extract } from "../../../api/extracts";
 
@@ -26,8 +26,8 @@ vi.mock("../../../stores/extractStore", () => ({
 // ExtractsList has its own tests; the tab only composes it per document group,
 // so stub it to keep this test focused on the tab's grouping and states.
 vi.mock("../../extracts/ExtractsList", () => ({
-  ExtractsList: ({ documentId }: { documentId: string }) => (
-    <div data-testid={`extracts-list-${documentId}`} />
+  ExtractsList: ({ documentId, searchQuery }: { documentId: string; searchQuery?: string }) => (
+    <div data-testid={`extracts-list-${documentId}`} data-search-query={searchQuery ?? ""} />
   ),
 }));
 
@@ -127,5 +127,71 @@ describe("ExtractsTab", () => {
     retry.click();
     // One call on mount, one on retry.
     expect(mockStore.loadExtracts).toHaveBeenCalledTimes(2);
+  });
+
+  it("filters document groups, passes searchQuery to ExtractsList, and supports clearing", () => {
+    mockStore.extracts = [
+      makeExtract("e1", "doc-a", {
+        page_title: "Compilers",
+        content: "Fortran was invented for scientific computing.",
+        tags: ["languages"],
+      }),
+      makeExtract("e2", "doc-b", {
+        page_title: "Biology",
+        content: "Mitochondria generate ATP.",
+        notes: "Cellular respiration",
+      }),
+    ];
+
+    render(<ExtractsTab />);
+
+    const searchInput = screen.getByRole("searchbox");
+    fireEvent.change(searchInput, { target: { value: "fortran languages" } });
+
+    expect(screen.getByTestId("extracts-list-doc-a")).toHaveAttribute(
+      "data-search-query",
+      "fortran languages",
+    );
+    expect(screen.queryByTestId("extracts-list-doc-b")).not.toBeInTheDocument();
+    expect(screen.getByText("Showing 1 of 2 extracts")).toBeInTheDocument();
+
+    // Clear via Escape key
+    fireEvent.keyDown(searchInput, { key: "Escape" });
+    expect(searchInput).toHaveValue("");
+    expect(screen.getByTestId("extracts-list-doc-a")).toBeInTheDocument();
+    expect(screen.getByTestId("extracts-list-doc-b")).toBeInTheDocument();
+  });
+
+  it("shows an empty search state with a clear button when no extracts match", () => {
+    mockStore.extracts = [
+      makeExtract("e1", "doc-a", {
+        page_title: "Compilers",
+        content: "Fortran was invented for scientific computing.",
+      }),
+    ];
+
+    render(<ExtractsTab />);
+
+    const searchInput = screen.getByRole("searchbox");
+    fireEvent.change(searchInput, { target: { value: "nonexistent-term" } });
+
+    expect(screen.getByText('No extracts match "nonexistent-term"')).toBeInTheDocument();
+    expect(screen.queryByTestId("extracts-list-doc-a")).not.toBeInTheDocument();
+
+    const clearButtons = screen.getAllByRole("button", { name: "Clear search" });
+    fireEvent.click(clearButtons[clearButtons.length - 1]);
+    expect(searchInput).toHaveValue("");
+    expect(screen.getByTestId("extracts-list-doc-a")).toBeInTheDocument();
+  });
+
+  it("focuses the search input when pressing '/' outside text inputs", () => {
+    mockStore.extracts = [makeExtract("e1", "doc-a", { page_title: "Compilers" })];
+    render(<ExtractsTab />);
+
+    const searchInput = screen.getByRole("searchbox");
+    expect(document.activeElement).not.toBe(searchInput);
+
+    fireEvent.keyDown(window, { key: "/" });
+    expect(document.activeElement).toBe(searchInput);
   });
 });
