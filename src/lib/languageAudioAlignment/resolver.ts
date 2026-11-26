@@ -40,16 +40,50 @@ export class AudioAlignmentRegistry {
   }
 }
 
+export interface ReplayOverrideOptions {
+  /**
+   * When true, an explicit user request may replay a stale candidate whose
+   * source/media fingerprint no longer matches (only the best candidate is
+   * considered). Defaults to false: stale media always falls back to TTS.
+   */
+  allowStale?: boolean;
+  /**
+   * When true, an explicit user request may replay the top candidate of an
+   * ambiguous set (near-equal confidence). Defaults to false: ambiguity
+   * always falls back to TTS.
+   */
+  allowAmbiguous?: boolean;
+}
+
 export async function replayOriginalFirst(input: {
   text: string;
   resolution: AlignmentResolveResult;
   playOriginal: (alignment: SentenceAudioAlignment) => void | Promise<void>;
   speakTts: (text: string) => void | Promise<void>;
-}): Promise<ReplayResult> {
+}, options: ReplayOverrideOptions = {}): Promise<ReplayResult> {
+  const { allowStale = false, allowAmbiguous = false } = options;
+  let candidate: SentenceAudioAlignment | undefined;
+  let overrideReason: string | undefined;
   if (input.resolution.kind === "original") {
+    candidate = input.resolution.alignment;
+  } else if (input.resolution.kind === "stale" && allowStale && input.resolution.alignment) {
+    candidate = input.resolution.alignment;
+    overrideReason = "stale-override";
+  } else if (input.resolution.kind === "ambiguous" && allowAmbiguous && input.resolution.candidates.length > 0) {
+    candidate = input.resolution.candidates[0]!;
+    overrideReason = "ambiguous-override";
+  }
+  if (candidate) {
     try {
-      await input.playOriginal(input.resolution.alignment);
-      return { kind: "original", mediaId: input.resolution.alignment.range.mediaId, startMs: input.resolution.alignment.range.startMs, endMs: input.resolution.alignment.range.endMs, text: input.text };
+      await input.playOriginal(candidate);
+      return {
+        kind: "original",
+        mediaId: candidate.range.mediaId,
+        startMs: candidate.range.startMs,
+        endMs: candidate.range.endMs,
+        text: input.text,
+        reason: overrideReason,
+      };
     } catch {
       // A stale/deleted media file is a playback failure, not a reason to
       // play a different sentence; TTS is the safe fallback.
