@@ -22,7 +22,8 @@ export function leaveVideoLanguageMode(session: VideoLanguageSession): VideoLang
 }
 
 export function supportsVideoLayout(layout: VideoLanguageLayout, reducedMotion: boolean): boolean {
-  return layout === "e-ink" || reducedMotion || layout !== "mobile";
+  if (layout === "e-ink") return false;
+  return layout !== "mobile" || reducedMotion;
 }
 
 export function subtitleModeLabel(mode: VideoSubtitleMode): string {

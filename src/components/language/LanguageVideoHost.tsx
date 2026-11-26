@@ -23,9 +23,9 @@ import { listLanguageLexicalEntries } from "../../api/languageLexicon";
 import type { LanguageKnowledgeState } from "../../types/languageKnowledge";
 import type { SourceAnchor } from "../../types/languageLexicon";
 import type { TranscriptSegment } from "../media/TranscriptSync";
-import { createVideoLanguageSession, currentVideoSentence, selectVideoSentence } from "../../lib/languageVideo";
+import { createVideoLanguageSession, currentVideoSentence, selectVideoSentence, supportsVideoLayout, type VideoLanguageLayout, type VideoSubtitleMode } from "../../lib/languageVideo";
 import { createTranslationService } from "../../lib/languageTranslation";
-import { replayOriginalFirst } from "../../lib/languageAudioAlignment";
+import { replayOriginalFirst, sharedAudioAlignmentRegistry } from "../../lib/languageAudioAlignment";
 import { useTTS } from "../../hooks/useTTS";
 import {
   createDefaultLanguageProcessingRegistry,
@@ -163,9 +163,11 @@ function LanguageVideoHostConnected({
   const [lexicon, setLexicon] = useState<LexiconStateIndex>(EMPTY_LEXICON);
   const [analysisStatus, setAnalysisStatus] = useState<"idle" | "loading" | "ready" | "failed">("idle");
   const [analysisRetry, setAnalysisRetry] = useState(0);
-  const [subtitleMode, setSubtitleMode] = useState<"target" | "base" | "dual">("target");
+  const [subtitleMode, setSubtitleMode] = useState<VideoSubtitleMode>("target");
   const [translation, setTranslation] = useState("");
   const [translationState, setTranslationState] = useState<"idle" | "pending" | "ready" | "offline">("idle");
+  const [translationRetry, setTranslationRetry] = useState(0);
+  const [translationRevealed, setTranslationRevealed] = useState(false);
   const [analyzedTokens, setAnalyzedTokens] = useState<SubtitleToken[] | null>(null);
   const [capturedFrame, setCapturedFrame] = useState<CapturedFrameState | null>(null);
   const [capturingFrame, setCapturingFrame] = useState(false);
@@ -178,6 +180,16 @@ function LanguageVideoHostConnected({
       setSpeedValue(playbackRate);
     }
   }, [playbackRate]);
+
+  const layout: VideoLanguageLayout =
+    typeof document !== "undefined" && document.documentElement?.dataset?.theme === "eink"
+      ? "e-ink"
+      : "desktop";
+  const reducedMotion =
+    typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-reduced-motion: reduce)").matches
+      : false;
+  const videoLayoutSupported = supportsVideoLayout(layout, reducedMotion);
 
   const session = useMemo(() => createVideoLanguageSession({
     sessionId: `${snapshot.hostId}:video-language`,
@@ -193,11 +205,11 @@ function LanguageVideoHostConnected({
       tokens: [],
     })),
     subtitleMode,
-    layout: "desktop",
-    normalMode: snapshot.status !== "ready",
+    layout,
+    normalMode: snapshot.status !== "ready" || !videoLayoutSupported,
     autoPause,
     loopCurrent,
-  }), [autoPause, loopCurrent, segments, snapshot.hostId, snapshot.profile?.id, snapshot.status, sourceFingerprint, subtitleMode, videoId]);
+  }), [autoPause, layout, loopCurrent, segments, snapshot.hostId, snapshot.profile?.id, snapshot.status, sourceFingerprint, subtitleMode, videoId, videoLayoutSupported]);
 
   const active = useMemo(() => {
     const candidate = session.sentences.find((sentence) => currentTime * 1000 >= sentence.startMs && currentTime * 1000 < sentence.endMs)
@@ -280,6 +292,7 @@ function LanguageVideoHostConnected({
   useEffect(() => {
     setSelectedToken(null);
     setCapturedFrame(null);
+    setTranslationRevealed(false);
   }, [active?.id]);
 
   // Tokenize and lemmatize the active sentence via the language processing registry.
@@ -329,7 +342,7 @@ function LanguageVideoHostConnected({
 
   useEffect(() => {
     translationAbortRef.current?.abort();
-    if (subtitleMode === "target" || !active || !snapshot.profile) {
+    if (subtitleMode === "target" || (subtitleMode === "hidden" && !translationRevealed) || !active || !snapshot.profile) {
       setTranslation("");
       setTranslationState("idle");
       return;
@@ -347,7 +360,7 @@ function LanguageVideoHostConnected({
       .then((result) => { if (!controller.signal.aborted) { setTranslation(result.translatedText); setTranslationState("ready"); } })
       .catch(() => { if (!controller.signal.aborted) { setTranslation(""); setTranslationState("offline"); } });
     return () => controller.abort();
-  }, [active, snapshot.profile, sourceFingerprint, subtitleMode, translationService]);
+  }, [active, snapshot.profile, sourceFingerprint, subtitleMode, translationRevealed, translationRetry, translationService]);
 
   // Loop & auto-pause boundary tracking across player clock updates.
   const prevTimeRef = useRef(currentTime);
@@ -513,27 +526,35 @@ function LanguageVideoHostConnected({
   const replayCurrent = () => {
     autoPausedSentenceRef.current = null;
     loopTriggeredSentenceRef.current = null;
+    const resolved = sharedAudioAlignmentRegistry.resolve({
+      sourceId: videoId,
+      sentenceId: active.id,
+      sourceFingerprint,
+    });
+    const resolution = resolved.kind === "original"
+      ? resolved
+      : {
+          kind: "original" as const,
+          tier: "exact" as const,
+          alignment: {
+            id: `${videoId}:${active.id}`,
+            profileId: snapshot.profile.id,
+            sourceType: "transcript" as const,
+            sourceId: videoId,
+            sentenceId: active.id,
+            sourceAnchor,
+            sourceFingerprint,
+            range: { mediaId: videoId, startMs: active.startMs, endMs: active.endMs, mediaFingerprint: sourceFingerprint },
+            confidence: 1,
+            method: "caption" as const,
+            status: "ready" as const,
+            updatedAt: Date.now(),
+          },
+        };
     void replayOriginalFirst({
       text: active.text,
-      resolution: {
-        kind: "original",
-        tier: "exact",
-        alignment: {
-          id: `${videoId}:${active.id}`,
-          profileId: snapshot.profile.id,
-          sourceType: "transcript",
-          sourceId: videoId,
-          sentenceId: active.id,
-          sourceAnchor,
-          sourceFingerprint,
-          range: { mediaId: videoId, startMs: active.startMs, endMs: active.endMs, mediaFingerprint: sourceFingerprint },
-          confidence: 1,
-          method: "caption",
-          status: "ready",
-          updatedAt: Date.now(),
-        },
-      },
-      playOriginal: () => onSeek(active.startMs / 1000, active.endMs / 1000),
+      resolution,
+      playOriginal: (alignment) => onSeek(alignment.range.startMs / 1000, alignment.range.endMs / 1000),
       speakTts: (text) => tts.speak(text),
     });
   };
@@ -651,14 +672,39 @@ function LanguageVideoHostConnected({
         </div>
       )}
 
+      {!videoLayoutSupported && (
+        <div className="mt-1 rounded-md border border-border bg-muted/40 px-2 py-1 text-[11px] text-muted-foreground" role="status">
+          Video playback synchronization is unavailable in e-ink mode; transcript and dictionary tools remain active.
+        </div>
+      )}
+
       {subtitleMode !== "target" && (
-        <p className="mt-1 text-[11px] text-muted-foreground" role="status">
-          {translationState === "pending"
-            ? "Translation loading…"
-            : translationState === "ready"
-              ? translation
-              : "Base translation unavailable offline."}
-        </p>
+        <div className="mt-1 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground" role="status">
+          {subtitleMode === "hidden" && !translationRevealed ? (
+            <button
+              type="button"
+              className="rounded border border-border px-2 py-0.5 text-foreground hover:bg-muted"
+              onClick={() => setTranslationRevealed(true)}
+            >
+              Reveal translation
+            </button>
+          ) : translationState === "pending" ? (
+            <span>Translation loading…</span>
+          ) : translationState === "ready" ? (
+            <span>{translation}</span>
+          ) : (
+            <>
+              <span>Base translation unavailable offline.</span>
+              <button
+                type="button"
+                className="rounded border border-border px-1.5 py-0.5 text-foreground hover:bg-muted"
+                onClick={() => setTranslationRetry((value) => value + 1)}
+              >
+                Retry
+              </button>
+            </>
+          )}
+        </div>
       )}
 
       {capturedFrame && (
@@ -778,6 +824,7 @@ function LanguageVideoHostConnected({
             <option value="target">Target</option>
             <option value="dual">Target + base</option>
             <option value="base">Base</option>
+            <option value="hidden">Hidden</option>
           </select>
         </label>
         {frameCaptureAvailable && onCaptureFrame ? (
