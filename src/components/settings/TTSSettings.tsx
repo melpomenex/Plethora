@@ -1811,11 +1811,12 @@ export function TTSSettings() {
 
       {/* Hands-Free Study Mode Section (openspec add-audio-editions-and-
           hands-free-study-mode, task 4.5) */}
-      <section className="space-y-4 rounded-xl border border-border bg-card p-5">
-        <div className="flex items-center justify-between gap-4">
-          <div>
-            <h4 className="text-base font-semibold text-foreground">
-              Hands-Free Study Mode
+      <SettingsSearchTarget id="tts.handsFreeStudy" label="Hands-Free Study Mode">
+        <section className="space-y-4 rounded-xl border border-border bg-card p-5">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <h4 className="text-base font-semibold text-foreground">
+                Hands-Free Study Mode
             </h4>
             <p className="text-sm text-muted-foreground">
               Capture extracts, bookmarks, and learning moments with ordinary
@@ -1969,6 +1970,7 @@ export function TTSSettings() {
           </label>
         </div>
       </section>
+      </SettingsSearchTarget>
 
       {/* Local TTS models from Hugging Face (requirement #19). Desktop-only:
           the sherpa-onnx TTS runtime surface lives in the desktop build. */}

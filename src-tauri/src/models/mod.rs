@@ -28,6 +28,7 @@ pub mod recording_session;
 pub mod rubric_grade;
 pub mod saved_queue;
 pub mod study_generation;
+pub mod study_mode;
 pub mod study_plan;
 pub mod study_plan_lesson;
 pub mod study_plan_research;

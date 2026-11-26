@@ -134,6 +134,7 @@ export interface StudyTrailItem {
 }
 
 export interface FormativeMultipleChoiceQuestion {
+  questionId?: string;
   question: string;
   options: string[];
   correctIndex: number;

@@ -36,6 +36,9 @@ export interface SubmitFormativeCheckInput {
   promptFormat: FormativePromptFormat;
   promptText: string;
   learnerResponse: string;
+  questionId?: string;
+  selectedIndex?: number;
+  submissionKey?: string;
   isCorrectChoice?: boolean;
   choiceExplanation?: string;
 }
@@ -47,6 +50,7 @@ export interface GenerateFormativeMcInput {
   nodeId: string;
   objectiveIndex: number;
   promptFormat: FormativePromptFormat;
+  reloadNonce?: number;
 }
 
 export interface OverrideTrailAssignmentInput {

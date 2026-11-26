@@ -1129,7 +1129,7 @@ async fn document_location_type(repo: &Repository, document_id: &str) -> String 
 /// Content-hash diff: delete stored chunks whose id is absent from the new
 /// set (orphans), insert new ids, and refresh ordinals/locations of retained
 /// chunks (cheap metadata UPDATE, never a re-embed).
-fn disambiguate_duplicate_chunk_ids(chunks: &[ChunkModel]) -> Vec<ChunkModel> {
+pub(crate) fn disambiguate_duplicate_chunk_ids(chunks: &[ChunkModel]) -> Vec<ChunkModel> {
     let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     chunks
         .iter()

@@ -959,6 +959,78 @@ export function LearningSettings() {
           </div>
         </div>
       </div>
+
+      {/* Study Mode (Optional AI-Augmented Learning) */}
+      <div className="p-6 bg-card border border-border rounded-lg space-y-4">
+        <SettingsSearchTarget id="learning.studyMode" label="Study Mode">
+          <h3 className="text-lg font-semibold text-foreground">Study Mode (Optional)</h3>
+        </SettingsSearchTarget>
+        <p className="text-sm text-muted-foreground">
+          Optional source-grounded explanations, formative checks, and multimodal study views. Ordinary reading remains the default.
+        </p>
+        <div className="space-y-3">
+          <SettingToggle
+            label="Show Study Mode entry points"
+            description="Display the Read/Study toggle and context menu actions for explicit activation."
+            checked={settings.studyMode?.showEntryPoints ?? true}
+            onChange={(checked) =>
+              updateSettings({
+                studyMode: { ...settings.studyMode, showEntryPoints: checked },
+              })
+            }
+          />
+          <SettingToggle
+            label="Remember last mode per source"
+            description="Restore Study Mode automatically when reopening a source where you previously activated it."
+            checked={settings.studyMode?.rememberModePerSource ?? false}
+            onChange={(checked) =>
+              updateSettings({
+                studyMode: { ...settings.studyMode, rememberModePerSource: checked },
+              })
+            }
+          />
+          <SettingToggle
+            label="Enable optional personalization"
+            description="Include bounded subject-specific learner preferences when generating explanations."
+            checked={settings.studyMode?.enablePersonalization ?? false}
+            onChange={(checked) =>
+              updateSettings({
+                studyMode: { ...settings.studyMode, enablePersonalization: checked },
+              })
+            }
+          />
+          <SettingToggle
+            label="Prefer local-only AI execution"
+            description="Restrict Study Mode generation to on-device or local providers when available."
+            checked={settings.studyMode?.localOnlyPreferred ?? false}
+            onChange={(checked) =>
+              updateSettings({
+                studyMode: { ...settings.studyMode, localOnlyPreferred: checked },
+              })
+            }
+          />
+          <SettingToggle
+            label="Cache verified Study Mode artifacts"
+            description="Reuse source-verified explanations, mind maps, and slides across sessions until the source changes."
+            checked={settings.studyMode?.enableCaching ?? true}
+            onChange={(checked) =>
+              updateSettings({
+                studyMode: { ...settings.studyMode, enableCaching: checked },
+              })
+            }
+          />
+          <SettingToggle
+            label="Opt-in learning efficacy measurement"
+            description="Record local anonymized comprehension and retention metrics to evaluate Study Mode."
+            checked={settings.studyMode?.enableEfficacyMeasurement ?? false}
+            onChange={(checked) =>
+              updateSettings({
+                studyMode: { ...settings.studyMode, enableEfficacyMeasurement: checked },
+              })
+            }
+          />
+        </div>
+      </div>
     </div>
   );
 }

@@ -1161,6 +1161,7 @@ export interface Settings {
   embedding: EmbeddingSettings;
   handsFreeStudy: HandsFreeStudySettings;
   languageLearning: LanguageLearningSettings;
+  studyMode: import("../types/studyMode").StudyModeSettings;
   sponsorBlock: SponsorBlockSettings;
   mediaPlayback: MediaPlaybackSettings;
   plethora?: PlethoraSettings;
@@ -1665,6 +1666,16 @@ export const defaultSettings: Settings = {
     suggestionsEnabled: true,
     showUnavailableProviders: true,
   },
+  studyMode: {
+    showEntryPoints: true,
+    rememberModePerSource: false,
+    enablePersonalization: false,
+    checkSuggestionMode: "manual",
+    questionFrequency: "section",
+    localOnlyPreferred: false,
+    enableCaching: true,
+    enableEfficacyMeasurement: false,
+  },
   sponsorBlock: defaultSponsorBlockSettings,
   mediaPlayback: {
     compatibilityMode: "automatic-inexpensive",
@@ -2158,6 +2169,10 @@ export const useSettingsStore = create<SettingsState>()(
           languageLearning: {
             ...defaultSettings.languageLearning,
             ...persisted.languageLearning,
+          },
+          studyMode: {
+            ...defaultSettings.studyMode,
+            ...persisted.studyMode,
           },
           plethora: {
             ...defaultSettings.plethora,

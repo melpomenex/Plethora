@@ -531,8 +531,21 @@ impl LearningEvidenceRepository {
                 false
             };
 
-            let unresolved_latest_misconception =
-                group_misconceptions.last().copied().unwrap_or(false);
+            // Align with TS evidenceAggregation.ts: a misconception remains unresolved unless
+            // a subsequent group achieves >= 0.8 without a misconception.
+            let mut unresolved_latest_misconception = false;
+            for (idx, has_misc) in group_misconceptions.iter().enumerate() {
+                if *has_misc {
+                    let resolved_later = group_scores
+                        .iter()
+                        .enumerate()
+                        .skip(idx + 1)
+                        .any(|(j, s)| *s >= 0.8 && !group_misconceptions.get(j).copied().unwrap_or(false));
+                    if !resolved_later {
+                        unresolved_latest_misconception = true;
+                    }
+                }
+            }
 
             let level = if independent_sessions < 2 || weight_sum == 0.0 || observed_mean.is_none()
             {

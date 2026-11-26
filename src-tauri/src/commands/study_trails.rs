@@ -65,6 +65,12 @@ pub struct SubmitFormativeCheckInput {
     pub prompt_text: String,
     pub learner_response: String,
     #[serde(default)]
+    pub question_id: Option<String>,
+    #[serde(default)]
+    pub selected_index: Option<i64>,
+    #[serde(default)]
+    pub submission_key: Option<String>,
+    #[serde(default)]
     pub is_correct_choice: Option<bool>,
     #[serde(default)]
     pub choice_explanation: Option<String>,
@@ -79,11 +85,15 @@ pub struct GenerateFormativeMcInput {
     pub node_id: String,
     pub objective_index: i64,
     pub prompt_format: FormativePromptFormat,
+    #[serde(default)]
+    pub reload_nonce: Option<u64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FormativeMultipleChoiceQuestion {
+    #[serde(default)]
+    pub question_id: Option<String>,
     pub question: String,
     pub options: Vec<String>,
     pub correct_index: usize,
@@ -586,6 +596,21 @@ pub async fn generate_study_trail_segments_core(
                 }
             }
         }
+        if let Some(arr) = scope.pointer("/selected/extractIds").and_then(|v| v.as_array()) {
+            for item in arr {
+                if let Some(extract_id) = item.as_str() {
+                    if let Ok(Some(doc_id)) = sqlx::query_scalar::<_, String>(
+                        "SELECT document_id FROM extracts WHERE id = ?1",
+                    )
+                    .bind(extract_id)
+                    .fetch_optional(repo.pool())
+                    .await
+                    {
+                        doc_ids.insert(doc_id);
+                    }
+                }
+            }
+        }
         if let Some(arr) = scope.get("resolvedDocuments").and_then(|v| v.as_array()) {
             for item in arr {
                 if let Some(id) = item.get("documentId").and_then(|v| v.as_str()) {
@@ -867,7 +892,43 @@ pub async fn submit_formative_check(
         .and_then(|i| i.segment_id.as_ref())
         .and_then(|sid| overview.segments.iter().find(|s| &s.id == sid));
 
-    let (outcome, feedback, recommended_segment_id) = match input.is_correct_choice {
+    let (outcome, feedback, recommended_segment_id) = if let Some(ref qid) = input.question_id {
+        let sub_key = input
+            .submission_key
+            .clone()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or_else(|| format!("fcr:{}:{}", input.trail_item_id, qid));
+        let graded = crate::database::study_mode_repository::StudyModeRepository::submit_formative_answer(
+            repo.pool(),
+            crate::models::study_mode::SubmitStudyFormativeAnswerInput {
+                submission_key: sub_key,
+                question_id: qid.clone(),
+                session_id: None,
+                selected_index: input.selected_index,
+                learner_response: Some(input.learner_response.clone()),
+                ai_rubric_score: None,
+                ai_feedback: None,
+                ai_misconception: None,
+                confidence: None,
+                used_hint: None,
+                record_evidence: Some(false),
+            },
+        )
+        .await
+        .map_err(|e| StudyCommandError::new(crate::models::study_source::StudyErrorCode::StorageFailed, e.to_string(), false))?;
+        let out = match graded.outcome.as_str() {
+            "understood" => FormativeCheckOutcome::Understood,
+            "partial" => FormativeCheckOutcome::Partial,
+            _ => FormativeCheckOutcome::NeedsReview,
+        };
+        let rec = if out == FormativeCheckOutcome::Understood {
+            None
+        } else {
+            segment.map(|s| s.id.clone())
+        };
+        (out, graded.feedback, rec)
+    } else {
+        match input.is_correct_choice {
         Some(true) => (
             FormativeCheckOutcome::Understood,
             input
@@ -892,7 +953,8 @@ pub async fn submit_formative_check(
             // Deterministic source-grounded evaluation of written learner response (never touches exam_grades or FSRS)
             let response_words: Vec<String> = input
                 .learner_response
-                .split_whitespace()
+                .split(|c: char| !c.is_alphanumeric())
+                .filter(|w| !w.is_empty())
                 .map(|w| w.to_ascii_lowercase())
                 .collect();
             let ref_keywords = segment
@@ -900,7 +962,7 @@ pub async fn submit_formative_check(
                 .unwrap_or_default();
             let overlap = ref_keywords
                 .iter()
-                .filter(|kw| response_words.iter().any(|w| w.contains(kw.as_str())))
+                .filter(|kw| response_words.iter().any(|w| w == kw.as_str()))
                 .count();
 
             if response_words.len() < 8 {
@@ -909,10 +971,16 @@ pub async fn submit_formative_check(
                     "Your response is quite brief. Try explaining the core idea and reasoning in your own words, or review the assigned section.".to_string(),
                     segment.map(|s| s.id.clone()),
                 )
-            } else if !ref_keywords.is_empty() && overlap == 0 {
+            } else if ref_keywords.is_empty() {
                 (
                     FormativeCheckOutcome::Partial,
-                    "You wrote a thoughtful response, though it doesn't yet connect to the key concepts in the assigned reading. Revisit the section to check how the author frames them.".to_string(),
+                    "Recorded your written response. Because no reference keywords were available for automated checking, compare your explanation directly against the source.".to_string(),
+                    segment.map(|s| s.id.clone()),
+                )
+            } else if overlap < 2 && !(ref_keywords.len() == 1 && overlap == 1) {
+                (
+                    FormativeCheckOutcome::Partial,
+                    "You wrote a thoughtful response, though it doesn't yet connect to enough of the key concepts in the assigned reading. Revisit the section to check how the author frames them.".to_string(),
                     segment.map(|s| s.id.clone()),
                 )
             } else {
@@ -922,6 +990,7 @@ pub async fn submit_formative_check(
                     None,
                 )
             }
+        }
         }
     };
 
@@ -982,6 +1051,7 @@ fn parse_formative_mc_json(raw: &str) -> Option<FormativeMultipleChoiceQuestion>
     }
 
     Some(FormativeMultipleChoiceQuestion {
+        question_id: None,
         question,
         options,
         correct_index,
@@ -1064,6 +1134,7 @@ fn build_deterministic_formative_mc(
     }
 
     FormativeMultipleChoiceQuestion {
+        question_id: None,
         question,
         options,
         correct_index,
@@ -1109,7 +1180,12 @@ pub async fn generate_formative_multiple_choice(
         .and_then(|i| i.segment_id.as_ref())
         .and_then(|sid| overview.segments.iter().find(|s| &s.id == sid));
 
-    let seed_key = format!("{}:{}", input.trail_item_id, input.prompt_format.as_str());
+    let seed_key = format!(
+        "{}:{}:{}",
+        input.trail_item_id,
+        input.prompt_format.as_str(),
+        input.reload_nonce.unwrap_or(0)
+    );
     let fallback = build_deterministic_formative_mc(
         node_title,
         objective_text,
@@ -1118,6 +1194,9 @@ pub async fn generate_formative_multiple_choice(
         input.prompt_format,
         &seed_key,
     );
+
+    // Helper closure-style block to persist generated question for authoritative grading
+    let mut selected_question = fallback.clone();
 
     // Check document privacy flags before sending passage text to a cloud LLM
     let (is_local_only, is_ai_excluded) = if let Some(seg) = segment {
@@ -1135,64 +1214,89 @@ pub async fn generate_formative_multiple_choice(
         (false, false)
     };
 
-    if is_ai_excluded {
-        return Ok(fallback);
-    }
+    if !is_ai_excluded {
+        let ai_config = ai_state.config.lock().ok().and_then(|g| g.clone());
+        if let Some(config) = ai_config {
+            let is_cloud = !matches!(
+                config.default_provider,
+                crate::ai::providers::LLMProviderType::Ollama
+            );
+            if !(is_local_only && is_cloud) {
+                if let Ok(provider) = crate::ai::AIProvider::from_config(
+                    config.default_provider,
+                    &config.api_keys,
+                    &config.models,
+                    &config.local_settings,
+                ) {
+                    if provider.is_available() {
+                        let passage_context = segment
+                            .map(|s| format!("Section: {}\nExcerpt: {}", s.title, s.excerpt_preview))
+                            .unwrap_or_else(|| format!("Topic: {}", node_title));
+                        let focus_hint = match input.prompt_format {
+                            FormativePromptFormat::ExplainOwnWords => "core definition and main idea",
+                            FormativePromptFormat::ApplyExample => "applying the concept to a concrete example",
+                            FormativePromptFormat::DistinguishConcepts => "distinguishing this concept from a related idea",
+                            FormativePromptFormat::ArgumentFromPremises => "how the conclusion follows from the passage's reasoning",
+                            FormativePromptFormat::IdentifyMisconception => "spotting a common misconception",
+                            FormativePromptFormat::SourceGroundedShortAnswer => "key reasoning from the passage",
+                        };
 
-    let ai_config = ai_state.config.lock().ok().and_then(|g| g.clone());
-    if let Some(config) = ai_config {
-        let is_cloud = !matches!(
-            config.default_provider,
-            crate::ai::providers::LLMProviderType::Ollama
-        );
-        if is_local_only && is_cloud {
-            return Ok(fallback);
-        }
+                        let system_prompt = "You create concise, fair, single-question multiple-choice comprehension checks grounded in a reading passage. Respond ONLY with valid JSON: {\"question\": string, \"options\": [string, string, string, string], \"correctIndex\": number (0-3), \"explanation\": string (1 concise sentence)}.";
+                        let user_prompt = format!(
+                            "Concept: {node_title}\nLearning Objective: {objective_text}\nQuestion Focus: {focus_hint}\n\nReading Context:\n{passage_context}\n\nWrite 1 clear multiple-choice question with 4 distinct options (one clearly correct, three plausible distractors)."
+                        );
 
-        if let Ok(provider) = crate::ai::AIProvider::from_config(
-            config.default_provider,
-            &config.api_keys,
-            &config.models,
-            &config.local_settings,
-        ) {
-            if provider.is_available() {
-                let passage_context = segment
-                    .map(|s| format!("Section: {}\nExcerpt: {}", s.title, s.excerpt_preview))
-                    .unwrap_or_else(|| format!("Topic: {}", node_title));
-                let focus_hint = match input.prompt_format {
-                    FormativePromptFormat::ExplainOwnWords => "core definition and main idea",
-                    FormativePromptFormat::ApplyExample => "applying the concept to a concrete example",
-                    FormativePromptFormat::DistinguishConcepts => "distinguishing this concept from a related idea",
-                    FormativePromptFormat::ArgumentFromPremises => "how the conclusion follows from the passage's reasoning",
-                    FormativePromptFormat::IdentifyMisconception => "spotting a common misconception",
-                    FormativePromptFormat::SourceGroundedShortAnswer => "key reasoning from the passage",
-                };
+                        let req = crate::ai::providers::ChatCompletionRequest {
+                            messages: vec![
+                                crate::ai::providers::Message::system(system_prompt),
+                                crate::ai::providers::Message::user(user_prompt),
+                            ],
+                            temperature: 0.3,
+                            max_tokens: 512,
+                            stream: false,
+                        };
 
-                let system_prompt = "You create concise, fair, single-question multiple-choice comprehension checks grounded in a reading passage. Respond ONLY with valid JSON: {\"question\": string, \"options\": [string, string, string, string], \"correctIndex\": number (0-3), \"explanation\": string (1 concise sentence)}.";
-                let user_prompt = format!(
-                    "Concept: {node_title}\nLearning Objective: {objective_text}\nQuestion Focus: {focus_hint}\n\nReading Context:\n{passage_context}\n\nWrite 1 clear multiple-choice question with 4 distinct options (one clearly correct, three plausible distractors)."
-                );
-
-                let req = crate::ai::providers::ChatCompletionRequest {
-                    messages: vec![
-                        crate::ai::providers::Message::system(system_prompt),
-                        crate::ai::providers::Message::user(user_prompt),
-                    ],
-                    temperature: 0.3,
-                    max_tokens: 512,
-                    stream: false,
-                };
-
-                if let Ok(resp) = provider.chat_completion(&req).await {
-                    if let Some(parsed) = parse_formative_mc_json(&resp.content) {
-                        return Ok(parsed);
+                        if let Ok(resp) = provider.chat_completion(&req).await {
+                            if let Some(parsed) = parse_formative_mc_json(&resp.content) {
+                                selected_question = parsed;
+                            }
+                        }
                     }
                 }
             }
         }
     }
 
-    Ok(fallback)
+    if let Ok(persisted) = crate::database::study_mode_repository::StudyModeRepository::create_formative_question(
+        repo.pool(),
+        crate::models::study_mode::CreateStudyFormativeQuestionInput {
+            id: None,
+            scope_key: format!("trail:{}", input.trail_item_id),
+            session_id: None,
+            segment_id: segment.map(|s| s.id.clone()),
+            concept_ids: vec![input.node_id.clone()],
+            objective_ids: vec![format!("{}:{}", input.node_id, input.objective_index)],
+            question_kind: "multiple_choice".to_string(),
+            prompt: selected_question.question.clone(),
+            options: Some(selected_question.options.clone()),
+            answer_key: serde_json::json!({
+                "correctIndex": selected_question.correct_index,
+                "explanation": selected_question.explanation,
+            }),
+            rubric: None,
+            difficulty: Some(2),
+            question_fingerprint: format!("trail:{}:{}", input.trail_item_id, seed_key),
+            source_refs: vec![],
+            knowledge_authority: "source-only".to_string(),
+            provenance: serde_json::json!({ "sourceMode": selected_question.source_mode }),
+        },
+    )
+    .await
+    {
+        selected_question.question_id = Some(persisted.id);
+    }
+
+    Ok(selected_question)
 }
 
 #[tauri::command]

@@ -487,7 +487,9 @@ impl StudySourceRepository {
                                     match build_rich_text_chunks(&super::Repository::new(self.pool.clone()), &ctx, &path, doc_html.as_deref())
                                         .await
                                     {
-                                        Some(chunks) => BookProjection::Rich(chunks),
+                                        Some(chunks) => BookProjection::Rich(
+                                            crate::ai_learning::indexer::disambiguate_duplicate_chunk_ids(&chunks),
+                                        ),
                                         None => {
                                             let text = doc_content.as_deref().unwrap_or_default();
                                             BookProjection::Plain(chunk_document(

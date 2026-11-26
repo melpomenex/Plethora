@@ -134,6 +134,11 @@ export const FormativeCheckDrawer: React.FC<FormativeCheckDrawerProps> = ({
           promptFormat: format,
           promptText: mcQuestion.question,
           learnerResponse: chosenOption,
+          questionId: mcQuestion.questionId,
+          selectedIndex,
+          submissionKey: mcQuestion.questionId
+            ? `fcr:${entry.item.id}:${mcQuestion.questionId}:${selectedIndex}`
+            : undefined,
           isCorrectChoice: isCorrect,
           choiceExplanation: mcQuestion.explanation,
         });

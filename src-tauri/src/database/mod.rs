@@ -34,6 +34,7 @@ pub mod repository;
 pub mod saved_queue_repository;
 pub mod session_analysis_repository;
 pub mod study_generation_repository;
+pub mod study_mode_repository;
 pub mod study_plan_lesson_repository;
 pub mod study_plan_repository;
 pub mod study_plan_research_repository;

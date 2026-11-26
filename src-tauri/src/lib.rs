@@ -40,6 +40,7 @@ pub mod models;
 mod notebooklm;
 mod notifications;
 mod ocr;
+pub mod study_mode;
 pub mod study_trail;
 // `pub` (visibility only, no behavior change) so the dev-only diagnostic bin
 // `src/bin/pdf-reflow-diag.rs` can call `pdf::analysis::analyze_page`
@@ -2884,6 +2885,20 @@ pub fn run() {
             commands::get_study_reading_chunks,
             commands::generate_study_trail_segments,
             commands::get_study_trail_overview,
+            commands::upsert_study_mode_session,
+            commands::get_study_mode_session,
+            commands::save_study_mode_artifact,
+            commands::list_study_mode_artifacts,
+            commands::mark_study_mode_artifacts_stale,
+            commands::dismiss_study_mode_artifact,
+            commands::delete_study_mode_artifacts_for_scope,
+            commands::upsert_study_learner_preference,
+            commands::list_study_learner_preferences,
+            commands::delete_study_learner_preference,
+            commands::create_study_formative_question,
+            commands::submit_study_formative_answer,
+            commands::verify_study_mode_artifact,
+            commands::record_study_efficacy_event,
             commands::update_study_trail_item_progress,
             commands::submit_formative_check,
             commands::generate_formative_multiple_choice,

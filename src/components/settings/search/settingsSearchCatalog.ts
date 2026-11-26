@@ -967,6 +967,16 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["postpone", "reviews", "skip"],
     targetId: "learning.postpone",
   },
+  {
+    id: "learning.studyMode",
+    kind: "group",
+    section: SettingsTab.Learning,
+    label: lit("Study Mode"),
+    description: lit("Optional AI-augmented learning mode, personalization, caching, and local-only preferences"),
+    aliases: [lit("study mode"), lit("ai study"), lit("personalization")],
+    keywords: ["study", "mode", "learn", "personalization", "formative", "efficacy"],
+    targetId: "learning.studyMode",
+  },
 
   /* ── Smart Queues ────────────────────────────────────────────────────── */
   {
@@ -1833,6 +1843,16 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["android", "models", "offline", "voice"],
     targetId: "tts.androidModels",
     availability: "android",
+  },
+  {
+    id: "tts.handsFreeStudy",
+    kind: "group",
+    section: SettingsTab.TTS,
+    label: lit("Hands-Free Study Mode"),
+    description: lit("Capture extracts and bookmarks with headphone controls while listening"),
+    aliases: [lit("hands free study"), lit("headphone capture")],
+    keywords: ["hands-free", "study", "headphone", "audio", "capture"],
+    targetId: "tts.handsFreeStudy",
   },
 
   /* ── Embeddings ──────────────────────────────────────────────────────── */

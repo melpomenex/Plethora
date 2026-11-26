@@ -6472,6 +6472,154 @@ pub const MIGRATIONS: &[Migration] = &[
             ON rss_article_passage_embeddings(provider, model, dimension);
         "#,
     ),
+    Migration::new(
+        "162_study_mode_foundation",
+        r#"
+        CREATE TABLE IF NOT EXISTS study_mode_sessions (
+            id TEXT PRIMARY KEY,
+            scope_kind TEXT NOT NULL CHECK(scope_kind IN ('standalone_document', 'standalone_selection', 'study_plan_topic', 'study_plan_segment')),
+            document_id TEXT REFERENCES documents(id) ON DELETE CASCADE,
+            study_plan_id TEXT REFERENCES study_plans(id) ON DELETE CASCADE,
+            plan_version_id TEXT,
+            topic_id TEXT,
+            segment_id TEXT,
+            source_revision TEXT NOT NULL DEFAULT '',
+            knowledge_authority TEXT NOT NULL DEFAULT 'source-only',
+            active_view TEXT NOT NULL DEFAULT 'learn',
+            last_locator_json TEXT,
+            status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'paused', 'completed', 'archived')),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_study_mode_sessions_doc
+            ON study_mode_sessions(document_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_study_mode_sessions_plan
+            ON study_mode_sessions(study_plan_id, plan_version_id, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS study_mode_artifacts (
+            id TEXT PRIMARY KEY,
+            session_id TEXT REFERENCES study_mode_sessions(id) ON DELETE CASCADE,
+            artifact_type TEXT NOT NULL,
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            scope_key TEXT NOT NULL,
+            source_ids_json TEXT NOT NULL DEFAULT '[]',
+            source_revision TEXT NOT NULL DEFAULT '',
+            anchors_json TEXT NOT NULL DEFAULT '[]',
+            segment_ids_json TEXT NOT NULL DEFAULT '[]',
+            concept_ids_json TEXT NOT NULL DEFAULT '[]',
+            objective_ids_json TEXT NOT NULL DEFAULT '[]',
+            plan_id TEXT,
+            plan_version_id TEXT,
+            preference_fingerprint TEXT NOT NULL DEFAULT '',
+            task_id TEXT NOT NULL,
+            task_version TEXT NOT NULL DEFAULT '1',
+            prompt_version TEXT NOT NULL DEFAULT '1',
+            provider_id TEXT,
+            model_id TEXT,
+            knowledge_authority TEXT NOT NULL DEFAULT 'source-only',
+            validation_status TEXT NOT NULL DEFAULT 'pending' CHECK(validation_status IN ('pending', 'verified', 'repaired', 'rejected', 'stale')),
+            quality_eval_json TEXT,
+            payload_json TEXT NOT NULL,
+            is_stale INTEGER NOT NULL DEFAULT 0,
+            is_locked INTEGER NOT NULL DEFAULT 0,
+            dismissed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_study_mode_artifacts_scope
+            ON study_mode_artifacts(scope_key, artifact_type, is_stale, dismissed);
+        CREATE INDEX IF NOT EXISTS idx_study_mode_artifacts_session
+            ON study_mode_artifacts(session_id, artifact_type);
+        "#,
+    ),
+    Migration::new(
+        "163_study_learner_preferences",
+        r#"
+        CREATE TABLE IF NOT EXISTS study_learner_preferences (
+            id TEXT PRIMARY KEY,
+            subject_key TEXT NOT NULL UNIQUE,
+            knowledge_level TEXT,
+            interests_json TEXT NOT NULL DEFAULT '[]',
+            familiar_domains_json TEXT NOT NULL DEFAULT '[]',
+            explanation_detail TEXT NOT NULL DEFAULT 'balanced',
+            vocabulary_tolerance TEXT NOT NULL DEFAULT 'standard',
+            explanation_language TEXT,
+            teaching_approach TEXT NOT NULL DEFAULT 'balanced',
+            example_preference TEXT NOT NULL DEFAULT 'everyday',
+            question_difficulty TEXT NOT NULL DEFAULT 'adaptive',
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    ),
+    Migration::new(
+        "164_study_formative_questions",
+        r#"
+        CREATE TABLE IF NOT EXISTS study_formative_questions (
+            id TEXT PRIMARY KEY,
+            revision INTEGER NOT NULL DEFAULT 1,
+            scope_key TEXT NOT NULL,
+            session_id TEXT REFERENCES study_mode_sessions(id) ON DELETE SET NULL,
+            segment_id TEXT,
+            concept_ids_json TEXT NOT NULL DEFAULT '[]',
+            objective_ids_json TEXT NOT NULL DEFAULT '[]',
+            question_kind TEXT NOT NULL,
+            prompt TEXT NOT NULL,
+            options_json TEXT,
+            answer_key_json TEXT NOT NULL,
+            rubric_json TEXT,
+            difficulty INTEGER NOT NULL DEFAULT 2,
+            question_fingerprint TEXT NOT NULL,
+            source_refs_json TEXT NOT NULL DEFAULT '[]',
+            knowledge_authority TEXT NOT NULL DEFAULT 'source-only',
+            provenance_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_study_formative_questions_scope
+            ON study_formative_questions(scope_key, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS study_formative_submissions (
+            id TEXT PRIMARY KEY,
+            submission_key TEXT NOT NULL UNIQUE,
+            question_id TEXT NOT NULL REFERENCES study_formative_questions(id) ON DELETE CASCADE,
+            question_revision INTEGER NOT NULL DEFAULT 1,
+            session_id TEXT REFERENCES study_mode_sessions(id) ON DELETE SET NULL,
+            selected_index INTEGER,
+            learner_response TEXT,
+            outcome TEXT NOT NULL CHECK(outcome IN ('understood', 'partial', 'needs_review')),
+            score REAL NOT NULL,
+            feedback TEXT NOT NULL,
+            misconception_detected TEXT,
+            grader_origin TEXT NOT NULL DEFAULT 'deterministic',
+            evidence_recorded INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_study_formative_submissions_question
+            ON study_formative_submissions(question_id, created_at DESC);
+        "#,
+    ),
+    Migration::new(
+        "165_study_efficacy_measurement",
+        r#"
+        CREATE TABLE IF NOT EXISTS study_efficacy_events (
+            id TEXT PRIMARY KEY,
+            session_id TEXT REFERENCES study_mode_sessions(id) ON DELETE SET NULL,
+            metric_kind TEXT NOT NULL,
+            concept_id TEXT,
+            score REAL,
+            latency_ms INTEGER,
+            cost_usd REAL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            recorded_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_study_efficacy_events_kind_time
+            ON study_efficacy_events(metric_kind, recorded_at DESC);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

@@ -1,5 +1,9 @@
 import { useResolvedThemeAppearance } from '../../themes/appearanceContext';
 import { paperReaderCss } from '../../themes/paperMaterialCss';
+import { createRetryableLazy } from "../../utils/retryableLazy";
+const StudyModeWorkspace = createRetryableLazy("StudyModeWorkspace", () =>
+  import("./StudyModeWorkspace").then((m) => ({ default: m.StudyModeWorkspace }))
+);
 import { RatingOrb } from "../review/RatingOrb";
 import type { VideoViewerContext } from "../../lib/ai/assistant/scopes";
 import { lazy as lazyTranslation, Suspense as TranslationSuspense } from "react";
@@ -108,7 +112,7 @@ import type { RecordingSession } from "../../types/recordingSession";
 import { getAudioEditionByDocument } from "../../api/audioEditions";
 import { formatTimeRange, getVideoExtract, type VideoExtract } from "../../api/video-extracts";
 
-const LearningStudio = lazy(() =>
+const LearningStudio = createRetryableLazy("LearningStudio", () =>
   import("../recording/LearningStudio").then((m) => ({ default: m.LearningStudio }))
 );
 import { ExtractsList } from "../extracts/ExtractsList";
@@ -807,6 +811,7 @@ export function DocumentViewer({
   const [isLoading, setIsLoading] = useState(true);
   const [, setPagesRendered] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(focusedExtractId ? "extracts" : initialViewMode ?? "document");
+  const [studyModeOpen, setStudyModeOpen] = useState(false);
   const [displayedDocumentId, setDisplayedDocumentId] = useState<string | null>(null);
   const isDocumentView = viewMode === "document";
   useEffect(() => {
@@ -8041,6 +8046,23 @@ export function DocumentViewer({
                   EXTRACT
                 </span>
               )}
+              {(settings.studyMode?.showEntryPoints ?? true) && (
+                <button
+                  type="button"
+                  onClick={() => setStudyModeOpen((prev) => !prev)}
+                  className={cn(
+                    "px-2 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1",
+                    studyModeOpen
+                      ? "bg-primary/15 text-primary ring-1 ring-primary/30"
+                      : "text-muted-foreground hover:text-foreground hover:bg-muted"
+                  )}
+                  title={studyModeOpen ? "Exit Study Mode" : "Study this document (Optional Study Mode)"}
+                  aria-pressed={studyModeOpen}
+                >
+                  <Lightbulb className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Study</span>
+                </button>
+              )}
             </div>
           )}
         </div>
@@ -9499,6 +9521,19 @@ export function DocumentViewer({
           isMobile={isMobileTouch}
           onOpenNotes={() => setViewMode("extracts")}
         />
+      )}
+      {!embedded && studyModeOpen && currentDocument && (
+        <div className="w-full md:w-[440px] lg:w-[480px] shrink-0 h-full overflow-hidden">
+          <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading Study Mode...</div>}>
+            <StudyModeWorkspace
+              documentId={currentDocument.id}
+              documentTitle={currentDocument.title}
+              sourceRevision={currentDocument.contentHash ?? currentDocument.dateModified ?? ""}
+              passageText={currentDocument.content ?? ""}
+              onExitStudyMode={() => setStudyModeOpen(false)}
+            />
+          </Suspense>
+        </div>
       )}
       </div>
 

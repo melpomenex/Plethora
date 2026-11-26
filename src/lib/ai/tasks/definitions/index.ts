@@ -20,3 +20,4 @@ export * from "./smartTaggingTask";
 export * from "./relationshipTask";
 export * from "./sessionSectionAnalysisTask";
 export * from "./sessionOverviewTask";
+export * from "./studyModeTasks";
