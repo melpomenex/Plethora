@@ -60,7 +60,7 @@ bench("language-audio-alignment/stale-miss-over-10000-sentence-transcript", () =
       mediaId: "audio",
       mediaFingerprint: "audio-v1",
     });
-    if (resolution.kind === "tts" || resolution.kind === "fallback") fold += 1;
+    if (resolution.kind !== "original") fold += 1;
   }
   sink ^= fold;
 });
