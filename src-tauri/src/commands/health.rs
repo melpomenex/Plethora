@@ -805,22 +805,28 @@ pub async fn health_delete_csv_mapping_profile(app: AppHandle, id: String) -> Re
 
 #[tauri::command]
 pub async fn health_pick_watched_folder(app: AppHandle) -> Result<Option<String>, String> {
-    if cfg!(any(target_os = "android", target_os = "ios")) {
+    #[cfg(any(target_os = "android", target_os = "ios"))]
+    {
+        let _ = app;
         return Err("Watched local folders are only available on desktop.".to_string());
     }
-    let (send, receive) = tokio::sync::oneshot::channel();
-    app.dialog().file().pick_folder(move |folder| {
-        let _ = send.send(folder);
-    });
-    let Some(folder) = receive
-        .await
-        .map_err(|_| "Could not open folder picker".to_string())?
-    else {
-        return Ok(None);
-    };
-    match folder {
-        FilePath::Path(p) => Ok(Some(p.to_string_lossy().into_owned())),
-        _ => Err("Folder path is not a local filesystem directory.".to_string()),
+
+    #[cfg(not(any(target_os = "android", target_os = "ios")))]
+    {
+        let (send, receive) = tokio::sync::oneshot::channel();
+        app.dialog().file().pick_folder(move |folder| {
+            let _ = send.send(folder);
+        });
+        let Some(folder) = receive
+            .await
+            .map_err(|_| "Could not open folder picker".to_string())?
+        else {
+            return Ok(None);
+        };
+        match folder {
+            FilePath::Path(p) => Ok(Some(p.to_string_lossy().into_owned())),
+            _ => Err("Folder path is not a local filesystem directory.".to_string()),
+        }
     }
 }
 
