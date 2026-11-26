@@ -131,7 +131,10 @@ EOF
   trap 'if [[ "$started_vite" == "1" ]]; then kill "$vite_pid" 2>/dev/null || true; fi' EXIT
 
   export TAURI_CLI_NO_DEV_SERVER_WAIT=true
-  export CARGO_BUILD_JOBS=1
+  # Use the shared memory-aware Cargo job policy instead of serializing the
+  # full dependency graph. Explicit CARGO_BUILD_JOBS values are preserved.
+  # shellcheck source=scripts/cargo-build-env.sh
+  source scripts/cargo-build-env.sh
   # Linux WebKitGTK/EGL stability defaults for dev sessions.
   if [[ "$(uname -s)" == "Linux" ]]; then
     # GPU policy is owned by src-tauri/src/graphics.rs (PLETHORA_GPU_MODE=auto is
