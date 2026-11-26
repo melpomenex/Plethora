@@ -1,10 +1,11 @@
-import { useCallback, useMemo, useState } from "react";
-import { ArrowClockwise, ChartBar, Check, ShieldWarning, SkipForward, X } from "@phosphor-icons/react";
+import { useCallback, useState } from "react";
+import { ArrowClockwise, ChartBar, Check, ShieldWarning, SkipForward, SpeakerHigh, X } from "@phosphor-icons/react";
 import { useLanguageProfileStore } from "../../../stores/languageProfileStore";
 import { useI18n } from "../../../lib/i18n";
 import { cn } from "../../../utils/cn";
 import {
   buildPlacementSession,
+  combineProfileEvidenceWithPlacement,
   stepAdaptiveItem,
   type PlacementResult,
   type PlacementSession,
@@ -46,6 +47,7 @@ export function LanguageAssessmentPanel() {
   const [textAnswer, setTextAnswer] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [showTranscriptHint, setShowTranscriptHint] = useState(false);
 
   const profileId = activeProfile?.id ?? null;
   const targetLanguage = activeProfile?.targetLanguage ?? null;
@@ -84,12 +86,14 @@ export function LanguageAssessmentPanel() {
               : { itemId: item.id, textResponse: textAnswer.trim() };
         const step = stepAdaptiveItem(session, response);
         if (step.isComplete) {
+          const combined = combineProfileEvidenceWithPlacement({}, step.estimate);
           setSession(step.session);
-          setResult(step.estimate);
+          setResult({ ...step.estimate, dimensions: combined.dimensions });
         } else {
           setSession(step.session);
           setSelectedOption(null);
           setTextAnswer("");
+          setShowTranscriptHint(false);
         }
       } catch (cause) {
         setError(cause instanceof Error ? cause.message : String(cause));
@@ -185,6 +189,39 @@ export function LanguageAssessmentPanel() {
             </span>
           </div>
 
+          {currentItem.dimension === "listeningComprehension" || currentItem.audioTranscriptHint ? (
+            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-stone-900/60 p-3 ring-1 ring-inset ring-stone-800">
+              <button
+                type="button"
+                onClick={() => {
+                  const text = currentItem.audioTranscriptHint ?? currentItem.contextPassage ?? currentItem.prompt;
+                  if (typeof window !== "undefined" && window.speechSynthesis && text) {
+                    const utterance = new SpeechSynthesisUtterance(text);
+                    utterance.lang = targetLanguage;
+                    window.speechSynthesis.cancel();
+                    window.speechSynthesis.speak(utterance);
+                  }
+                }}
+                className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600/20 px-3 py-1 text-xs font-medium text-emerald-300 ring-1 ring-inset ring-emerald-500/40 hover:bg-emerald-600/30"
+              >
+                <SpeakerHigh className="h-3.5 w-3.5" />
+                Play audio stimulus
+              </button>
+              {currentItem.audioTranscriptHint ? (
+                <button
+                  type="button"
+                  onClick={() => setShowTranscriptHint((prev) => !prev)}
+                  className="rounded-full bg-stone-800 px-3 py-1 text-xs text-stone-300 ring-1 ring-inset ring-stone-700 hover:bg-stone-700"
+                >
+                  {showTranscriptHint ? "Hide transcript hint" : "Show transcript hint"}
+                </button>
+              ) : null}
+              {showTranscriptHint && currentItem.audioTranscriptHint ? (
+                <p className="w-full text-xs text-stone-300">{currentItem.audioTranscriptHint}</p>
+              ) : null}
+            </div>
+          ) : null}
+
           {currentItem.contextPassage ? (
             <p className="mt-4 rounded-lg bg-stone-900/60 p-3 text-sm leading-relaxed text-stone-300 ring-1 ring-inset ring-stone-800">
               {currentItem.contextPassage}
@@ -192,6 +229,10 @@ export function LanguageAssessmentPanel() {
           ) : null}
 
           <p className="mt-4 text-sm text-stone-100">{currentItem.prompt}</p>
+
+          {currentItem.rubricHint ? (
+            <p className="mt-2 text-xs text-stone-400">{currentItem.rubricHint}</p>
+          ) : null}
 
           {currentItem.responseFormat === "multiple-choice" && currentItem.options ? (
             <div className="mt-3 space-y-2">

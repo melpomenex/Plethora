@@ -289,6 +289,7 @@ const DESTINATION_ICONS: Record<string, ReactNode> = {
   "import-needs-review": <Tag className="w-4 h-4" />,
   "web-browser": <Globe className="w-4 h-4" />,
   "study-plans": <GraduationCap className="w-4 h-4" />,
+  "language-learning": <Globe className="w-4 h-4" />,
 };
 
 /** Dispatch the app's canonical navigate event (resolved by MainLayout). */
@@ -999,6 +1000,7 @@ export const REGISTRY_COMMAND_EXCEPTIONS: Record<string, string> = {
   "go-import-needs-review": "Needs-review queue surface; reachable on every platform.",
   "go-web-browser": "In-app webview surface; platform-neutral.",
   "go-study-plans": "Study Plans destination; works across all supported platforms.",
+  "go-language-learning": "Language Learning destination; works across all supported platforms.",
   "create-study-plan": "Study Plan draft action; dispatches destination handoff without invoking a platform-exclusive native bridge.",
   "interface-zoom-in":
     "Desktop-only by construction: buildInterfaceZoomCommands returns [] unless isDesktopInterfaceZoomSupported() (desktop Tauri, macOS 11+).",

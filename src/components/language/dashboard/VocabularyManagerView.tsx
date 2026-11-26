@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Download, MagnifyingGlass, Trash, WarningCircle } from "@phosphor-icons/react";
 import { useLanguageProfileStore } from "../../../stores/languageProfileStore";
 import { useI18n } from "../../../lib/i18n";
@@ -7,6 +7,8 @@ import {
   deleteLanguageLexicalEntry,
   exportLanguageLexicon,
   listLanguageLexicalEntries,
+  listLanguageOccurrences,
+  listLanguageSurfaceForms,
   searchLanguageLexicalEntries,
 } from "../../../api/languageLexicon";
 import {
@@ -14,9 +16,8 @@ import {
   previewLanguageKnownWordImport,
   setLanguageKnowledgeStatesBatch,
 } from "../../../api/languageKnowledge";
-import type { LexiconPage } from "../../../types/languageLexicon";
+import type { LanguageLexicalEntry, LanguageOccurrence, LanguageSurfaceForm, LexiconPage } from "../../../types/languageLexicon";
 import type { LanguageKnowledgeState } from "../../../types/languageKnowledge";
-import type { LanguageLexicalEntry } from "../../../types/languageLexicon";
 import { createCanonicalTab } from "../../tabs/TabRegistry";
 import { useTabsStore } from "../../../stores";
 
@@ -51,6 +52,11 @@ export function VocabularyManagerView() {
   const [importText, setImportText] = useState("");
   const [importPreview, setImportPreview] = useState<{ added: number; existing: number } | null>(null);
   const [importBusy, setImportBusy] = useState(false);
+  const [groupByLemma, setGroupByLemma] = useState(false);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [entryDetails, setEntryDetails] = useState<
+    Record<string, { loading: boolean; surfaces: LanguageSurfaceForm[]; occurrences: LanguageOccurrence[] }>
+  >({});
 
   const profileId = activeProfile?.id ?? null;
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -63,17 +69,20 @@ export function VocabularyManagerView() {
       }
       setLoading(true);
       setError(null);
+      const activeQuery = (opts.query ?? query).trim();
+      const activeState = opts.state ?? stateFilter;
       const filter = {
         profileId,
-        query: (opts.query ?? query).trim() || undefined,
+        query: activeQuery || undefined,
         languageTag: activeProfile?.targetLanguage,
-        knowledgeState: opts.state === "all" ? undefined : opts.state,
+        knowledgeState: activeState === "all" ? undefined : activeState,
         offset,
         limit: PAGE_SIZE,
       };
-      const request = (opts.query ?? query).trim()
-        ? searchLanguageLexicalEntries(filter)
-        : listLanguageLexicalEntries(profileId, { languageTag: filter.languageTag, offset, limit: PAGE_SIZE });
+      const request =
+        activeQuery || activeState !== "all"
+          ? searchLanguageLexicalEntries(filter)
+          : listLanguageLexicalEntries(profileId, { languageTag: filter.languageTag, offset, limit: PAGE_SIZE });
       request
         .then((result) => {
           setPage((prev) => (opts.replace || !prev ? result : { ...result, items: [...prev.items, ...result.items] }));
@@ -81,7 +90,7 @@ export function VocabularyManagerView() {
         .catch((cause) => setError(cause instanceof Error ? cause.message : String(cause)))
         .finally(() => setLoading(false));
     },
-    [profileId, query, activeProfile?.targetLanguage],
+    [profileId, query, stateFilter, activeProfile?.targetLanguage],
   );
 
   useEffect(() => {
@@ -221,12 +230,53 @@ export function VocabularyManagerView() {
     }
   }, [profileId, importText, importPreview, load]);
 
-  const openSource = useCallback(() => {
+  const openSource = useCallback((documentId?: string) => {
     useTabsStore.getState().addTab(createCanonicalTab("documents"), undefined, "bootstrap");
-    window.dispatchEvent(new CustomEvent("navigate", { detail: "/documents" }));
+    const target = documentId ? `/documents?id=${encodeURIComponent(documentId)}` : "/documents";
+    window.dispatchEvent(new CustomEvent("navigate", { detail: target }));
   }, []);
 
-  const items = page?.items ?? [];
+  const toggleExpandEntry = useCallback(
+    async (entryId: string) => {
+      if (expandedId === entryId) {
+        setExpandedId(null);
+        return;
+      }
+      setExpandedId(entryId);
+      if (!profileId || entryDetails[entryId]) return;
+      setEntryDetails((prev) => ({
+        ...prev,
+        [entryId]: { loading: true, surfaces: [], occurrences: [] },
+      }));
+      try {
+        const [surfacePage, occurrencePage] = await Promise.all([
+          listLanguageSurfaceForms(profileId, { entryId, limit: 20 }),
+          listLanguageOccurrences(profileId, { entryId, limit: 10 }),
+        ]);
+        setEntryDetails((prev) => ({
+          ...prev,
+          [entryId]: {
+            loading: false,
+            surfaces: surfacePage.items ?? [],
+            occurrences: occurrencePage.items ?? [],
+          },
+        }));
+      } catch {
+        setEntryDetails((prev) => ({
+          ...prev,
+          [entryId]: { loading: false, surfaces: [], occurrences: [] },
+        }));
+      }
+    },
+    [expandedId, profileId, entryDetails],
+  );
+
+  const rawItems = page?.items ?? [];
+  const items = groupByLemma
+    ? [...rawItems].sort((a, b) =>
+        (a.lemma || a.canonicalForm || a.normalizedForm).localeCompare(b.lemma || b.canonicalForm || b.normalizedForm),
+      )
+    : rawItems;
   const allSelected = items.length > 0 && items.every((item) => selected.has(item.id));
 
   return (
@@ -242,6 +292,9 @@ export function VocabularyManagerView() {
             className="w-full rounded-lg bg-stone-800 py-2 pl-9 pr-3 text-sm text-stone-100 ring-1 ring-inset ring-stone-700 placeholder:text-stone-500 focus:outline-none focus:ring-emerald-500"
           />
         </div>
+        <button type="button" onClick={() => setGroupByLemma((prev) => !prev)} className={cn("rounded-lg px-3 py-2 text-sm font-medium ring-1 ring-inset", groupByLemma ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40" : "bg-stone-800 text-stone-200 ring-stone-700 hover:bg-stone-700")}>
+          {t("languageLearning.vocabulary.lemma")}
+        </button>
         <button type="button" onClick={() => setImportOpen(true)} className="rounded-lg bg-stone-800 px-3 py-2 text-sm font-medium text-stone-200 ring-1 ring-inset ring-stone-700 hover:bg-stone-700">
           {t("languageLearning.vocabulary.import")}
         </button>
@@ -280,7 +333,7 @@ export function VocabularyManagerView() {
       {selected.size > 0 ? (
         <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-stone-800/60 p-3 ring-1 ring-inset ring-stone-700/60">
           <span className="text-sm text-stone-300">{t("languageLearning.vocabulary.selectedCount", { count: String(selected.size) })}</span>
-          {STATE_FILTERS.filter((state) => state !== "ignored").map((state) => (
+          {STATE_FILTERS.map((state) => (
             <button
               key={state}
               type="button"
@@ -332,38 +385,110 @@ export function VocabularyManagerView() {
             </tr>
           </thead>
           <tbody className="divide-y divide-stone-800/70 bg-stone-900/40">
-            {items.map((item) => (
-              <tr key={item.id} className={cn("hover:bg-stone-800/40", selected.has(item.id) && "bg-emerald-500/5")}>
-                <td className="px-3 py-2">
-                  <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} className="h-4 w-4 accent-emerald-500" />
-                </td>
-                <td className="px-3 py-2 font-medium text-stone-100">{item.canonicalForm || item.normalizedForm}</td>
-                <td className="px-3 py-2 text-stone-400">{item.lemma ?? "—"}</td>
-                <td className="hidden px-3 py-2 text-stone-400 sm:table-cell">{item.partOfSpeech ?? "—"}</td>
-                <td className="px-3 py-2">
-                  <select
-                    value={item.knowledgeState ?? "new"}
-                    disabled={applying}
-                    onChange={(event) => void applyStateToEntry(item.id, event.target.value as LanguageKnowledgeState)}
-                    className="rounded-md bg-stone-800 px-2 py-1 text-xs text-stone-200 ring-1 ring-inset ring-stone-700 focus:outline-none focus:ring-emerald-500"
-                  >
-                    {STATE_FILTERS.filter((state) => state !== "ignored").map((state) => (
-                      <option key={state} value={state}>{t(`languageLearning.knowledgeState.${state}`)}</option>
-                    ))}
-                  </select>
-                </td>
-                <td className="hidden px-3 py-2 text-stone-400 md:table-cell">{formatCount(item.encounterCount)}</td>
-                <td className="px-3 py-2">
-                  <div className="flex flex-wrap gap-1">
-                    {item.documentCount > 0 ? (
-                      <button type="button" onClick={openSource} className="text-xs text-emerald-400 hover:underline">
-                        {t("languageLearning.vocabulary.source")}
+            {items.map((item) => {
+              const isExpanded = expandedId === item.id;
+              const detail = entryDetails[item.id];
+              const isIgnored = item.knowledgeState === "ignored" || item.ignored;
+              const definitions = item.meanings?.length ? item.meanings : item.translations;
+              const linkedCards = Object.keys(item.reviewRelationships ?? {});
+              return (
+                <Fragment key={item.id}>
+                  <tr className={cn("hover:bg-stone-800/40", selected.has(item.id) && "bg-emerald-500/5")}>
+                    <td className="px-3 py-2">
+                      <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} className="h-4 w-4 accent-emerald-500" />
+                    </td>
+                    <td className="px-3 py-2">
+                      <button
+                        type="button"
+                        onClick={() => void toggleExpandEntry(item.id)}
+                        className="text-left font-medium text-stone-100 hover:text-emerald-300"
+                      >
+                        {item.canonicalForm || item.normalizedForm}
                       </button>
-                    ) : null}
-                  </div>
-                </td>
-              </tr>
-            ))}
+                      {definitions?.length ? (
+                        <div className="truncate text-xs text-stone-400 max-w-[220px]">{definitions.slice(0, 2).join("; ")}</div>
+                      ) : null}
+                    </td>
+                    <td className="px-3 py-2 text-stone-400">{item.lemma ?? "—"}</td>
+                    <td className="hidden px-3 py-2 text-stone-400 sm:table-cell">{item.partOfSpeech ?? "—"}</td>
+                    <td className="px-3 py-2">
+                      <select
+                        value={item.knowledgeState ?? (item.ignored ? "ignored" : "new")}
+                        disabled={applying}
+                        onChange={(event) => void applyStateToEntry(item.id, event.target.value as LanguageKnowledgeState)}
+                        className="rounded-md bg-stone-800 px-2 py-1 text-xs text-stone-200 ring-1 ring-inset ring-stone-700 focus:outline-none focus:ring-emerald-500"
+                      >
+                        {STATE_FILTERS.map((state) => (
+                          <option key={state} value={state}>{t(`languageLearning.knowledgeState.${state}`)}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="hidden px-3 py-2 text-stone-400 md:table-cell">{formatCount(item.encounterCount)}</td>
+                    <td className="px-3 py-2">
+                      <div className="flex flex-wrap gap-1.5">
+                        {isIgnored ? (
+                          <button type="button" disabled={applying} onClick={() => void applyStateToEntry(item.id, "learning")} className="text-xs text-amber-300 hover:underline">
+                            Restore
+                          </button>
+                        ) : null}
+                        {item.documentCount > 0 ? (
+                          <button type="button" onClick={() => openSource()} className="text-xs text-emerald-400 hover:underline">
+                            {t("languageLearning.vocabulary.source")}
+                          </button>
+                        ) : null}
+                      </div>
+                    </td>
+                  </tr>
+                  {isExpanded ? (
+                    <tr key={`${item.id}-details`} className="bg-stone-950/60">
+                      <td colSpan={7} className="px-4 py-3 text-xs text-stone-300">
+                        {detail?.loading ? (
+                          <span className="text-stone-400">{t("languageLearning.loading")}</span>
+                        ) : (
+                          <div className="space-y-2">
+                            {definitions?.length ? (
+                              <div>
+                                <span className="font-medium text-stone-400">Meanings: </span>
+                                {definitions.join("; ")}
+                              </div>
+                            ) : null}
+                            {detail?.surfaces?.length ? (
+                              <div>
+                                <span className="font-medium text-stone-400">Surface forms: </span>
+                                {detail.surfaces.map((s) => `${s.surface} (${s.occurrenceCount})`).join(", ")}
+                              </div>
+                            ) : null}
+                            {linkedCards.length > 0 ? (
+                              <div>
+                                <span className="font-medium text-stone-400">Linked flashcards: </span>
+                                {linkedCards.length}
+                              </div>
+                            ) : null}
+                            {detail?.occurrences?.length ? (
+                              <div className="space-y-1">
+                                <div className="font-medium text-stone-400">Occurrences:</div>
+                                {detail.occurrences.map((occ) => (
+                                  <div key={occ.id} className="flex items-center justify-between gap-2 rounded bg-stone-900/70 px-2 py-1">
+                                    <span className="truncate text-stone-300">{occ.contextText || occ.surface}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => openSource(occ.documentId)}
+                                      className="shrink-0 text-emerald-400 hover:underline"
+                                    >
+                                      {t("languageLearning.vocabulary.source")}
+                                    </button>
+                                  </div>
+                                ))}
+                              </div>
+                            ) : null}
+                          </div>
+                        )}
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
+              );
+            })}
             {items.length === 0 && !loading ? (
               <tr>
                 <td colSpan={7} className="px-3 py-6 text-center text-sm text-stone-500">
