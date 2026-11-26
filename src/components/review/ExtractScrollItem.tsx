@@ -41,6 +41,8 @@ import { SESSION_CHROME_BOUNDS } from "../queue/SessionChromeHeader";
 import { isEditableEventTarget } from "../queue/EndOfItemTriageBar";
 import { useUIStore } from "../../stores/uiStore";
 import { useDocumentStore } from "../../stores/documentStore";
+import { extractDocumentText, getDocument } from "../../api/documents";
+import { loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
 import { GhostContextPeek } from "./GhostContextPeek";
 import { renderMarkdown } from "../../utils/markdown";
 import { useBreakoutOverlay } from "../viewer/BreakoutOverlayModal";
@@ -117,7 +119,14 @@ export function ExtractScrollItem({
     const storeParentContent = useDocumentStore(
         (s) => s.documents.find((d) => d.id === extract.document_id)?.content
     );
-    const resolvedParentContent = parentContent !== undefined ? parentContent : storeParentContent;
+    const [fetchedParentByDocId, setFetchedParentByDocId] = useState<Record<string, string>>({});
+    const [isLoadingParentContent, setIsLoadingParentContent] = useState(false);
+    const resolvedParentContent =
+        parentContent !== undefined
+            ? parentContent
+            : (storeParentContent && storeParentContent.trim()
+                ? storeParentContent
+                : fetchedParentByDocId[extract.document_id]);
     const [isPeekingContext, setIsPeekingContext] = useState(false);
     const overscrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     // Opt-in: progressive summaries are never generated (or shown) unless the
@@ -272,6 +281,42 @@ export function ExtractScrollItem({
             }
         };
     }, []);
+
+    // Lazily hydrate parent document content when peeking if the store only holds a summary
+    useEffect(() => {
+        if (!isPeekingContext) return;
+        if (parentContent !== undefined) return;
+        if (storeParentContent && storeParentContent.trim()) return;
+        if (!extract.document_id) return;
+        if (Object.prototype.hasOwnProperty.call(fetchedParentByDocId, extract.document_id)) return;
+
+        let cancelled = false;
+        setIsLoadingParentContent(true);
+        loadDocumentQaText(extract.document_id, { getDocument, extractDocumentText })
+            .then((text) => {
+                if (cancelled) return;
+                setFetchedParentByDocId((prev) => ({
+                    ...prev,
+                    [extract.document_id]: text,
+                }));
+            })
+            .catch(() => {
+                if (cancelled) return;
+                setFetchedParentByDocId((prev) => ({
+                    ...prev,
+                    [extract.document_id]: "",
+                }));
+            })
+            .finally(() => {
+                if (!cancelled) {
+                    setIsLoadingParentContent(false);
+                }
+            });
+
+        return () => {
+            cancelled = true;
+        };
+    }, [isPeekingContext, parentContent, storeParentContent, extract.document_id, fetchedParentByDocId]);
 
     useEffect(() => {
         const imagesKey = attachedImages.map((i) => i.src).join("|");
@@ -605,6 +650,8 @@ export function ExtractScrollItem({
                     documentTitle={documentTitle}
                     parentContent={resolvedParentContent}
                     extractText={content}
+                    selectionContext={extract.selection_context}
+                    isLoading={isLoadingParentContent}
                 />
 
                 {/* Content Editor / Progressive Disclosure */}
