@@ -1,15 +1,32 @@
-import { useEffect, useState, type FormEvent, type ReactNode } from "react";
-import { ArrowDown, ArrowUp, DeviceMobile, Heartbeat } from "@phosphor-icons/react";
+import { lazy, Suspense, useEffect, useState, type FormEvent, type ReactNode } from "react";
+import { ArrowDown, ArrowUp, DeviceMobile, FileArrowUp, Heartbeat, Question } from "@phosphor-icons/react";
 import { healthApi } from "../../api/health";
 import { isTauri, listen } from "../../lib/tauri";
 import { useHealthStore } from "../../stores/healthStore";
-import type { HealthConnection, HealthConsentRecord, HealthDataCategory, HealthImportFormat, HealthProviderInfo, HealthProviderId, HealthSourcePreference } from "../../types/health";
+import type {
+  HealthConnection,
+  HealthConsentRecord,
+  HealthDataCategory,
+  HealthProviderInfo,
+  HealthProviderId,
+  HealthSourcePreference,
+  ImportBatchSummary,
+  ProviderExportGuide,
+  WatchedImportFolder,
+} from "../../types/health";
 import { Button } from "../md3/Button";
 import { SettingsSearchTarget } from "../settings/search/SettingsSearchNavigation";
 import { HealthDialog } from "./HealthDialog";
 import { ManualSleepDialog } from "./ManualSleepDialog";
 import { healthError } from "./healthFormat";
 import "./health.css";
+
+const UniversalWearableImportDialog = lazy(() =>
+  import("./UniversalWearableImportDialog").then((m) => ({ default: m.UniversalWearableImportDialog })),
+);
+const ExportInstructionsModal = lazy(() =>
+  import("./ExportInstructionsModal").then((m) => ({ default: m.ExportInstructionsModal })),
+);
 
 const categories: Record<HealthDataCategory, string> = {
   sleep: "Sleep times", sleep_stages: "Sleep stages", heart_rate: "Heart rate",
@@ -34,8 +51,11 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   return <section className="health-section"><h3>{title}</h3>{children}</section>;
 }
 
-type ConfirmDialog = { kind: "wipe" } | { kind: "disconnect" | "eraseProvider"; provider: HealthProviderInfo };
+type ConfirmDialog = { kind: "wipe" } | { kind: "disconnect" | "eraseProvider"; provider: HealthProviderInfo }
+  | { kind: "deleteBatch"; batch: ImportBatchSummary };
 type DialogState = { kind: "manual" | "importEncrypted" | "exportEncrypted" }
+  | { kind: "universalImport"; providerHint?: HealthProviderId | null }
+  | { kind: "exportGuide"; providerId?: HealthProviderId | null }
   | { kind: "connect"; provider: HealthProviderInfo }
   | ConfirmDialog;
 
@@ -47,6 +67,9 @@ export function DataSourcesPanel({ settings = false }: { settings?: boolean }) {
   const [connections, setConnections] = useState<HealthConnection[]>([]);
   const [preferences, setPreferences] = useState<HealthSourcePreference[]>([]);
   const [receipts, setReceipts] = useState<HealthConsentRecord[]>([]);
+  const [batches, setBatches] = useState<ImportBatchSummary[]>([]);
+  const [guides, setGuides] = useState<ProviderExportGuide[]>([]);
+  const [watchedFolders, setWatchedFolders] = useState<WatchedImportFolder[]>([]);
   const [dialog, setDialog] = useState<DialogState | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -56,13 +79,24 @@ export function DataSourcesPanel({ settings = false }: { settings?: boolean }) {
   useEffect(() => {
     if (!isTauri()) return;
     let active = true;
-    Promise.all([healthApi.listProviders(), healthApi.getConnections(), healthApi.getSourcePreferences(), healthApi.getConsentLog()])
-      .then(([catalog, links, order, log]) => {
+    Promise.all([
+      healthApi.listProviders(),
+      healthApi.getConnections(),
+      healthApi.getSourcePreferences(),
+      healthApi.getConsentLog(),
+      healthApi.listImportBatches?.(25)?.catch(() => []) ?? Promise.resolve([]),
+      healthApi.getProviderExportGuides?.()?.catch(() => []) ?? Promise.resolve([]),
+      healthApi.listWatchedFolders?.()?.catch(() => []) ?? Promise.resolve([]),
+    ])
+      .then(([catalog, links, order, log, importBatches, exportGuides, folders]) => {
         if (!active) return;
         setProviders(catalog);
         setConnections(links);
         setPreferences(order);
         setReceipts(log);
+        setBatches(importBatches);
+        setGuides(exportGuides);
+        setWatchedFolders(folders);
       }).catch((cause) => { if (active) setError(healthError(cause)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -113,13 +147,6 @@ export function DataSourcesPanel({ settings = false }: { settings?: boolean }) {
     return "Source priority saved.";
   }
 
-  function importFile(format: HealthImportFormat) {
-    return run(async () => {
-      const result = await healthApi.importFile(format);
-      return result ? `Imported ${result.sleepImported} sleep entries and ${result.physioImported} measurements.` : undefined;
-    });
-  }
-
   async function connect(provider: HealthProviderInfo, values: HealthDataCategory[], history: boolean) {
     if (provider.category === "native_mobile") {
       const report = await healthApi.connectNative(provider.id, values, history);
@@ -132,23 +159,29 @@ export function DataSourcesPanel({ settings = false }: { settings?: boolean }) {
   const renderConfirm = (selection: ConfirmDialog) => {
     const isWipe = selection.kind === "wipe";
     const disconnect = selection.kind === "disconnect";
-    const provider = isWipe ? null : selection.provider;
-    const title = isWipe ? "Delete all health data?" : disconnect
-      ? `Disconnect ${provider.displayName}?` : `Delete data from ${provider.displayName}?`;
+    const isBatch = selection.kind === "deleteBatch";
+    const provider = isWipe || isBatch ? null : selection.provider;
+    const title = isWipe ? "Delete all health data?" : isBatch
+      ? `Delete import batch ${selection.batch.sourceFileName}?`
+      : disconnect ? `Disconnect ${provider?.displayName}?` : `Delete data from ${provider?.displayName}?`;
     return (
       <HealthDialog title={title} onClose={() => setDialog(null)}>
         <p>{disconnect
           ? "You can keep the imported records and stop future syncs. Revoke access in the provider’s app to remove its authorization."
-          : "This permanently removes the selected records from the local Health Vault. Exported copies are managed separately."}</p>
+          : isBatch
+            ? "Removes records exclusively imported by this batch from the local Health Vault. Records shared with other batches are preserved."
+            : "This permanently removes the selected records from the local Health Vault. Exported copies are managed separately."}</p>
         {error && <p role="alert" className="health-error">{error}</p>}
         <div className="health-actions">
           <Button autoFocus variant="text" onClick={() => setDialog(null)}>Cancel</Button>
           <Button variant={disconnect ? "filled" : "destructive"} disabled={busy} onClick={() => void run(async () => {
             if (isWipe) await wipe();
-            else if (disconnect) await healthApi.disconnectProvider(provider.id);
-            else await healthApi.deleteProviderData(provider.id);
-            return disconnect ? "Provider disconnected. Imported records are still available." : "Health records deleted.";
-          })}>{disconnect ? "Disconnect provider" : "Delete data"}</Button>
+            else if (isBatch) await healthApi.deleteImportBatch(selection.batch.id);
+            else if (disconnect && provider) await healthApi.disconnectProvider(provider.id);
+            else if (provider) await healthApi.deleteProviderData(provider.id);
+            return disconnect ? "Provider disconnected. Imported records are still available."
+              : isBatch ? "Import batch deleted." : "Health records deleted.";
+          })}>{disconnect ? "Disconnect provider" : isBatch ? "Delete batch" : "Delete data"}</Button>
         </div>
       </HealthDialog>
     );
@@ -160,13 +193,16 @@ export function DataSourcesPanel({ settings = false }: { settings?: boolean }) {
       {loading && <p role="status">Loading health sources…</p>}
       {error && !dialog && <p role="alert" className="health-error">{error}</p>}
       {notice && <p role="status" className="health-notice">{notice}</p>}
-      <SettingsSearchTarget id="integrations.health.local"><Section title="Local sleep data">
-        <p>Log sleep by hand or import a file to the Health Vault on this device.</p>
+      <SettingsSearchTarget id="integrations.health.local"><Section title="Local sleep &amp; wearable import">
+        <p>Import original wearable exports (.zip, .xml, .csv, .json) locally without manual conversion, or log sleep by hand.</p>
         <div className="health-actions health-actions-start">
-          <Button variant="filled" onClick={() => setDialog({ kind: "manual" })}>Log sleep</Button>
-          <Button variant="tonal" disabled={busy} onClick={() => void importFile("csv")}>Import CSV</Button>
-          <Button variant="tonal" disabled={busy} onClick={() => void importFile("json")}>Import JSON</Button>
-          <Button variant="tonal" disabled={busy} onClick={() => void importFile("apple_health_xml")}>Import Apple Health XML</Button>
+          <Button variant="filled" disabled={busy} onClick={() => { setError(""); setDialog({ kind: "universalImport" }); }}>
+            <FileArrowUp size={17} aria-hidden="true" /> Import Wearable Data
+          </Button>
+          <Button variant="tonal" onClick={() => setDialog({ kind: "manual" })}>Log sleep</Button>
+          <Button variant="text" onClick={() => setDialog({ kind: "exportGuide" })}>
+            <Question size={17} aria-hidden="true" /> How to export
+          </Button>
         </div>
       </Section></SettingsSearchTarget>
       <SettingsSearchTarget id="integrations.health.providers"><Section title="Wearable connections">
@@ -174,16 +210,21 @@ export function DataSourcesPanel({ settings = false }: { settings?: boolean }) {
           {providers.filter((provider) => provider.category !== "local_import" && provider.category !== "local_manual").map((provider) => {
             const connection = connections.find((link) => link.providerId === provider.id);
             const native = provider.category === "native_mobile";
+            const guide = guides.find((g) => g.providerId === provider.id);
             return (
               <li key={provider.id} className="health-provider">
                 <div>
                   <h4><Heartbeat size={17} aria-hidden="true" />{provider.displayName}</h4>
-                  <p><strong>{readiness[provider.readinessState]}</strong> · {provider.readinessReason}</p>
+                  <p><strong>{guide ? guide.readinessLabel : readiness[provider.readinessState]}</strong> · {provider.readinessReason}</p>
                   {connection?.historyLimitDays && <p>Up to {connection.historyLimitDays} days of history with current access.</p>}
                   {connection?.authState === "partially_authorized" && <p>Only some requested categories were granted.</p>}
                   {connection?.lastErrorMessage && <p className="health-error">{connection.lastErrorMessage}</p>}
                 </div>
                 <div className="health-actions">
+                  {guide?.fileImportAvailable && <Button variant="tonal" disabled={busy}
+                    onClick={() => { setError(""); setDialog({ kind: "universalImport", providerHint: provider.id }); }}>Import data</Button>}
+                  {guide && <Button variant="text" disabled={busy}
+                    onClick={() => setDialog({ kind: "exportGuide", providerId: provider.id })}>Export guide</Button>}
                   {isProviderReady(provider) && <Button variant="tonal" disabled={busy}
                     onClick={() => { setError(""); setDialog({ kind: "connect", provider }); }}>Connect</Button>}
                   {connection && connection.status !== "permission_revoked" && <Button variant="tonal" disabled={busy}
@@ -238,9 +279,54 @@ export function DataSourcesPanel({ settings = false }: { settings?: boolean }) {
         </div>
       </Section></SettingsSearchTarget>
 
+      <SettingsSearchTarget id="integrations.health.import_history"><Section title="Import history">
+        {batches.length === 0 ? <p>No wearable files imported yet.</p> : <ul className="health-consent-list">
+          {batches.map((batch) => <li key={batch.id} className="health-provider">
+            <div>
+              <strong>{batch.sourceFileName}</strong> · {providers.find((p) => p.id === batch.providerId)?.displayName ?? batch.providerId} ({batch.exportFormat})
+              <p><time dateTime={new Date(batch.importedAtMs).toISOString()}>{new Date(batch.importedAtMs).toLocaleString()}</time> · +{batch.sleepAdded} sleep, {batch.sleepUpdated} updated, {batch.physioImported} biometrics, {batch.recoveryImported} scores</p>
+            </div>
+            <Button variant="text" disabled={busy} onClick={() => setDialog({ kind: "deleteBatch", batch })}>Delete batch</Button>
+          </li>)}
+        </ul>}
+      </Section></SettingsSearchTarget>
+      <SettingsSearchTarget id="integrations.health.watched_folders"><Section title="Watched local export folders (desktop)">
+        <p>Optionally monitor a single user-selected folder for new wearable exports without scanning parent directories or deleting source files.</p>
+        <div className="health-actions health-actions-start">
+          <Button variant="tonal" disabled={busy} onClick={() => void run(async () => {
+            const folder = await healthApi.pickWatchedFolder();
+            if (!folder) return undefined;
+            await healthApi.addWatchedFolder(folder, false);
+            return "Watched folder added.";
+          })}>Add watched folder</Button>
+          {watchedFolders.length > 0 && <Button variant="text" disabled={busy} onClick={() => void run(async () => {
+            const report = await healthApi.scanWatchedFolders();
+            return `Detected ${report.pendingFiles.length} new file(s) and skipped ${report.skippedAlreadyProcessed} already processed.`;
+          })}>Scan now</Button>}
+        </div>
+        {watchedFolders.length > 0 && <ul className="health-consent-list">
+          {watchedFolders.map((f) => <li key={f.id} className="health-provider">
+            <span>{f.folderPath}</span>
+            <Button variant="text" disabled={busy} onClick={() => void run(async () => {
+              await healthApi.removeWatchedFolder(f.id);
+              return "Watched folder removed.";
+            })}>Remove</Button>
+          </li>)}
+        </ul>}
+      </Section></SettingsSearchTarget>
+
       {dialog?.kind === "manual" && <ManualSleepDialog onClose={() => setDialog(null)} onSaved={() => {
         setDialog(null); setNotice("Sleep entry saved."); invalidate();
       }} />}
+      {dialog?.kind === "universalImport" && <Suspense fallback={null}>
+        <UniversalWearableImportDialog initialProviderHint={dialog.providerHint} onClose={() => setDialog(null)} onCompleted={() => {
+          setNotice("Wearable data imported into the Health Vault.");
+        }} />
+      </Suspense>}
+      {dialog?.kind === "exportGuide" && <Suspense fallback={null}>
+        <ExportInstructionsModal initialProviderId={dialog.providerId} onClose={() => setDialog(null)}
+          onStartImport={(providerId) => setDialog({ kind: "universalImport", providerHint: providerId })} />
+      </Suspense>}
       {dialog?.kind === "connect" && <ConsentDialog provider={dialog.provider} busy={busy} error={error}
         onClose={() => setDialog(null)} onConfirm={(scope, history) => void run(() => connect(dialog.provider, scope, history))} />}
       {dialog && (dialog.kind === "importEncrypted" || dialog.kind === "exportEncrypted") &&
@@ -250,7 +336,7 @@ export function DataSourcesPanel({ settings = false }: { settings?: boolean }) {
             const result = await healthApi.importEncryptedBundle(passphrase);
             return result ? `Imported ${result.sleepImported} sleep entries from the encrypted bundle.` : undefined;
           })} />}
-      {dialog && (dialog.kind === "wipe" || dialog.kind === "disconnect" || dialog.kind === "eraseProvider") && renderConfirm(dialog)}
+      {dialog && (dialog.kind === "wipe" || dialog.kind === "disconnect" || dialog.kind === "eraseProvider" || dialog.kind === "deleteBatch") && renderConfirm(dialog)}
     </div>
   );
 }

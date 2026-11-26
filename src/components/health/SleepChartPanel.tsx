@@ -116,7 +116,11 @@ export function SleepChartPanel({ chart, tz, demo, onEdit }: {
             {row.episodes.map((episode) => <li key={episode.id}><div>
               <strong>{episode.sleepKind === "nap" ? "Nap" : "Main sleep"}</strong>
               <p>{sourceTimestamp(episode.startAtMs, episode.startTzOffsetSecs)} to {sourceTimestamp(episode.endAtMs, episode.endTzOffsetSecs)} · {durationLabel(episode.totalSleepMins)}</p>
-              <p>{episode.stageCoverageRatio < 0.7 ? "Asleep (unstaged). Sleep stage coverage is below 70%." : "Detailed sleep stages available."}</p>
+              <p>{episode.stageCoverageRatio < 0.7 && (episode.lightMins == null && episode.deepMins == null && episode.remMins == null)
+                ? "Asleep (unstaged). Sleep stage coverage is below 70%."
+                : episode.stages.length === 0 && (episode.lightMins != null || episode.deepMins != null || episode.remMins != null)
+                  ? `Summary stage totals only (Light ${Math.round(episode.lightMins ?? 0)}m · Deep ${Math.round(episode.deepMins ?? 0)}m · REM ${Math.round(episode.remMins ?? 0)}m${episode.awakeMins != null ? ` · Awake ${Math.round(episode.awakeMins)}m` : ""}).`
+                  : "Detailed sleep stages available."}</p>
               {episode.members.length > 0 && <details><summary>Sources</summary><ul>
                 {episode.members.map((member) => <li key={member.rawSessionId}>{member.sourceAppBundle ?? member.providerId.replaceAll("_", " ")} · {member.relationship.replaceAll("_", " ")} · {durationLabel(member.durationMins)}</li>)}
               </ul></details>}

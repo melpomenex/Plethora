@@ -2,6 +2,7 @@ pub mod db;
 pub mod fixtures;
 pub mod http_client;
 pub mod import_export;
+pub mod importers;
 pub mod learning_analytics;
 pub mod migrations;
 pub mod models;

@@ -1,5 +1,6 @@
 import { invokeCommand, isTauri } from "../lib/tauri";
 import type {
+  CsvMappingProfile,
   HealthAnalysisRange,
   HealthConnection,
   HealthDataCategory,
@@ -11,10 +12,17 @@ import type {
   HealthProviderInfo,
   HealthSourcePreference,
   HealthSyncReport,
+  ImportAdapterDescriptor,
+  ImportBatchSummary,
+  ImportCommitResult,
+  ImportPreview,
   LearningInsightsReport,
   ManualSleepInput,
+  ProviderExportGuide,
   SleepChartData,
   SleepKind,
+  WatchedImportFolder,
+  WatchedScanReport,
 } from "../types/health";
 
 function invokeHealth<T>(command: string, args?: Record<string, unknown>): Promise<T> {
@@ -77,4 +85,58 @@ export const healthApi = {
     invokeHealth<LearningInsightsReport>("health_get_learning_insights", { range, demo }),
   getStudyPlanInsights: (range: HealthAnalysisRange, planId: string) =>
     invokeHealth<LearningInsightsReport>("health_get_study_plan_insights", { range, planId }),
+  listImportAdapters: () =>
+    invokeHealth<ImportAdapterDescriptor[]>("health_list_import_adapters"),
+  getProviderExportGuides: () =>
+    invokeHealth<ProviderExportGuide[]>("health_get_provider_export_guides"),
+  pickWearableImportFiles: () =>
+    invokeHealth<string[]>("health_pick_wearable_import_files"),
+  previewWearableImport: (
+    filePath: string,
+    overrideAdapterId?: string | null,
+    mappingProfile?: CsvMappingProfile | null,
+  ) =>
+    invokeHealth<ImportPreview>("health_preview_wearable_import", {
+      filePath,
+      overrideAdapterId: overrideAdapterId ?? null,
+      mappingProfile: mappingProfile ?? null,
+    }),
+  commitWearableImport: (params: {
+    jobId: string;
+    filePath: string;
+    adapterId?: string | null;
+    providerOverride?: HealthProviderId | null;
+    selectedCategories: HealthDataCategory[];
+    mappingProfile?: CsvMappingProfile | null;
+  }) =>
+    invokeHealth<ImportCommitResult>("health_commit_wearable_import", {
+      jobId: params.jobId,
+      filePath: params.filePath,
+      adapterId: params.adapterId ?? null,
+      providerOverride: params.providerOverride ?? null,
+      selectedCategories: params.selectedCategories,
+      mappingProfile: params.mappingProfile ?? null,
+    }),
+  cancelWearableImport: (jobId: string) =>
+    invokeHealth<boolean>("health_cancel_wearable_import", { jobId }),
+  listImportBatches: (limit?: number) =>
+    invokeHealth<ImportBatchSummary[]>("health_list_import_batches", { limit: limit ?? 50 }),
+  deleteImportBatch: (batchId: string) =>
+    invokeHealth<boolean>("health_delete_import_batch", { batchId }),
+  saveCsvMappingProfile: (profile: CsvMappingProfile) =>
+    invokeHealth<CsvMappingProfile>("health_save_csv_mapping_profile", { profile }),
+  listCsvMappingProfiles: () =>
+    invokeHealth<CsvMappingProfile[]>("health_list_csv_mapping_profiles"),
+  deleteCsvMappingProfile: (id: string) =>
+    invokeHealth<void>("health_delete_csv_mapping_profile", { id }),
+  pickWatchedFolder: () =>
+    invokeHealth<string | null>("health_pick_watched_folder"),
+  addWatchedFolder: (folderPath: string, autoCommit: boolean) =>
+    invokeHealth<WatchedImportFolder>("health_add_watched_folder", { folderPath, autoCommit }),
+  listWatchedFolders: () =>
+    invokeHealth<WatchedImportFolder[]>("health_list_watched_folders"),
+  removeWatchedFolder: (folderId: string) =>
+    invokeHealth<void>("health_remove_watched_folder", { folderId }),
+  scanWatchedFolders: () =>
+    invokeHealth<WatchedScanReport>("health_scan_watched_folders"),
 };

@@ -38,7 +38,7 @@ View sleep history together with your own learning activity in the native app.
 
 ## User-Facing Behavior
 
-Open **Learning Insights** on desktop or mobile. Start with **Log sleep**, or use **Data Sources** to import CSV, Plethora health JSON, Apple Health XML, or a passphrase-protected Plethora health bundle. **Sample data** lets you explore the charts using a temporary synthetic dataset.
+Open **Learning Insights** on desktop or mobile. Start with **Log sleep**, or use **Data Sources → Import Wearable Data** to import original wearable exports (`.zip`, `.xml`, `.csv`, `.json`) from Apple Health, Garmin, Oura, WHOOP, Google Takeout / Fitbit, Samsung Health, Withings, RingConn, or Polar Nightly Recharge, as well as generic CSVs via the **CSV Column Mapping Wizard** and passphrase-protected `.plethora-health.enc` bundles. Use **How to export** for per-provider export steps and limitations, and **Import history** to review or delete individual import batches. **Sample data** lets you explore the charts using a temporary synthetic dataset.
 
 **Sleep Chart** shows sleep by wake date, recorded stages, gaps in coverage, and optional study sessions. Select a date to see the source and any conflicts. Manage which source takes priority in **Settings → Integrations → Health & Wearables**.
 

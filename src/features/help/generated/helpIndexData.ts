@@ -14,8 +14,8 @@ export interface GeneratedHelpIndex {
 
 export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
   "version": "1.0.0",
-  "corpusHash": "sha256:0f3db6a7555f1dd27ced9041a02394dc0ef965e25dab852475909d2918f2f35a",
-  "generatedAt": "2026-11-22T04:44:15.875Z",
+  "corpusHash": "sha256:9384f88310e83166e269415e4740e4950f77fff1a0f7645b2b1e43f3ef31c02f",
+  "generatedAt": "2026-11-26T10:11:47.370Z",
   "totalDocs": 77,
   "totalChunks": 232,
   "aliasMap": {
@@ -1901,7 +1901,7 @@ export const BUNDLED_HELP_INDEX: GeneratedHelpIndex = {
       "sections": {
         "intro": "# Wearable Health and Learning Insights",
         "Purpose": "View sleep history together with your own learning activity in the native app.",
-        "User-Facing Behavior": "Open **Learning Insights** on desktop or mobile. Start with **Log sleep**, or use **Data Sources** to import CSV, Plethora health JSON, Apple Health XML, or a passphrase-protected Plethora health bundle. **Sample data** lets you explore the charts using a temporary synthetic dataset.\n\n**Sleep Chart** shows sleep by wake date, recorded stages, gaps in coverage, and optional study sessions. Select a date to see the source and any conflicts. Manage which source takes priority in **Settings → Integrations → Health & Wearables**.\n\n**Learning Performance** compares sleep and study activity when enough data is available. Use the Study Plan filter to narrow the report. **Personal Patterns → Inspect evidence** shows sample counts, coverage, and limitations for each available association. Exploratory alertness estimates and personal associations are for reflection.",
+        "User-Facing Behavior": "Open **Learning Insights** on desktop or mobile. Start with **Log sleep**, or use **Data Sources → Import Wearable Data** to import original wearable exports (`.zip`, `.xml`, `.csv`, `.json`) from Apple Health, Garmin, Oura, WHOOP, Google Takeout / Fitbit, Samsung Health, Withings, RingConn, or Polar Nightly Recharge, as well as generic CSVs via the **CSV Column Mapping Wizard** and passphrase-protected `.plethora-health.enc` bundles. Use **How to export** for per-provider export steps and limitations, and **Import history** to review or delete individual import batches. **Sample data** lets you explore the charts using a temporary synthetic dataset.\n\n**Sleep Chart** shows sleep by wake date, recorded stages, gaps in coverage, and optional study sessions. Select a date to see the source and any conflicts. Manage which source takes priority in **Settings → Integrations → Health & Wearables**.\n\n**Learning Performance** compares sleep and study activity when enough data is available. Use the Study Plan filter to narrow the report. **Personal Patterns → Inspect evidence** shows sample counts, coverage, and limitations for each available association. Exploratory alertness estimates and personal associations are for reflection.",
         "Exact Behavioral Rules": "Provider availability depends on device support, permissions, and the provider’s approval and configuration. After connecting a source, use **Sync now** to request new records. Disconnect stops future syncs and keeps imported records. Use Health privacy and deletion to remove the records or wipe the local vault. Exported files are managed separately.",
         "Rationale": "Local analysis keeps health history separate from the learning library. The evidence view explains how much data supports each observed association."
       }

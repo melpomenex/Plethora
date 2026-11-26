@@ -621,3 +621,248 @@ pub async fn health_get_study_plan_insights(
 ) -> Result<crate::health::learning_analytics::LearningInsightsReport, String> {
     learning_insights(&app, range, Some(plan_id), false).await
 }
+
+// ── Universal Wearable Health Data Import Commands ───────────────────────────
+
+#[tauri::command]
+pub async fn health_list_import_adapters(
+) -> Result<Vec<crate::health::importers::types::ImportAdapterDescriptor>, String> {
+    Ok(crate::health::importers::orchestrator::list_adapter_descriptors())
+}
+
+#[tauri::command]
+pub async fn health_get_provider_export_guides(
+) -> Result<Vec<crate::health::importers::types::ProviderExportGuide>, String> {
+    Ok(crate::health::importers::registry::build_provider_export_guides())
+}
+
+#[tauri::command]
+pub async fn health_pick_wearable_import_files(
+    app: AppHandle,
+) -> Result<Vec<String>, String> {
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog()
+        .file()
+        .add_filter(
+            "Wearable Health Exports",
+            &["zip", "xml", "csv", "json", "tsv"],
+        )
+        .pick_files(move |files| {
+            let _ = send.send(files);
+        });
+
+    let Some(files) = receive
+        .await
+        .map_err(|_| "Could not open file picker".to_string())?
+    else {
+        return Ok(Vec::new());
+    };
+
+    let app_clone = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let mut resolved = Vec::with_capacity(files.len());
+        for file in files {
+            match file {
+                FilePath::Path(p) => {
+                    resolved.push(p.to_string_lossy().into_owned());
+                }
+                other => {
+                    // Mobile content:// URI or security-scoped URL: stream into private app cache
+                    let cache_dir = app_clone
+                        .path()
+                        .app_cache_dir()
+                        .map_err(|e| e.to_string())?
+                        .join("health_import_staging");
+                    std::fs::create_dir_all(&cache_dir).map_err(|e| e.to_string())?;
+                    let staged = cache_dir.join(format!("staged_{}.dat", uuid::Uuid::new_v4()));
+                    let mut src = app_clone
+                        .fs()
+                        .open(other, OpenOptions::new().read(true).to_owned())
+                        .map_err(|e| format!("Could not open selected file: {e}"))?;
+                    let mut dst = std::fs::File::create(&staged).map_err(|e| e.to_string())?;
+                    std::io::copy(&mut src, &mut dst).map_err(|e| e.to_string())?;
+                    resolved.push(staged.to_string_lossy().into_owned());
+                }
+            }
+        }
+        Ok::<Vec<String>, String>(resolved)
+    })
+    .await
+    .map_err(|_| "Failed processing selected files".to_string())?
+}
+
+#[tauri::command]
+pub async fn health_preview_wearable_import(
+    app: AppHandle,
+    file_path: String,
+    override_adapter_id: Option<String>,
+    mapping_profile: Option<crate::health::importers::types::CsvMappingProfile>,
+) -> Result<crate::health::importers::types::ImportPreview, String> {
+    let vault = vault(&app).await?;
+    let cancel = crate::health::importers::types::ImportCancellationToken::new();
+    crate::health::importers::orchestrator::preview_wearable_import(
+        &vault,
+        std::path::Path::new(&file_path),
+        override_adapter_id.as_deref(),
+        mapping_profile.as_ref(),
+        &cancel,
+    )
+    .await
+    .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn health_commit_wearable_import(
+    app: AppHandle,
+    job_id: String,
+    file_path: String,
+    adapter_id: Option<String>,
+    provider_override: Option<HealthProviderId>,
+    selected_categories: Vec<crate::health::models::HealthDataCategory>,
+    mapping_profile: Option<crate::health::importers::types::CsvMappingProfile>,
+) -> Result<crate::health::importers::types::ImportCommitResult, String> {
+    use tauri::Emitter;
+    let vault = vault(&app).await?;
+    let jobs = app.state::<crate::health::importers::ImportJobManager>();
+    let cancel = jobs.register(&job_id);
+    let app_for_progress = app.clone();
+    let progress_cb = move |evt: crate::health::importers::types::ImportProgressEvent| {
+        let _ = app_for_progress.emit("health-import-progress", evt);
+    };
+
+    let res = crate::health::importers::orchestrator::commit_wearable_import(
+        &vault,
+        std::path::Path::new(&file_path),
+        adapter_id.as_deref(),
+        provider_override,
+        &selected_categories,
+        mapping_profile.as_ref(),
+        &cancel,
+        Some(&progress_cb),
+        &job_id,
+    )
+    .await
+    .map_err(String::from);
+
+    jobs.finish(&job_id);
+    res
+}
+
+#[tauri::command]
+pub async fn health_cancel_wearable_import(app: AppHandle, job_id: String) -> Result<bool, String> {
+    Ok(app
+        .state::<crate::health::importers::ImportJobManager>()
+        .cancel(&job_id))
+}
+
+#[tauri::command]
+pub async fn health_list_import_batches(
+    app: AppHandle,
+    limit: Option<i64>,
+) -> Result<Vec<crate::health::importers::types::ImportBatchSummary>, String> {
+    let vault = vault(&app).await?;
+    crate::health::importers::orchestrator::list_import_batches(&vault, limit.unwrap_or(50))
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn health_delete_import_batch(app: AppHandle, batch_id: String) -> Result<bool, String> {
+    let vault = vault(&app).await?;
+    crate::health::importers::orchestrator::delete_import_batch(&vault, &batch_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn health_save_csv_mapping_profile(
+    app: AppHandle,
+    profile: crate::health::importers::types::CsvMappingProfile,
+) -> Result<crate::health::importers::types::CsvMappingProfile, String> {
+    let vault = vault(&app).await?;
+    crate::health::importers::orchestrator::save_csv_mapping_profile(&vault, profile)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn health_list_csv_mapping_profiles(
+    app: AppHandle,
+) -> Result<Vec<crate::health::importers::types::CsvMappingProfile>, String> {
+    let vault = vault(&app).await?;
+    crate::health::importers::orchestrator::list_csv_mapping_profiles(&vault)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn health_delete_csv_mapping_profile(app: AppHandle, id: String) -> Result<(), String> {
+    let vault = vault(&app).await?;
+    crate::health::importers::orchestrator::delete_csv_mapping_profile(&vault, &id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn health_pick_watched_folder(app: AppHandle) -> Result<Option<String>, String> {
+    if cfg!(any(target_os = "android", target_os = "ios")) {
+        return Err("Watched local folders are only available on desktop.".to_string());
+    }
+    let (send, receive) = tokio::sync::oneshot::channel();
+    app.dialog().file().pick_folder(move |folder| {
+        let _ = send.send(folder);
+    });
+    let Some(folder) = receive
+        .await
+        .map_err(|_| "Could not open folder picker".to_string())?
+    else {
+        return Ok(None);
+    };
+    match folder {
+        FilePath::Path(p) => Ok(Some(p.to_string_lossy().into_owned())),
+        _ => Err("Folder path is not a local filesystem directory.".to_string()),
+    }
+}
+
+#[tauri::command]
+pub async fn health_add_watched_folder(
+    app: AppHandle,
+    folder_path: String,
+    auto_commit: bool,
+) -> Result<crate::health::importers::watched::WatchedImportFolder, String> {
+    let vault = vault(&app).await?;
+    crate::health::importers::watched::add_watched_folder(&vault, &folder_path, auto_commit)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn health_list_watched_folders(
+    app: AppHandle,
+) -> Result<Vec<crate::health::importers::watched::WatchedImportFolder>, String> {
+    let vault = vault(&app).await?;
+    crate::health::importers::watched::list_watched_folders(&vault)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn health_remove_watched_folder(
+    app: AppHandle,
+    folder_id: String,
+) -> Result<(), String> {
+    let vault = vault(&app).await?;
+    crate::health::importers::watched::remove_watched_folder(&vault, &folder_id)
+        .await
+        .map_err(Into::into)
+}
+
+#[tauri::command]
+pub async fn health_scan_watched_folders(
+    app: AppHandle,
+) -> Result<crate::health::importers::watched::WatchedScanReport, String> {
+    let vault = vault(&app).await?;
+    crate::health::importers::watched::scan_watched_folders(&vault)
+        .await
+        .map_err(Into::into)
+}

@@ -27,6 +27,25 @@
 
 ---
 
+## 3. Consumer Export & Local File Import Matrix (Verified 2026-11-26)
+
+| Provider | Export method | Accepted formats | Sleep | Stage totals | Stage timelines | HRV | RHR | Recovery | Verification status |
+|---|---|---|---|---|---|---|---|---|---|
+| **Apple Health / Apple Watch** | iPhone Health → Export All Health Data | `export.zip`, `export.xml` | Yes | Derived | Yes | Yes (SDNN) | Yes | No | Implemented & fixture-tested (>50 MB streamed) |
+| **Garmin** | Garmin Account Data Management | `.zip` (`DI_CONNECT/.../*_sleepData.json`), `*_sleepData.json` | Yes | Yes | Yes (`sleepLevelsMap`) | Yes (if present) | Yes (if present) | Yes (Garmin Sleep Score) | Implemented & fixture-tested |
+| **Oura Ring** | Oura on the Web → Export Data | `.zip`, `sleep.csv`, `daily_sleep.csv`, `daily_readiness.csv` | Yes | Yes | Yes (`sleep_phase_5_min`) | Yes (RMSSD) | Yes | Yes (Sleep & Readiness) | Implemented & fixture-tested |
+| **WHOOP** | WHOOP App → More → Data Export | `.zip` (`sleeps.csv`, `physiological_cycles.csv`), CSV | Yes | Yes | No (aggregate totals only) | Yes (RMSSD) | Yes | Yes (Recovery & Sleep Perf) | Implemented & fixture-tested |
+| **Google Health / Fitbit** | Google Takeout (Fitbit) | `.zip` (`sleep-*.json`, `sleep_score.csv`, HRV CSV), JSON | Yes | Yes | Yes (`levels.data`) | Yes (RMSSD) | Yes (if present) | Yes (Fitbit Sleep Score) | Implemented & fixture-tested |
+| **Samsung Health** | Samsung Health → Download personal data | `.zip`, `com.samsung.health.sleep*.csv` + `sleep_stage*.csv` | Yes | Derived | Yes | Via Health Connect | Via Health Connect | Yes (Samsung Sleep Score) | Implemented & fixture-tested |
+| **Withings** | Withings App/Web → Export All Health Data | `.zip`, `sleep.csv` | Yes | Yes | No (aggregate totals only) | No | Avg HR | No | Implemented & fixture-tested |
+| **RingConn** | RingConn App → Data Management → Data Export | `.zip` (`sleep.csv` + `vitals.csv`), CSV | Yes (daily totals) | Yes | No | Yes (RMSSD) | Yes | SpO2 | Implemented & fixture-tested |
+| **Polar** | account.polar.com → Download your data | `.zip`, `nightly_recovery_*.json` | No (excluded by Polar) | No | No | Yes (RMSSD) | No | Yes (Nightly Recharge) | Partial (recovery only; sleep via Apple Health / Health Connect) |
+| **Suunto** | Workout FIT/GPX only | `.fit`, `.gpx` (rejected as no sleep) | No | No | No | No | No | No | Bridge required (Apple Health / Health Connect) |
+| **Ultrahuman Ring** | No self-serve in-app sleep export | Generic CSV Mapping Wizard / mobile bridge | Via mapping/bridge | Via mapping | Via bridge | Via mapping/bridge | Via mapping/bridge | Via bridge | Bridge required / CSV mapping |
+| **Android Health Connect** | System backup `.zip` (internal SQLite) | Native Health Connect sync or `.plethora-health.enc` | Native/enc | Native/enc | Native/enc | Native/enc | Native/enc | No | Unsupported internal backup format; use native Android sync |
+
+---
+
 ## 2. Strategic Integration Decisions
 
 1. **Aggregate First via OS Health Hubs:** On mobile, **Apple HealthKit** and **Android Health Connect** cover Apple Watch, Galaxy Watch/Ring, RingConn, Garmin basic sleep, Polar, Withings, Suunto, and Ultrahuman without separate vendor partner approvals.

@@ -233,6 +233,71 @@ pub const HEALTH_MIGRATIONS: &[HealthMigration] = &[
         );
     "#,
     },
+    HealthMigration {
+        name: "003_universal_import_batches",
+        sql: r#"
+        CREATE TABLE IF NOT EXISTS health_import_batches (
+            id TEXT PRIMARY KEY,
+            provider_id TEXT NOT NULL,
+            acquisition_method TEXT NOT NULL,
+            export_format TEXT NOT NULL,
+            format_version TEXT,
+            source_file_name TEXT NOT NULL,
+            source_file_hash TEXT NOT NULL,
+            file_size_bytes INTEGER NOT NULL DEFAULT 0,
+            imported_at_ms INTEGER NOT NULL,
+            date_range_start_ms INTEGER,
+            date_range_end_ms INTEGER,
+            sleep_added INTEGER NOT NULL DEFAULT 0,
+            sleep_updated INTEGER NOT NULL DEFAULT 0,
+            sleep_skipped INTEGER NOT NULL DEFAULT 0,
+            physio_imported INTEGER NOT NULL DEFAULT 0,
+            recovery_imported INTEGER NOT NULL DEFAULT 0,
+            warnings_json TEXT NOT NULL DEFAULT '[]',
+            status TEXT NOT NULL DEFAULT 'completed'
+        );
+        CREATE INDEX IF NOT EXISTS idx_import_batches_time
+            ON health_import_batches(imported_at_ms DESC);
+
+        CREATE TABLE IF NOT EXISTS health_import_batch_records (
+            batch_id TEXT NOT NULL REFERENCES health_import_batches(id) ON DELETE CASCADE,
+            record_kind TEXT NOT NULL,
+            record_id TEXT NOT NULL,
+            PRIMARY KEY (batch_id, record_kind, record_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_import_batch_records_lookup
+            ON health_import_batch_records(record_kind, record_id);
+
+        CREATE TABLE IF NOT EXISTS health_csv_mapping_profiles (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            provider_id TEXT,
+            profile_json TEXT NOT NULL,
+            created_at_ms INTEGER NOT NULL,
+            updated_at_ms INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS health_watched_import_folders (
+            id TEXT PRIMARY KEY,
+            folder_path TEXT NOT NULL UNIQUE,
+            enabled INTEGER NOT NULL DEFAULT 1,
+            auto_commit INTEGER NOT NULL DEFAULT 0,
+            last_scanned_at_ms INTEGER,
+            created_at_ms INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS health_watched_import_files (
+            folder_id TEXT NOT NULL REFERENCES health_watched_import_folders(id) ON DELETE CASCADE,
+            file_path TEXT NOT NULL,
+            file_hash TEXT NOT NULL,
+            file_size_bytes INTEGER NOT NULL,
+            status TEXT NOT NULL,
+            batch_id TEXT,
+            processed_at_ms INTEGER NOT NULL,
+            PRIMARY KEY (folder_id, file_path, file_hash)
+        );
+    "#,
+    },
 ];
 
 pub async fn run_health_migrations(pool: &Pool<Sqlite>) -> Result<(), String> {

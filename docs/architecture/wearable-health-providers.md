@@ -15,4 +15,13 @@ Add a provider by implementing `CloudHealthConnector`, registering its supported
 
 Google uses Health API v4 data points, including separate resting heart rate and heart rate variability data types. Garmin is approval-gated. Its catalog advertises sleep and recovery from the sleep summary. Connecting its HRV and resting heart-rate feeds requires the approved commercial contract and an account for verification. Deploy the private broker and validate sign-in, refresh, consent withdrawal, scope loss, and vendor limits against credentials approved for release. [Google Health API data points](https://developers.google.com/health/reference/rest/v4/users.dataTypes.dataPoints) · [Garmin Health API](https://developer.garmin.com/gc-developer-program/enterprise/health-api/)
 
+## Universal local file & archive import (`health/importers/`)
+
+In addition to native mobile bridges and OAuth cloud connectors, Plethora includes a local-first `WearableImportAdapter` registry in `src-tauri/src/health/importers/` (`orchestrator.rs`, `detector.rs`, `archive.rs`, `csv_reader.rs`):
+
+- **Content-based detection:** `detect_import_format` inspects file signatures, ZIP central directories, XML roots, JSON keys, and CSV headers deterministically without an LLM.
+- **Archive security (`archive.rs`, `limits.rs`):** `SafeZipArchive` reads relevant entries directly from disk via `BufReader` and `BoundedEntryReader`, rejecting ZIP Slip (`..`, absolute paths, drive prefixes), symlinks (`S_IFLNK`), duplicate paths, nested archives, entry floods (> 50,000), and compression bombs (ratio > 120× above 1 MiB, 1.5 GiB per-entry / 2 GiB total).
+- **Large-file streaming:** Apple Health `export.xml` and `export.zip` stream through `quick-xml` with XXE/DTD rejection and cancellation support beyond the legacy 50 MB limit.
+- **Provider attribution & batch provenance:** Native consumer exports (Garmin `sleepData.json`, Oura `sleep.csv`/`daily_readiness.csv`, WHOOP `sleeps.csv`/`physiological_cycles.csv`, Google Takeout Fitbit `sleep-*.json`, Samsung Health `sleep`/`sleep_stage` CSVs, Withings `sleep.csv`, RingConn `sleep.csv`/`vitals.csv`, Polar `nightly_recovery_*.json`) retain their true `HealthProviderId` alongside `AcquisitionMethod::FileImport` and reference-counted `health_import_batches` / `health_import_batch_records` for safe batch deletion.
+
 See [Privacy Architecture](../PRIVACY_ARCHITECTURE.md) for storage, egress, and deletion. See the [wearable health product guide](../product/features/platform/wearable-health-insights.md) for the user workflow.

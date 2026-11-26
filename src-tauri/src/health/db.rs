@@ -27,9 +27,9 @@ pub const HEALTH_DB_FILE_NAME: &str = "health.db";
 
 #[derive(Clone)]
 pub struct HealthVault {
-    pool: Pool<Sqlite>,
+    pub(crate) pool: Pool<Sqlite>,
     health_dir: Option<PathBuf>,
-    token_store: HealthTokenStore,
+    pub(crate) token_store: HealthTokenStore,
 }
 
 impl HealthVault {
@@ -555,7 +555,7 @@ impl HealthVault {
         Ok(report)
     }
 
-    async fn ingest_on(
+    pub(crate) async fn ingest_on(
         tx: &mut SqliteConnection,
         provider_id: HealthProviderId,
         sync_kind: &str,
@@ -1009,7 +1009,7 @@ impl HealthVault {
         Ok(count)
     }
 
-    async fn reconcile_sleep_transaction(tx: &mut SqliteConnection) -> Result<usize, String> {
+    pub(crate) async fn reconcile_sleep_transaction(tx: &mut SqliteConnection) -> Result<usize, String> {
         sqlx::query("DELETE FROM health_sleep_episode_members")
             .execute(&mut *tx)
             .await
@@ -1456,6 +1456,11 @@ impl HealthVault {
             .await
             .map_err(|e| e.to_string())?;
         let tables = [
+            "health_watched_import_files",
+            "health_watched_import_folders",
+            "health_csv_mapping_profiles",
+            "health_import_batch_records",
+            "health_import_batches",
             "health_healthkit_sleep_samples",
             "health_sleep_kind_overrides",
             "health_sleep_episode_members",

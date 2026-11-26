@@ -1279,6 +1279,7 @@ pub fn run() {
             app.manage(commands::health::DemoHealthVault::default());
             app.manage(commands::health_sources::HealthSourceOperations::default());
             app.manage(health::oauth::HealthOAuthManager::default());
+            app.manage(health::importers::ImportJobManager::default());
             commands::health_cloud::listen_for_mobile_callback(&app_handle);
             app.manage(external_open::PendingExternalOpens::default());
 
@@ -1816,6 +1817,22 @@ pub fn run() {
             commands::health::health_get_sleep_chart_data,
             commands::health::health_get_learning_insights,
             commands::health::health_get_study_plan_insights,
+            commands::health::health_list_import_adapters,
+            commands::health::health_get_provider_export_guides,
+            commands::health::health_pick_wearable_import_files,
+            commands::health::health_preview_wearable_import,
+            commands::health::health_commit_wearable_import,
+            commands::health::health_cancel_wearable_import,
+            commands::health::health_list_import_batches,
+            commands::health::health_delete_import_batch,
+            commands::health::health_save_csv_mapping_profile,
+            commands::health::health_list_csv_mapping_profiles,
+            commands::health::health_delete_csv_mapping_profile,
+            commands::health::health_pick_watched_folder,
+            commands::health::health_add_watched_folder,
+            commands::health::health_list_watched_folders,
+            commands::health::health_remove_watched_folder,
+            commands::health::health_scan_watched_folders,
             commands::memory_scenario::get_memory_scenario_config,
             download_update_apk,
             updater_bundle_type,

@@ -494,3 +494,214 @@ export interface StudyPlanRef {
   title: string;
   status: string;
 }
+
+export type AcquisitionMethod = 'file_import' | 'native_mobile' | 'cloud_oauth' | 'manual';
+
+export type DetectionConfidence =
+  | 'confident'
+  | 'probable'
+  | 'ambiguous'
+  | 'unknown'
+  | 'recognized_unsupported'
+  | 'no_usable_sleep_data';
+
+export type VerificationStatus =
+  | 'implemented_fixture_tested'
+  | 'verified_consumer_export'
+  | 'partial_recovery_only'
+  | 'bridge_required'
+  | 'unsupported_internal_format';
+
+export interface DetectionCandidate {
+  providerId: HealthProviderId;
+  adapterId: string;
+  formatId: string;
+  formatLabel: string;
+  confidence: DetectionConfidence;
+  score: number;
+  reasons: string[];
+}
+
+export interface DetectionResult {
+  confidence: DetectionConfidence;
+  primary: DetectionCandidate | null;
+  candidates: DetectionCandidate[];
+  fileKind: string;
+  isArchive: boolean;
+  requiresCsvMapping: boolean;
+  explanation: string;
+}
+
+export interface ImportCapabilities {
+  supportsArchive: boolean;
+  supportsStandalone: boolean;
+  supportsDetailedStages: boolean;
+  supportsStageTotalsOnly: boolean;
+  supportsTimezone: boolean;
+  supportedExtensions: string[];
+  supportedCategories: HealthDataCategory[];
+  knownLimitations: string[];
+}
+
+export interface ImportAdapterDescriptor {
+  adapterId: string;
+  providerId: HealthProviderId;
+  displayName: string;
+  formatId: string;
+  formatLabel: string;
+  formatVersion: string;
+  verificationStatus: VerificationStatus;
+  capabilities: ImportCapabilities;
+}
+
+export interface CategoryCount {
+  category: HealthDataCategory;
+  count: number;
+}
+
+export interface ImportPreview {
+  filePath: string;
+  fileName: string;
+  fileSizeBytes: number;
+  fileHash: string;
+  detection: DetectionResult;
+  selectedProviderId: HealthProviderId | null;
+  selectedAdapterId: string | null;
+  dateRangeStartMs: number | null;
+  dateRangeEndMs: number | null;
+  availableCategories: CategoryCount[];
+  sleepSessionsCount: number;
+  sleepStagesCount: number;
+  physioObservationsCount: number;
+  recoveryObservationsCount: number;
+  estimatedNew: number;
+  estimatedDuplicates: number;
+  estimatedUpdates: number;
+  invalidRecords: number;
+  missingFields: string[];
+  unsupportedFields: string[];
+  timezoneAssumptions: string[];
+  warnings: string[];
+  sampleCsvHeaders: string[];
+  sampleCsvRows: string[][];
+  canCommit: boolean;
+}
+
+export interface ImportProgressEvent {
+  jobId: string;
+  phase: string;
+  processed: number;
+  total: number | null;
+  message: string;
+}
+
+export interface ImportCommitResult {
+  batchId: string;
+  providerId: HealthProviderId;
+  acquisitionMethod: AcquisitionMethod;
+  exportFormat: string;
+  sleepImported: number;
+  sleepUpdated: number;
+  sleepSkipped: number;
+  physioImported: number;
+  recoveryImported: number;
+  reconciledEpisodes: number;
+  dateRangeStartMs: number | null;
+  dateRangeEndMs: number | null;
+  warnings: string[];
+  rowErrors: string[];
+  hasUsableSleep: boolean;
+}
+
+export interface ImportBatchSummary {
+  id: string;
+  providerId: HealthProviderId;
+  acquisitionMethod: AcquisitionMethod;
+  exportFormat: string;
+  formatVersion: string | null;
+  sourceFileName: string;
+  fileSizeBytes: number;
+  importedAtMs: number;
+  dateRangeStartMs: number | null;
+  dateRangeEndMs: number | null;
+  sleepAdded: number;
+  sleepUpdated: number;
+  sleepSkipped: number;
+  physioImported: number;
+  recoveryImported: number;
+  warnings: string[];
+  status: string;
+}
+
+export interface CsvMappingProfile {
+  id?: string | null;
+  name: string;
+  providerId?: HealthProviderId | null;
+  delimiter?: string | null;
+  startColumn?: string | null;
+  endColumn?: string | null;
+  dateColumn?: string | null;
+  durationColumn?: string | null;
+  durationUnit?: string | null;
+  timeInBedColumn?: string | null;
+  awakeColumn?: string | null;
+  lightColumn?: string | null;
+  deepColumn?: string | null;
+  remColumn?: string | null;
+  latencyColumn?: string | null;
+  efficiencyColumn?: string | null;
+  sleepKindColumn?: string | null;
+  napIndicatorColumn?: string | null;
+  hrvColumn?: string | null;
+  hrvMethod?: string | null;
+  restingHrColumn?: string | null;
+  respiratoryRateColumn?: string | null;
+  spo2Column?: string | null;
+  temperatureColumn?: string | null;
+  temperatureUnit?: string | null;
+  sleepScoreColumn?: string | null;
+  recoveryScoreColumn?: string | null;
+  sourceColumn?: string | null;
+  notesColumn?: string | null;
+  timestampFormat?: string | null;
+  fallbackTzOffsetMinutes?: number | null;
+  stageLabelMap: Record<string, string>;
+}
+
+export interface ProviderExportGuide {
+  providerId: HealthProviderId;
+  displayName: string;
+  fileImportAvailable: boolean;
+  verificationStatus: VerificationStatus;
+  supportedExportFormats: string[];
+  exportSteps: string[];
+  officialPortalUrl: string;
+  availableCategories: HealthDataCategory[];
+  limitations: string[];
+  nativeBridgeAvailable: boolean;
+  cloudSyncRequiresApproval: boolean;
+  readinessLabel: string;
+  lastVerifiedDate: string;
+}
+
+export interface WatchedImportFolder {
+  id: string;
+  folderPath: string;
+  enabled: boolean;
+  autoCommit: boolean;
+  lastScannedAtMs: number | null;
+  createdAtMs: number;
+}
+
+export interface WatchedDetectedFile {
+  folderId: string;
+  filePath: string;
+  fileName: string;
+  fileSizeBytes: number;
+}
+
+export interface WatchedScanReport {
+  pendingFiles: WatchedDetectedFile[];
+  autoImported: ImportCommitResult[];
+  skippedAlreadyProcessed: number;
+}
