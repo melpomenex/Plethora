@@ -60,9 +60,10 @@ describe("selectionActionRegistry", () => {
       "keyTerms",
       "ask",
       "learnThis",
+      "studyPlan",
     ]);
     // Groups: {extract, extractDialog, highlight} | {copy, dictionary} | {flashcard} | AI…
-    expect(full.map((a) => a.menuGroup)).toEqual([1, 1, 1, 2, 2, 3, 4, 4, 4, 4, 4, 4]);
+    expect(full.map((a) => a.menuGroup)).toEqual([1, 1, 1, 2, 2, 3, 4, 4, 4, 4, 4, 4, 4]);
   });
 
   it("hides the whole AI block of the menu when AI is unavailable", () => {
@@ -73,6 +74,7 @@ describe("selectionActionRegistry", () => {
       "copy",
       "dictionary",
       "flashcard",
+      "studyPlan",
     ]);
     expect(ids("menu", { aiAvailable: true })).not.toContain("learnThis");
   });
@@ -99,6 +101,7 @@ describe("selectionActionRegistry", () => {
       "askLibrary",
       "socraticTutor",
       "prerequisites",
+      "studyPlan",
     ]);
     expect(ids("sheet", { aiAvailable: true, canExtract: false })).toEqual([
       "copy",
@@ -107,6 +110,7 @@ describe("selectionActionRegistry", () => {
       "simplify",
       "keyTerms",
       "ask",
+      "studyPlan",
     ]);
   });
 

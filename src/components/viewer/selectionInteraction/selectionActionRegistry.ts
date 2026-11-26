@@ -180,7 +180,7 @@ export const SELECTION_ACTIONS: readonly SelectionActionDescriptor[] = [
     id: "studyPlan",
     icon: GraduationCap,
     labelKeys: { bar: "studyPlans.title", menu: "studyPlans.title", sheet: "studyPlans.title" },
-    order: { menu: 12, sheet: 9 },
+    order: { menu: 12, sheet: 12 },
     menuGroup: 4,
     isAvailable: always,
   },
