@@ -131,38 +131,38 @@ export function LanguagePacksView() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-5">
       <section>
-        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-stone-300">
-          <Package className="h-4 w-4 text-emerald-400" />
+        <h3 className="mb-3 flex items-center gap-2 text-sm font-semibold text-foreground">
+          <Package className="h-4 w-4 text-primary" />
           {t("languageLearning.packs.installed")}
         </h3>
         {error ? (
-          <div className="flex items-center gap-2 text-sm text-red-400">
+          <div className="flex items-center gap-2 text-sm text-destructive">
             <WarningCircle className="h-4 w-4" />
             {error}
           </div>
         ) : null}
         {loading ? (
-          <p className="text-sm text-stone-400">{t("languageLearning.loading")}</p>
+          <p className="text-sm text-muted-foreground">{t("languageLearning.loading")}</p>
         ) : installed.length === 0 ? (
-          <p className="rounded-lg bg-stone-800/60 p-4 text-sm text-stone-400 ring-1 ring-inset ring-stone-700/60">
+          <p className="rounded-lg bg-card p-4 text-sm text-muted-foreground ring-1 ring-inset ring-border">
             {t("languageLearning.packs.noInstalled")}
           </p>
         ) : (
-          <ul className="divide-y divide-stone-800 rounded-xl ring-1 ring-inset ring-stone-800 bg-stone-900/40">
+          <ul className="divide-y divide-border rounded-xl ring-1 ring-inset ring-border bg-card">
             {installed.map((pack) => (
               <li key={pack.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-sm font-medium text-stone-100">{pack.name}</span>
+                    <span className="truncate text-sm font-medium text-foreground">{pack.name}</span>
                     {pack.status === "corrupt" ? (
-                      <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[10px] font-medium text-red-300 ring-1 ring-inset ring-red-500/40">
+                      <span className="rounded-full bg-destructive/10 px-2 py-0.5 text-[10px] font-medium text-destructive ring-1 ring-inset ring-destructive/40">
                         {t("languageLearning.packs.corrupt")}
                       </span>
                     ) : (
-                      <CheckCircle className="h-4 w-4 text-emerald-400" />
+                      <CheckCircle className="h-4 w-4 text-primary" />
                     )}
                   </div>
-                  <div className="mt-0.5 text-xs text-stone-500">
+                  <div className="mt-0.5 text-xs text-muted-foreground">
                     {pack.languageTag} · {formatBytes(pack.sizeBytes)} · {pack.entryCount} {t("languageLearning.packs.entries")}
                   </div>
                 </div>
@@ -171,7 +171,7 @@ export function LanguagePacksView() {
                     type="button"
                     disabled={busyId === pack.id}
                     onClick={() => void verifyPack(pack.id)}
-                    className="inline-flex items-center gap-1 rounded-full bg-stone-800 px-3 py-1.5 text-xs font-medium text-stone-200 ring-1 ring-inset ring-stone-700 hover:bg-stone-700 disabled:opacity-40"
+                    className="inline-flex items-center gap-1 rounded-full bg-surface-container px-3 py-1.5 text-xs font-medium text-foreground ring-1 ring-inset ring-border hover:bg-surface-container-highest disabled:opacity-40"
                   >
                     <ShieldCheck className="h-3.5 w-3.5" />
                     {t("languageLearning.packs.verify")}
@@ -180,7 +180,7 @@ export function LanguagePacksView() {
                     type="button"
                     disabled={busyId === pack.id}
                     onClick={() => void removeLanguagePack(pack.id).then(refresh).catch((cause) => setError(String(cause)))}
-                    className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-3 py-1.5 text-xs font-medium text-red-300 ring-1 ring-inset ring-red-500/40 hover:bg-red-500/25 disabled:opacity-40"
+                    className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive ring-1 ring-inset ring-destructive/40 hover:bg-destructive/20 disabled:opacity-40"
                   >
                     <Trash className="h-3.5 w-3.5" />
                     {t("languageLearning.packs.remove")}
@@ -193,18 +193,18 @@ export function LanguagePacksView() {
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-stone-300">{t("languageLearning.packs.available")}</h3>
+        <h3 className="mb-3 text-sm font-semibold text-foreground">{t("languageLearning.packs.available")}</h3>
         {catalogItems.length === 0 ? (
-          <p className="rounded-lg bg-stone-800/60 p-4 text-sm text-stone-400 ring-1 ring-inset ring-stone-700/60">
+          <p className="rounded-lg bg-card p-4 text-sm text-muted-foreground ring-1 ring-inset ring-border">
             {t("languageLearning.packs.noAvailable")}
           </p>
         ) : (
           <ul className="space-y-2">
             {catalogItems.map((item) => (
-              <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-stone-800/60 p-3 ring-1 ring-inset ring-stone-700/60">
+              <li key={item.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-card p-3 ring-1 ring-inset ring-border">
                 <div className="min-w-0">
-                  <div className="text-sm font-medium text-stone-100">{item.name}</div>
-                  <div className="mt-0.5 text-xs text-stone-500">
+                  <div className="text-sm font-medium text-foreground">{item.name}</div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
                     {formatBytes(item.sizeBytes)} · {item.license}
                   </div>
                 </div>
@@ -214,7 +214,7 @@ export function LanguagePacksView() {
                   onClick={() => void installStarter(item)}
                   className={cn(
                     "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium ring-1 ring-inset transition-colors",
-                    "bg-emerald-600/15 text-emerald-300 ring-emerald-500/40 hover:bg-emerald-600/25 disabled:opacity-40",
+                    "bg-secondary-container text-on-secondary-container ring-primary/40 md-state md-focus-ring disabled:opacity-40",
                   )}
                 >
                   <Download className="h-3.5 w-3.5" />
@@ -224,7 +224,7 @@ export function LanguagePacksView() {
             ))}
           </ul>
         )}
-        <p className="mt-3 text-xs text-stone-500">{t("languageLearning.packs.attributionNote")}</p>
+        <p className="mt-3 text-xs text-muted-foreground">{t("languageLearning.packs.attributionNote")}</p>
       </section>
     </div>
   );

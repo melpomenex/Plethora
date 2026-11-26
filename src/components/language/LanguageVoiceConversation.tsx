@@ -239,30 +239,30 @@ export function LanguageVoiceConversation() {
 
   if (!available) {
     return (
-      <div className="rounded-xl bg-stone-800/60 p-4 ring-1 ring-inset ring-stone-700/60">
+      <div className="rounded-xl bg-card p-4 ring-1 ring-inset ring-border">
         <div className="flex items-center gap-2">
-          <ChatsCircle className="h-4 w-4 text-stone-500" />
-          <span className="text-sm font-medium text-stone-300">{t("languageLearning.voice.unavailable")}</span>
+          <ChatsCircle className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium text-foreground">{t("languageLearning.voice.unavailable")}</span>
         </div>
-        <ul className="mt-2 space-y-1 text-xs text-stone-500">
+        <ul className="mt-2 space-y-1 text-xs text-muted-foreground">
           {!profileId ? <li>• {t("languageLearning.voice.reasonProfile")}</li> : null}
           {!sttAvailable ? <li>• {t("languageLearning.voice.reasonStt")}</li> : null}
           {!aiAvailable ? <li>• {t("languageLearning.voice.reasonAi")}</li> : null}
         </ul>
-        <p className="mt-2 text-xs text-stone-500">{t("languageLearning.voice.noSimulation")}</p>
+        <p className="mt-2 text-xs text-muted-foreground">{t("languageLearning.voice.noSimulation")}</p>
       </div>
     );
   }
 
   return (
-    <div className="rounded-xl bg-stone-800/60 p-4 ring-1 ring-inset ring-stone-700/60">
+    <div className="rounded-xl bg-card p-4 ring-1 ring-inset ring-border">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
-          <ChatsCircle className="h-4 w-4 text-emerald-400" />
-          <span className="text-sm font-medium text-stone-200">{t("languageLearning.voice.title")}</span>
+          <ChatsCircle className="h-4 w-4 text-primary" />
+          <span className="text-sm font-medium text-foreground">{t("languageLearning.voice.title")}</span>
         </div>
         <div className="flex items-center gap-3">
-          <label className="flex items-center gap-1.5 text-xs text-stone-400">
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
             {t("languageLearning.voice.speed")}
             <input
               type="range"
@@ -271,12 +271,12 @@ export function LanguageVoiceConversation() {
               step={0.1}
               value={speed}
               onChange={(event) => setSpeed(Number(event.target.value))}
-              className="w-24 accent-emerald-500"
+              className="w-24 accent-primary"
             />
-            <span className="w-8 text-right text-stone-300">{speed.toFixed(1)}×</span>
+            <span className="w-8 text-right text-foreground">{speed.toFixed(1)}×</span>
           </label>
           {turns.length > 0 ? (
-            <button type="button" onClick={clearSession} className="text-xs text-stone-400 hover:text-stone-200">
+            <button type="button" onClick={clearSession} className="text-xs text-muted-foreground hover:text-foreground">
               {t("languageLearning.voice.clear")}
             </button>
           ) : null}
@@ -284,7 +284,7 @@ export function LanguageVoiceConversation() {
       </div>
 
       {turns.length === 0 ? (
-        <p className="mt-3 text-sm text-stone-400">{t("languageLearning.voice.intro")}</p>
+        <p className="mt-3 text-sm text-muted-foreground">{t("languageLearning.voice.intro")}</p>
       ) : (
         <ul className="mt-3 max-h-72 space-y-2 overflow-y-auto">
           {turns.map((turn) => (
@@ -293,12 +293,12 @@ export function LanguageVoiceConversation() {
               className={cn(
                 "rounded-lg p-3 text-sm leading-relaxed ring-1 ring-inset",
                 turn.role === "user"
-                  ? "bg-stone-900/50 text-stone-200 ring-stone-700"
-                  : "bg-emerald-500/10 text-emerald-100 ring-emerald-500/30",
+                  ? "bg-surface-container-low text-foreground ring-border"
+                  : "bg-secondary-container text-on-secondary-container ring-primary/30",
               )}
             >
               <div className="flex items-center justify-between gap-2">
-                <span className="text-[10px] font-medium uppercase tracking-wide text-stone-500">
+                <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
                   {turn.role === "user" ? t("languageLearning.voice.you") : t("languageLearning.voice.tutor")}
                   {turn.corrected ? ` · ${t("languageLearning.voice.corrected")}` : ""}
                 </span>
@@ -310,7 +310,7 @@ export function LanguageVoiceConversation() {
                         setEditingId(turn.id);
                         setTranscriptDraft(turn.text);
                       }}
-                      className="rounded p-1 text-stone-500 hover:bg-stone-800 hover:text-stone-200"
+                      className="rounded p-1 text-muted-foreground hover:bg-surface-container hover:text-foreground"
                       aria-label={t("languageLearning.voice.edit")}
                     >
                       <PencilSimple className="h-3.5 w-3.5" />
@@ -319,7 +319,7 @@ export function LanguageVoiceConversation() {
                     <button
                       type="button"
                       onClick={() => speak(turn.text)}
-                      className="rounded p-1 text-stone-500 hover:bg-stone-800 hover:text-stone-200"
+                      className="rounded p-1 text-muted-foreground hover:bg-surface-container hover:text-foreground"
                       aria-label={t("languageLearning.voice.replay")}
                     >
                       <Play className="h-3.5 w-3.5" />
@@ -333,13 +333,13 @@ export function LanguageVoiceConversation() {
                     value={transcriptDraft}
                     onChange={(event) => setTranscriptDraft(event.target.value)}
                     rows={2}
-                    className="w-full rounded-lg bg-stone-900/70 p-2 text-sm text-stone-100 ring-1 ring-inset ring-stone-700 focus:outline-none focus:ring-emerald-500"
+                    className="w-full rounded-lg bg-surface-container p-2 text-sm text-foreground ring-1 ring-inset ring-border md-focus-ring focus-visible:ring-primary"
                   />
                   <div className="flex justify-end gap-2">
-                    <button type="button" onClick={() => setEditingId(null)} className="text-xs text-stone-400 hover:text-stone-200">
+                    <button type="button" onClick={() => setEditingId(null)} className="text-xs text-muted-foreground hover:text-foreground">
                       {t("common.cancel")}
                     </button>
-                    <button type="button" onClick={() => saveCorrection(turn.id)} className="text-xs text-emerald-300 hover:text-emerald-200">
+                    <button type="button" onClick={() => saveCorrection(turn.id)} className="md-focus-ring text-xs font-medium text-primary hover:underline">
                       {t("languageLearning.voice.saveCorrection")}
                     </button>
                   </div>
@@ -353,7 +353,7 @@ export function LanguageVoiceConversation() {
       )}
 
       {error ? (
-        <div className="mt-3 flex items-center gap-2 text-sm text-red-400">
+        <div className="mt-3 flex items-center gap-2 text-sm text-destructive">
           <WarningCircle className="h-4 w-4" />
           {error}
         </div>
@@ -361,16 +361,16 @@ export function LanguageVoiceConversation() {
 
       <div className="mt-4 space-y-3">
         {transcriptDraft && micStatus === "idle" ? (
-          <div className="rounded-lg bg-stone-900/50 p-2 ring-1 ring-inset ring-stone-700">
+          <div className="rounded-lg bg-surface-container-low p-2 ring-1 ring-inset ring-border">
             <textarea
               value={transcriptDraft}
               onChange={(event) => setTranscriptDraft(event.target.value)}
               rows={2}
               placeholder={t("languageLearning.voice.transcriptPlaceholder")}
-              className="w-full resize-none rounded-lg bg-transparent p-2 text-sm text-stone-100 focus:outline-none"
+              className="md-focus-ring w-full resize-none rounded-lg p-2 text-sm text-foreground"
             />
             <div className="flex items-center justify-between gap-2 px-2 pb-1">
-              <span className="text-[10px] text-stone-500">{t("languageLearning.voice.correctTranscript")}</span>
+              <span className="text-[10px] text-muted-foreground">{t("languageLearning.voice.correctTranscript")}</span>
               <button
                 type="button"
                 disabled={busy || !transcriptDraft.trim()}
@@ -379,7 +379,7 @@ export function LanguageVoiceConversation() {
                   setTranscriptDraft("");
                   void sendText(text);
                 }}
-                className="rounded-full bg-emerald-600 px-4 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                className="rounded-full bg-primary px-4 py-1.5 text-xs font-semibold text-primary-foreground md-state md-focus-ring disabled:opacity-40"
               >
                 {busy ? t("languageLearning.voice.sending") : t("languageLearning.voice.send")}
               </button>
@@ -393,22 +393,22 @@ export function LanguageVoiceConversation() {
             disabled={micStatus === "processing" || micStatus === "requesting" || busy || (providers[0]?.route === "cloud" && !cloudConsent)}
             onClick={recording ? () => void stopRecording() : () => void startRecording()}
             className={cn(
-              "inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold transition-colors disabled:opacity-40",
+              "md-state md-focus-ring inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold transition-colors disabled:opacity-40",
               recording
-                ? "bg-red-500/90 text-white hover:bg-red-500"
-                : "bg-emerald-600 text-white hover:bg-emerald-500",
+                ? "bg-destructive text-destructive-foreground"
+                : "bg-primary text-primary-foreground",
             )}
           >
             {recording ? <Stop className="h-4 w-4" /> : <Microphone className="h-4 w-4" />}
             {recording ? t("languageLearning.voice.stop") : t("languageLearning.voice.speak")}
           </button>
 
-          <label className="flex items-center gap-2 text-xs text-stone-400">
+          <label className="flex items-center gap-2 text-xs text-muted-foreground">
             <input
               type="checkbox"
               checked={cloudConsent}
               onChange={(event) => setCloudConsent(event.target.checked)}
-              className="h-4 w-4 accent-emerald-500"
+              className="h-4 w-4 accent-primary"
             />
             {t("languageLearning.voice.cloudConsent")}
           </label>
@@ -416,7 +416,7 @@ export function LanguageVoiceConversation() {
           <button
             type="button"
             onClick={stopSpeaking}
-            className="rounded-full bg-stone-800 px-4 py-2 text-xs font-medium text-stone-300 ring-1 ring-inset ring-stone-700 hover:bg-stone-700"
+            className="rounded-full bg-surface-container px-4 py-2 text-xs font-medium text-foreground ring-1 ring-inset ring-border hover:bg-surface-container-highest"
           >
             {t("languageLearning.voice.stopAudio")}
           </button>

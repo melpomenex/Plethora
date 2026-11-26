@@ -52,7 +52,7 @@ export function TutorTurnBubble({ turn }: { turn: TutorTranscriptTurn }) {
                 key={pip}
                 aria-hidden="true"
                 className={`h-1.5 w-1.5 rounded-full ${
-                  pip <= (turn.hintLevel ?? 0) ? "bg-amber-500" : "bg-border"
+                  pip <= (turn.hintLevel ?? 0) ? "bg-primary" : "bg-border"
                 }`}
               />
             ))}
@@ -63,7 +63,7 @@ export function TutorTurnBubble({ turn }: { turn: TutorTranscriptTurn }) {
         <AssistantResponseContent content={turn.text} markdown={false} />
       </div>
       {turn.stuckDetected && (
-        <p className="text-[11px] text-amber-600 dark:text-amber-400" data-tutor-stuck="true">
+        <p className="text-[11px] text-muted-foreground" data-tutor-stuck="true">
           {t("aiTutor.stuck")}
         </p>
       )}

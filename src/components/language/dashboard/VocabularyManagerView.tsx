@@ -1,5 +1,7 @@
 import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Download, MagnifyingGlass, Trash, WarningCircle } from "@phosphor-icons/react";
+import { useIsActiveTab } from "../../common/Tabs/TabContent";
+import { Dialog } from "../../md3/Dialog";
 import { useLanguageProfileStore } from "../../../stores/languageProfileStore";
 import { useI18n } from "../../../lib/i18n";
 import { cn } from "../../../utils/cn";
@@ -38,6 +40,7 @@ function formatCount(n: number): string {
 
 /** Paged, state-filterable vocabulary manager with bulk operations. */
 export function VocabularyManagerView() {
+  const isActiveTab = useIsActiveTab();
   const { t } = useI18n();
   const activeProfile = useLanguageProfileStore((state) => state.activeProfile);
 
@@ -283,22 +286,22 @@ export function VocabularyManagerView() {
     <div className="mx-auto max-w-4xl p-5">
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1">
-          <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-stone-500" />
+          <MagnifyingGlass className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <input
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("languageLearning.vocabulary.searchPlaceholder")}
-            className="w-full rounded-lg bg-stone-800 py-2 pl-9 pr-3 text-sm text-stone-100 ring-1 ring-inset ring-stone-700 placeholder:text-stone-500 focus:outline-none focus:ring-emerald-500"
+            className="w-full rounded-lg bg-surface-container py-2 pl-9 pr-3 text-sm text-foreground ring-1 ring-inset ring-border placeholder:text-muted-foreground md-focus-ring focus-visible:ring-primary"
           />
         </div>
-        <button type="button" onClick={() => setGroupByLemma((prev) => !prev)} className={cn("rounded-lg px-3 py-2 text-sm font-medium ring-1 ring-inset", groupByLemma ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40" : "bg-stone-800 text-stone-200 ring-stone-700 hover:bg-stone-700")}>
+        <button type="button" aria-pressed={groupByLemma} onClick={() => setGroupByLemma((prev) => !prev)} className={cn("rounded-lg px-3 py-2 text-sm font-medium ring-1 ring-inset", groupByLemma ? "bg-secondary-container text-on-secondary-container ring-primary/40" : "bg-surface-container text-foreground ring-border hover:bg-surface-container-highest")}>
           {t("languageLearning.vocabulary.lemma")}
         </button>
-        <button type="button" onClick={() => setImportOpen(true)} className="rounded-lg bg-stone-800 px-3 py-2 text-sm font-medium text-stone-200 ring-1 ring-inset ring-stone-700 hover:bg-stone-700">
+        <button type="button" onClick={() => setImportOpen(true)} className="rounded-lg bg-surface-container px-3 py-2 text-sm font-medium text-foreground ring-1 ring-inset ring-border hover:bg-surface-container-highest">
           {t("languageLearning.vocabulary.import")}
         </button>
-        <button type="button" onClick={() => void handleExport()} className="inline-flex items-center gap-1.5 rounded-lg bg-stone-800 px-3 py-2 text-sm font-medium text-stone-200 ring-1 ring-inset ring-stone-700 hover:bg-stone-700">
+        <button type="button" onClick={() => void handleExport()} className="inline-flex items-center gap-1.5 rounded-lg bg-surface-container px-3 py-2 text-sm font-medium text-foreground ring-1 ring-inset ring-border hover:bg-surface-container-highest">
           <Download className="h-4 w-4" />
           {t("languageLearning.vocabulary.export")}
         </button>
@@ -307,10 +310,11 @@ export function VocabularyManagerView() {
       <div className="mt-3 flex flex-wrap items-center gap-1.5">
         <button
           type="button"
+          aria-pressed={stateFilter === "all"}
           onClick={() => setStateFilter("all")}
           className={cn(
             "rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset transition-colors",
-            stateFilter === "all" ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40" : "bg-stone-800 text-stone-400 ring-stone-700 hover:text-stone-200",
+            stateFilter === "all" ? "bg-secondary-container text-on-secondary-container ring-primary/40" : "bg-surface-container text-muted-foreground ring-border hover:text-foreground",
           )}
         >
           {t("languageLearning.vocabulary.stateAll")}
@@ -319,10 +323,11 @@ export function VocabularyManagerView() {
           <button
             key={state}
             type="button"
+            aria-pressed={stateFilter === state}
             onClick={() => setStateFilter(state)}
             className={cn(
               "rounded-full px-3 py-1 text-xs font-medium ring-1 ring-inset transition-colors",
-              stateFilter === state ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40" : "bg-stone-800 text-stone-400 ring-stone-700 hover:text-stone-200",
+              stateFilter === state ? "bg-secondary-container text-on-secondary-container ring-primary/40" : "bg-surface-container text-muted-foreground ring-border hover:text-foreground",
             )}
           >
             {t(`languageLearning.knowledgeState.${state}`)}
@@ -331,15 +336,15 @@ export function VocabularyManagerView() {
       </div>
 
       {selected.size > 0 ? (
-        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-stone-800/60 p-3 ring-1 ring-inset ring-stone-700/60">
-          <span className="text-sm text-stone-300">{t("languageLearning.vocabulary.selectedCount", { count: String(selected.size) })}</span>
+        <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-card p-3 ring-1 ring-inset ring-border">
+          <span className="text-sm text-foreground">{t("languageLearning.vocabulary.selectedCount", { count: String(selected.size) })}</span>
           {STATE_FILTERS.map((state) => (
             <button
               key={state}
               type="button"
               disabled={applying}
               onClick={() => void applyStateToSelected(state)}
-              className="rounded-full bg-emerald-600/20 px-3 py-1 text-xs font-medium text-emerald-300 ring-1 ring-inset ring-emerald-500/40 hover:bg-emerald-600/30 disabled:opacity-40"
+              className="rounded-full bg-secondary-container px-3 py-1 text-xs font-medium text-on-secondary-container ring-1 ring-inset ring-primary/40 md-state md-focus-ring disabled:opacity-40"
             >
               {t(`languageLearning.vocabulary.markAs`, { state: t(`languageLearning.knowledgeState.${state}`) })}
             </button>
@@ -348,7 +353,7 @@ export function VocabularyManagerView() {
             type="button"
             disabled={applying}
             onClick={() => void handleDeleteSelected()}
-            className="inline-flex items-center gap-1 rounded-full bg-red-500/15 px-3 py-1 text-xs font-medium text-red-300 ring-1 ring-inset ring-red-500/40 hover:bg-red-500/25 disabled:opacity-40"
+            className="inline-flex items-center gap-1 rounded-full bg-destructive/10 px-3 py-1 text-xs font-medium text-destructive ring-1 ring-inset ring-destructive/40 hover:bg-destructive/20 disabled:opacity-40"
           >
             <Trash className="h-3.5 w-3.5" />
             {t("languageLearning.vocabulary.delete")}
@@ -357,24 +362,24 @@ export function VocabularyManagerView() {
       ) : null}
 
       {error ? (
-        <div className="mt-4 flex items-center gap-2 text-sm text-red-400">
+        <div className="mt-4 flex items-center gap-2 text-sm text-destructive">
           <WarningCircle className="h-4 w-4" />
           {error}
         </div>
       ) : null}
 
       {loading && !page ? (
-        <div className="mt-6 text-sm text-stone-400">{t("languageLearning.loading")}</div>
+        <div className="mt-6 text-sm text-muted-foreground">{t("languageLearning.loading")}</div>
       ) : null}
 
-      <div className="mt-4 overflow-hidden rounded-xl ring-1 ring-inset ring-stone-800">
+      <div className="mt-4 overflow-hidden rounded-xl ring-1 ring-inset ring-border">
         <table className="w-full text-left text-sm">
-          <thead className="bg-stone-900 text-xs text-stone-400">
+          <thead className="bg-surface-container-high text-xs text-muted-foreground">
             <tr>
               <th className="w-10 px-3 py-2">
                 <input type="checkbox" checked={allSelected} onChange={(event) => {
                   setSelected(event.target.checked ? new Set(items.map((item) => item.id)) : new Set());
-                }} className="h-4 w-4 accent-emerald-500" />
+                }} className="h-4 w-4 accent-primary" />
               </th>
               <th className="px-3 py-2 font-medium">{t("languageLearning.vocabulary.word")}</th>
               <th className="px-3 py-2 font-medium">{t("languageLearning.vocabulary.lemma")}</th>
@@ -384,7 +389,7 @@ export function VocabularyManagerView() {
               <th className="w-24 px-3 py-2 font-medium">{t("languageLearning.vocabulary.actions")}</th>
             </tr>
           </thead>
-          <tbody className="divide-y divide-stone-800/70 bg-stone-900/40">
+          <tbody className="divide-y divide-border bg-card">
             {items.map((item) => {
               const isExpanded = expandedId === item.id;
               const detail = entryDetails[item.id];
@@ -393,46 +398,46 @@ export function VocabularyManagerView() {
               const linkedCards = Object.keys(item.reviewRelationships ?? {});
               return (
                 <Fragment key={item.id}>
-                  <tr className={cn("hover:bg-stone-800/40", selected.has(item.id) && "bg-emerald-500/5")}>
+                  <tr className={cn("hover:bg-surface-container-low", selected.has(item.id) && "bg-primary/10")}>
                     <td className="px-3 py-2">
-                      <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} className="h-4 w-4 accent-emerald-500" />
+                      <input type="checkbox" checked={selected.has(item.id)} onChange={() => toggleSelected(item.id)} className="h-4 w-4 accent-primary" />
                     </td>
                     <td className="px-3 py-2">
                       <button
                         type="button"
                         onClick={() => void toggleExpandEntry(item.id)}
-                        className="text-left font-medium text-stone-100 hover:text-emerald-300"
+                        className="text-left font-medium text-foreground hover:text-primary"
                       >
                         {item.canonicalForm || item.normalizedForm}
                       </button>
                       {definitions?.length ? (
-                        <div className="truncate text-xs text-stone-400 max-w-[220px]">{definitions.slice(0, 2).join("; ")}</div>
+                        <div className="truncate text-xs text-muted-foreground max-w-[220px]">{definitions.slice(0, 2).join("; ")}</div>
                       ) : null}
                     </td>
-                    <td className="px-3 py-2 text-stone-400">{item.lemma ?? "—"}</td>
-                    <td className="hidden px-3 py-2 text-stone-400 sm:table-cell">{item.partOfSpeech ?? "—"}</td>
+                    <td className="px-3 py-2 text-muted-foreground">{item.lemma ?? "—"}</td>
+                    <td className="hidden px-3 py-2 text-muted-foreground sm:table-cell">{item.partOfSpeech ?? "—"}</td>
                     <td className="px-3 py-2">
                       <select
                         value={item.knowledgeState ?? (item.ignored ? "ignored" : "new")}
                         disabled={applying}
                         onChange={(event) => void applyStateToEntry(item.id, event.target.value as LanguageKnowledgeState)}
-                        className="rounded-md bg-stone-800 px-2 py-1 text-xs text-stone-200 ring-1 ring-inset ring-stone-700 focus:outline-none focus:ring-emerald-500"
+                        className="rounded-md bg-surface-container px-2 py-1 text-xs text-foreground ring-1 ring-inset ring-border md-focus-ring focus-visible:ring-primary"
                       >
                         {STATE_FILTERS.map((state) => (
                           <option key={state} value={state}>{t(`languageLearning.knowledgeState.${state}`)}</option>
                         ))}
                       </select>
                     </td>
-                    <td className="hidden px-3 py-2 text-stone-400 md:table-cell">{formatCount(item.encounterCount)}</td>
+                    <td className="hidden px-3 py-2 text-muted-foreground md:table-cell">{formatCount(item.encounterCount)}</td>
                     <td className="px-3 py-2">
                       <div className="flex flex-wrap gap-1.5">
                         {isIgnored ? (
-                          <button type="button" disabled={applying} onClick={() => void applyStateToEntry(item.id, "learning")} className="text-xs text-amber-300 hover:underline">
+                          <button type="button" disabled={applying} onClick={() => void applyStateToEntry(item.id, "learning")} className="text-xs text-primary hover:underline">
                             Restore
                           </button>
                         ) : null}
                         {item.documentCount > 0 ? (
-                          <button type="button" onClick={() => openSource()} className="text-xs text-emerald-400 hover:underline">
+                          <button type="button" onClick={() => openSource()} className="text-xs text-primary hover:underline">
                             {t("languageLearning.vocabulary.source")}
                           </button>
                         ) : null}
@@ -440,40 +445,40 @@ export function VocabularyManagerView() {
                     </td>
                   </tr>
                   {isExpanded ? (
-                    <tr key={`${item.id}-details`} className="bg-stone-950/60">
-                      <td colSpan={7} className="px-4 py-3 text-xs text-stone-300">
+                    <tr key={`${item.id}-details`} className="bg-surface-container-low">
+                      <td colSpan={7} className="px-4 py-3 text-xs text-foreground">
                         {detail?.loading ? (
-                          <span className="text-stone-400">{t("languageLearning.loading")}</span>
+                          <span className="text-muted-foreground">{t("languageLearning.loading")}</span>
                         ) : (
                           <div className="space-y-2">
                             {definitions?.length ? (
                               <div>
-                                <span className="font-medium text-stone-400">Meanings: </span>
+                                <span className="font-medium text-muted-foreground">Meanings: </span>
                                 {definitions.join("; ")}
                               </div>
                             ) : null}
                             {detail?.surfaces?.length ? (
                               <div>
-                                <span className="font-medium text-stone-400">Surface forms: </span>
+                                <span className="font-medium text-muted-foreground">Surface forms: </span>
                                 {detail.surfaces.map((s) => `${s.surface} (${s.occurrenceCount})`).join(", ")}
                               </div>
                             ) : null}
                             {linkedCards.length > 0 ? (
                               <div>
-                                <span className="font-medium text-stone-400">Linked flashcards: </span>
+                                <span className="font-medium text-muted-foreground">Linked flashcards: </span>
                                 {linkedCards.length}
                               </div>
                             ) : null}
                             {detail?.occurrences?.length ? (
                               <div className="space-y-1">
-                                <div className="font-medium text-stone-400">Occurrences:</div>
+                                <div className="font-medium text-muted-foreground">Occurrences:</div>
                                 {detail.occurrences.map((occ) => (
-                                  <div key={occ.id} className="flex items-center justify-between gap-2 rounded bg-stone-900/70 px-2 py-1">
-                                    <span className="truncate text-stone-300">{occ.contextText || occ.surface}</span>
+                                  <div key={occ.id} className="flex items-center justify-between gap-2 rounded bg-surface-container px-2 py-1">
+                                    <span className="truncate text-foreground">{occ.contextText || occ.surface}</span>
                                     <button
                                       type="button"
                                       onClick={() => openSource(occ.documentId)}
-                                      className="shrink-0 text-emerald-400 hover:underline"
+                                      className="shrink-0 text-primary hover:underline"
                                     >
                                       {t("languageLearning.vocabulary.source")}
                                     </button>
@@ -491,7 +496,7 @@ export function VocabularyManagerView() {
             })}
             {items.length === 0 && !loading ? (
               <tr>
-                <td colSpan={7} className="px-3 py-6 text-center text-sm text-stone-500">
+                <td colSpan={7} className="px-3 py-6 text-center text-sm text-muted-foreground">
                   {t("languageLearning.vocabulary.empty")}
                 </td>
               </tr>
@@ -502,44 +507,47 @@ export function VocabularyManagerView() {
 
       {page?.hasMore ? (
         <div className="mt-3 flex justify-center">
-          <button type="button" onClick={() => load(page.offset + page.items.length)} className="rounded-full bg-stone-800 px-4 py-2 text-sm font-medium text-stone-200 ring-1 ring-inset ring-stone-700 hover:bg-stone-700">
+          <button type="button" onClick={() => load(page.offset + page.items.length)} className="rounded-full bg-surface-container px-4 py-2 text-sm font-medium text-foreground ring-1 ring-inset ring-border hover:bg-surface-container-highest">
             {t("languageLearning.loadMore")}
           </button>
         </div>
       ) : null}
 
-      {importOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" role="dialog" aria-modal="true">
-          <div className="w-full max-w-md rounded-2xl bg-stone-900 p-5 ring-1 ring-inset ring-stone-700 shadow-2xl">
-            <h3 className="text-sm font-semibold">{t("languageLearning.vocabulary.importTitle")}</h3>
-            <p className="mt-1 text-xs text-stone-400">{t("languageLearning.vocabulary.importHint")}</p>
-            <textarea
-              value={importText}
-              onChange={(event) => setImportText(event.target.value)}
-              rows={6}
-              className="mt-3 w-full rounded-lg bg-stone-800 p-3 text-sm text-stone-100 ring-1 ring-inset ring-stone-700 focus:outline-none focus:ring-emerald-500"
-            />
-            <div className="mt-3 flex items-center gap-2">
-              <button type="button" disabled={importBusy} onClick={() => void runPreview()} className="rounded-full bg-stone-800 px-4 py-2 text-sm font-medium text-stone-200 ring-1 ring-inset ring-stone-700 hover:bg-stone-700 disabled:opacity-40">
-                {t("languageLearning.vocabulary.preview")}
-              </button>
-              {importPreview ? (
-                <span className="text-xs text-stone-400">
-                  {t("languageLearning.vocabulary.previewResult", { added: String(importPreview.added), existing: String(importPreview.existing) })}
-                </span>
-              ) : null}
-            </div>
-            <div className="mt-4 flex justify-end gap-2">
-              <button type="button" onClick={() => setImportOpen(false)} className="rounded-full px-4 py-2 text-sm font-medium text-stone-300 hover:bg-stone-800">
-                {t("common.cancel")}
-              </button>
-              <button type="button" disabled={importBusy || !importPreview} onClick={() => void runImport()} className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40">
-                {t("languageLearning.vocabulary.importConfirm")}
-              </button>
-            </div>
-          </div>
+      <Dialog
+        open={importOpen && isActiveTab}
+        onClose={() => setImportOpen(false)}
+        title={t("languageLearning.vocabulary.importTitle")}
+        description={t("languageLearning.vocabulary.importHint")}
+        hideCloseButton
+        footer={(
+          <>
+            <button type="button" onClick={() => setImportOpen(false)} className="rounded-full px-4 py-2 text-sm font-medium text-foreground hover:bg-surface-container">
+              {t("common.cancel")}
+            </button>
+            <button type="button" disabled={importBusy || !importPreview} onClick={() => void runImport()} className="rounded-full bg-primary px-4 py-2 text-sm font-semibold text-primary-foreground md-state md-focus-ring disabled:opacity-40">
+              {t("languageLearning.vocabulary.importConfirm")}
+            </button>
+          </>
+        )}
+      >
+        <textarea
+          aria-label={t("languageLearning.vocabulary.importTitle")}
+          value={importText}
+          onChange={(event) => setImportText(event.target.value)}
+          rows={6}
+          className="w-full rounded-lg bg-surface-container p-3 text-sm text-foreground ring-1 ring-inset ring-border md-focus-ring focus-visible:ring-primary"
+        />
+        <div className="mt-3 flex items-center gap-2">
+          <button type="button" disabled={importBusy} onClick={() => void runPreview()} className="rounded-full bg-surface-container px-4 py-2 text-sm font-medium text-foreground ring-1 ring-inset ring-border hover:bg-surface-container-highest disabled:opacity-40">
+            {t("languageLearning.vocabulary.preview")}
+          </button>
+          {importPreview ? (
+            <span className="text-xs text-muted-foreground">
+              {t("languageLearning.vocabulary.previewResult", { added: String(importPreview.added), existing: String(importPreview.existing) })}
+            </span>
+          ) : null}
         </div>
-      ) : null}
+      </Dialog>
     </div>
   );
 }

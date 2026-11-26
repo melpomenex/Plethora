@@ -16,10 +16,10 @@ function isAvailable(status: string | undefined): boolean {
 
 function StatCard(props: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-xl bg-stone-800/60 p-4 ring-1 ring-inset ring-stone-700/60">
-      <div className="text-xs text-stone-400">{props.label}</div>
-      <div className="mt-1 text-xl font-semibold text-stone-100">{props.value}</div>
-      {props.hint ? <div className="mt-1 text-xs text-stone-500">{props.hint}</div> : null}
+    <div className="rounded-xl bg-card p-4 ring-1 ring-inset ring-border">
+      <div className="text-xs text-muted-foreground">{props.label}</div>
+      <div className="mt-1 text-xl font-semibold text-foreground">{props.value}</div>
+      {props.hint ? <div className="mt-1 text-xs text-muted-foreground">{props.hint}</div> : null}
     </div>
   );
 }
@@ -27,7 +27,7 @@ function StatCard(props: { label: string; value: string; hint?: string }) {
 function Section(props: { title: string; children: React.ReactNode }) {
   return (
     <section className="space-y-3">
-      <h3 className="text-sm font-semibold text-stone-300">{props.title}</h3>
+      <h3 className="text-sm font-semibold text-foreground">{props.title}</h3>
       {props.children}
     </section>
   );
@@ -87,18 +87,18 @@ export function LanguageAnalyticsView() {
   const unavailable = (status: string | undefined) => !isAvailable(status);
 
   if (loading) {
-    return <div className="p-6 text-sm text-stone-400">{t("languageLearning.loading")}</div>;
+    return <div className="p-6 text-sm text-muted-foreground">{t("languageLearning.loading")}</div>;
   }
   if (error) {
     return (
-      <div className="flex items-center gap-2 p-6 text-sm text-red-400">
+      <div className="flex items-center gap-2 p-6 text-sm text-destructive">
         <WarningCircle className="h-4 w-4" />
         {error}
       </div>
     );
   }
   if (!summary) {
-    return <div className="p-6 text-sm text-stone-400">{t("languageLearning.empty")}</div>;
+    return <div className="p-6 text-sm text-muted-foreground">{t("languageLearning.empty")}</div>;
   }
 
   return (
@@ -118,9 +118,9 @@ export function LanguageAnalyticsView() {
         <>
           <Section title={t("languageLearning.analytics.reading")}>
             {unavailable(data.activity.reading.status) ? (
-              <p className="text-sm text-stone-500">{data.activity.reading.reason ?? t("languageLearning.analytics.noReadingEvidence")}</p>
+              <p className="text-sm text-muted-foreground">{data.activity.reading.reason ?? t("languageLearning.analytics.noReadingEvidence")}</p>
             ) : (
-              <p className="text-sm text-stone-300">
+              <p className="text-sm text-foreground">
                 {t("languageLearning.analytics.readingTokens", { count: String(data.activity.reading.tokens ?? 0) })}
               </p>
             )}
@@ -128,9 +128,9 @@ export function LanguageAnalyticsView() {
 
           <Section title={t("languageLearning.analytics.listening")}>
             {unavailable(data.activity.listening.status) ? (
-              <p className="text-sm text-stone-500">{data.activity.listening.reason ?? t("languageLearning.analytics.noListeningEvidence")}</p>
+              <p className="text-sm text-muted-foreground">{data.activity.listening.reason ?? t("languageLearning.analytics.noListeningEvidence")}</p>
             ) : (
-              <p className="text-sm text-stone-300">
+              <p className="text-sm text-foreground">
                 {t("languageLearning.analytics.listeningSentences", { count: String(data.activity.listening.sentences ?? 0) })}
               </p>
             )}
@@ -138,9 +138,9 @@ export function LanguageAnalyticsView() {
 
           <Section title={t("languageLearning.analytics.practice")}>
             {unavailable(data.activity.practice.status) ? (
-              <p className="text-sm text-stone-500">{data.activity.practice.reason ?? t("languageLearning.analytics.noPracticeEvidence")}</p>
+              <p className="text-sm text-muted-foreground">{data.activity.practice.reason ?? t("languageLearning.analytics.noPracticeEvidence")}</p>
             ) : (
-              <div className="space-y-2 text-sm text-stone-300">
+              <div className="space-y-2 text-sm text-foreground">
                 <p>{t("languageLearning.analytics.submitted", { count: String(data.activity.practice.submittedAttempts) })}</p>
                 <p>{t("languageLearning.analytics.accepted", { count: String(data.activity.practice.acceptedActiveAttempts) })}</p>
                 <p>{t("languageLearning.analytics.errors", { count: String(data.activity.practice.totalErrors) })}</p>
@@ -150,9 +150,9 @@ export function LanguageAnalyticsView() {
 
           <Section title={t("languageLearning.analytics.coverageSection")}>
             {unavailable(data.coverage.status) ? (
-              <p className="text-sm text-stone-500">{data.coverage.reason ?? t("languageLearning.analytics.noCoverage")}</p>
+              <p className="text-sm text-muted-foreground">{data.coverage.reason ?? t("languageLearning.analytics.noCoverage")}</p>
             ) : (
-              <div className="space-y-2 text-sm text-stone-300">
+              <div className="space-y-2 text-sm text-foreground">
                 <p>{t("languageLearning.analytics.coverageReady", { count: String(data.coverage.readyDocuments) })}</p>
                 <p>{t("languageLearning.analytics.unknownDensity", { value: formatPercent(data.coverage.averageUnknownDensity) })}</p>
               </div>
@@ -161,9 +161,9 @@ export function LanguageAnalyticsView() {
 
           {data.proficiency.status === "unavailable" ? (
             <Section title={t("languageLearning.analytics.proficiency")}>
-              <div className="flex items-start gap-2 rounded-lg bg-stone-800/60 p-3 ring-1 ring-inset ring-stone-700/60">
-                <ChartBar className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" />
-                <p className="text-sm text-stone-400">{data.proficiency.reason ?? t("languageLearning.analytics.noProficiency")}</p>
+              <div className="flex items-start gap-2 rounded-lg bg-card p-3 ring-1 ring-inset ring-border">
+                <ChartBar className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">{data.proficiency.reason ?? t("languageLearning.analytics.noProficiency")}</p>
               </div>
             </Section>
           ) : null}

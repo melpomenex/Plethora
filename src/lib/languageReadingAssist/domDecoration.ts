@@ -135,7 +135,7 @@ export function readingAssistStyleText(): string {
     }
     .language-reading-assist-gloss rt {
       font-size: 0.7em;
-      color: var(--muted-foreground, #6b7280);
+      color: var(--color-muted-foreground, currentColor);
       user-select: none;
     }
     .language-reading-assist-bidi {
@@ -144,7 +144,7 @@ export function readingAssistStyleText(): string {
     .language-reading-assist-segment {
       display: inline-block;
       margin-inline-end: 0.25em;
-      border-inline-end: 1px dotted var(--muted-foreground, #6b7280);
+      border-inline-end: 1px dotted var(--color-muted-foreground, currentColor);
       padding-inline-end: 0.12em;
     }
   `;

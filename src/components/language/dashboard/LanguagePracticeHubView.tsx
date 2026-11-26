@@ -117,7 +117,7 @@ export function LanguagePracticeHubView() {
   return (
     <div className="mx-auto max-w-4xl space-y-6 p-5">
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-stone-300">{t("languageLearning.practice.modes")}</h3>
+        <h3 className="mb-3 text-sm font-semibold text-foreground">{t("languageLearning.practice.modes")}</h3>
         <div className="grid gap-3 sm:grid-cols-2">
           {modes.map((mode) => {
             const Icon = mode.icon;
@@ -128,51 +128,51 @@ export function LanguagePracticeHubView() {
                 onClick={mode.available ? openDocuments : undefined}
                 className={`rounded-xl p-4 text-left ring-1 ring-inset transition-colors ${
                   mode.available
-                    ? "bg-stone-800/60 ring-stone-700/60 hover:bg-stone-800"
-                    : "bg-stone-900/40 ring-stone-800 opacity-70"
+                    ? "bg-card ring-border hover:bg-surface-container"
+                    : "bg-card ring-border opacity-70"
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <Icon className={`h-5 w-5 ${mode.available ? "text-emerald-400" : "text-stone-500"}`} />
-                  <span className="text-sm font-medium text-stone-100">{t(mode.titleKey)}</span>
+                  <Icon className={`h-5 w-5 ${mode.available ? "text-primary" : "text-muted-foreground"}`} />
+                  <span className="text-sm font-medium text-foreground">{t(mode.titleKey)}</span>
                 </div>
-                <p className="mt-1.5 text-xs leading-relaxed text-stone-400">{t(mode.descriptionKey)}</p>
+                <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">{t(mode.descriptionKey)}</p>
                 {!mode.available && mode.reasonKey ? (
-                  <p className="mt-1.5 text-xs text-stone-500">{t(mode.reasonKey)}</p>
+                  <p className="mt-1.5 text-xs text-muted-foreground">{t(mode.reasonKey)}</p>
                 ) : null}
               </button>
             );
           })}
         </div>
-        <p className="mt-3 text-xs text-stone-500">{t("languageLearning.practice.hint")}</p>
+        <p className="mt-3 text-xs text-muted-foreground">{t("languageLearning.practice.hint")}</p>
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-stone-300">{t("languageLearning.practice.history")}</h3>
+        <h3 className="mb-3 text-sm font-semibold text-foreground">{t("languageLearning.practice.history")}</h3>
         {error ? (
-          <div className="flex items-center gap-2 text-sm text-red-400">
+          <div className="flex items-center gap-2 text-sm text-destructive">
             <WarningCircle className="h-4 w-4" />
             {error}
           </div>
         ) : null}
         {attemptsLoading ? (
-          <p className="text-sm text-stone-400">{t("languageLearning.loading")}</p>
+          <p className="text-sm text-muted-foreground">{t("languageLearning.loading")}</p>
         ) : attempts.length === 0 ? (
-          <p className="rounded-lg bg-stone-800/60 p-4 text-sm text-stone-400 ring-1 ring-inset ring-stone-700/60">
+          <p className="rounded-lg bg-card p-4 text-sm text-muted-foreground ring-1 ring-inset ring-border">
             {t("languageLearning.practice.emptyHistory")}
           </p>
         ) : (
-          <ul className="divide-y divide-stone-800 rounded-xl ring-1 ring-inset ring-stone-800 bg-stone-900/40">
+          <ul className="divide-y divide-border rounded-xl ring-1 ring-inset ring-border bg-card">
             {attempts.slice(0, 8).map((attempt) => (
               <li key={attempt.id} className="flex items-center justify-between gap-3 px-4 py-2.5">
                 <div className="min-w-0">
-                  <div className="truncate text-sm text-stone-200">
+                  <div className="truncate text-sm text-foreground">
                     {t(`languageLearning.practice.modeName.${attempt.mode}`)}
                   </div>
-                  <div className="text-xs text-stone-500">{new Date(attempt.createdAt).toLocaleString()}</div>
+                  <div className="text-xs text-muted-foreground">{new Date(attempt.createdAt).toLocaleString()}</div>
                 </div>
                 {attempt.comparison?.score != null ? (
-                  <span className="rounded-full bg-stone-800 px-3 py-1 text-xs font-medium text-stone-300 ring-1 ring-inset ring-stone-700">
+                  <span className="rounded-full bg-surface-container px-3 py-1 text-xs font-medium text-foreground ring-1 ring-inset ring-border">
                     {Math.round(attempt.comparison.score * 100)}%
                   </span>
                 ) : null}
@@ -183,12 +183,12 @@ export function LanguagePracticeHubView() {
       </section>
 
       <section>
-        <h3 className="mb-3 text-sm font-semibold text-stone-300">{t("languageLearning.practice.voice")}</h3>
+        <h3 className="mb-3 text-sm font-semibold text-foreground">{t("languageLearning.practice.voice")}</h3>
         <LanguageVoiceConversation />
       </section>
 
       {!promptAi.available ? (
-        <p className="rounded-lg bg-stone-800/60 p-4 text-sm text-stone-400 ring-1 ring-inset ring-stone-700/60">
+        <p className="rounded-lg bg-card p-4 text-sm text-muted-foreground ring-1 ring-inset ring-border">
           {t("languageLearning.practice.aiUnavailable")}
         </p>
       ) : null}

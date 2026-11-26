@@ -10,7 +10,6 @@ import {
   Translate,
 } from "@phosphor-icons/react";
 import { useLanguageProfileStore } from "../../stores/languageProfileStore";
-import { useSettingsStore } from "../../stores/settingsStore";
 import { useI18n } from "../../lib/i18n";
 import { cn } from "../../utils/cn";
 import { LanguageOnboardingModal } from "./LanguageOnboardingModal";
@@ -53,26 +52,6 @@ function renderSubview(view: LanguageSubView) {
   }
 }
 
-/** User-facing label for a sub-view id (kept in one switch for i18n). */
-function subviewTitle(view: LanguageSubView, t: (key: string) => string): string {
-  switch (view) {
-    case "today":
-      return t("languageLearning.dashboard.today");
-    case "vocabulary":
-      return t("languageLearning.dashboard.vocabulary");
-    case "content":
-      return t("languageLearning.dashboard.content");
-    case "practice":
-      return t("languageLearning.dashboard.practice");
-    case "analytics":
-      return t("languageLearning.dashboard.analytics");
-    case "assessment":
-      return t("languageLearning.dashboard.assessment");
-    case "packs":
-      return t("languageLearning.dashboard.packs");
-  }
-}
-
 /**
  * First-class Language Learning workspace tab. It is intentionally lazy-loaded
  * by the tab shell and never gates on `settings.languageLearning.enabled`:
@@ -90,8 +69,6 @@ export function LanguageLearningTab() {
   const loading = useLanguageProfileStore((state) => state.loading);
   const loadProfiles = useLanguageProfileStore((state) => state.load);
   const setActiveProfile = useLanguageProfileStore((state) => state.setActiveProfile);
-
-  const languageSettings = useSettingsStore((state) => state.settings.languageLearning);
 
   useEffect(() => {
     if (!loaded && !loading) void loadProfiles();
@@ -116,7 +93,7 @@ export function LanguageLearningTab() {
         <button
           type="button"
           onClick={openOnboarding}
-          className="inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-sm font-medium ring-1 ring-inset ring-emerald-500/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 transition-colors"
+          className="md-state md-focus-ring inline-flex items-center gap-2 rounded-full bg-secondary-container px-3 py-1.5 text-sm font-medium text-on-secondary-container"
         >
           <Translate className="w-4 h-4" />
           {t("languageLearning.startLearning")}
@@ -125,14 +102,14 @@ export function LanguageLearningTab() {
     }
     return (
       <div className="flex items-center gap-2">
-        <label className="text-xs text-stone-400" htmlFor="language-active-profile">
+        <label className="text-xs text-muted-foreground" htmlFor="language-active-profile">
           {t("languageLearning.activeProfile")}
         </label>
         <select
           id="language-active-profile"
           value={activeProfileId ?? ""}
           onChange={(event) => handleProfileChange(event.target.value)}
-          className="rounded-md bg-stone-800 text-sm text-stone-100 ring-1 ring-inset ring-stone-700 px-2 py-1.5 focus:outline-none focus:ring-emerald-500"
+          className="rounded-md bg-surface-container text-sm text-foreground ring-1 ring-inset ring-border px-2 py-1.5 md-focus-ring focus-visible:ring-primary"
         >
           {profiles.map((profile) => (
             <option key={profile.id} value={profile.id}>
@@ -145,10 +122,10 @@ export function LanguageLearningTab() {
   }, [hasProfile, profiles, activeProfileId, handleProfileChange, openOnboarding, t]);
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-stone-950 text-stone-100">
-      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-stone-800 px-4 py-3">
+    <div className="flex h-full flex-col overflow-hidden bg-background text-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3">
         <div className="flex items-center gap-2">
-          <Translate className="w-5 h-5 text-emerald-400" weight="bold" />
+          <Translate className="w-5 h-5 text-primary" weight="bold" />
           <h1 className="text-base font-semibold">{t("languageLearning.title")}</h1>
         </div>
         {header}
@@ -156,39 +133,40 @@ export function LanguageLearningTab() {
 
       {hasProfile ? (
         <>
-          <div className="flex flex-wrap items-center gap-1 border-b border-stone-800 px-4 py-2">
+          <nav aria-label={t("languageLearning.title")} className="flex flex-wrap items-center gap-1 border-b border-border px-4 py-2">
             {SUBVIEWS.map(({ id, labelKey, icon: Icon }) => (
               <button
                 key={id}
                 type="button"
+                aria-pressed={view === id}
                 onClick={() => setView(id)}
                 className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors",
+                  "md-state md-focus-ring inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm transition-colors",
                   view === id
-                    ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-500/40"
-                    : "text-stone-400 hover:bg-stone-800 hover:text-stone-200",
+                    ? "bg-secondary-container font-semibold text-on-secondary-container"
+                    : "font-medium text-muted-foreground hover:text-foreground",
                 )}
               >
                 <Icon className="w-4 h-4" />
                 {t(labelKey)}
               </button>
             ))}
-          </div>
+          </nav>
           <div className="min-h-0 flex-1 overflow-y-auto">
             {renderSubview(view)}
           </div>
         </>
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center gap-4 px-6 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-500/10 ring-1 ring-inset ring-emerald-500/30">
-            <Translate className="h-8 w-8 text-emerald-400" weight="bold" />
+          <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-secondary-container ring-1 ring-inset ring-primary/30">
+            <Translate className="h-8 w-8 text-on-secondary-container" weight="bold" />
           </div>
           <h2 className="max-w-md text-lg font-semibold">{t("languageLearning.landing.title")}</h2>
-          <p className="max-w-md text-sm text-stone-400">{t("languageLearning.landing.description")}</p>
+          <p className="max-w-md text-sm text-muted-foreground">{t("languageLearning.landing.description")}</p>
           <button
             type="button"
             onClick={openOnboarding}
-            className="rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-500 transition-colors"
+            className="rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground md-state md-focus-ring transition-colors"
           >
             {t("languageLearning.startLearning")}
           </button>

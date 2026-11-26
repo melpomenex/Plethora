@@ -1,7 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { TabContent } from "../../common/Tabs/TabContent";
 import { VocabularyManagerView } from "../dashboard/VocabularyManagerView";
 import { useLanguageProfileStore } from "../../../stores/languageProfileStore";
+import type { Tab } from "../../../stores/tabsStore";
 
 const searchMock = vi.fn();
 const listMock = vi.fn();
@@ -110,5 +112,24 @@ describe("VocabularyManagerView", () => {
       expect(screen.getByText(/Yo hablo español\./)).toBeTruthy();
       expect(screen.getByText(/hablo \(4\)/)).toBeTruthy();
     });
+  });
+
+  it("hides the import dialog on an inactive tab and preserves the draft", async () => {
+    const tabs: Tab[] = [
+      { id: "language", title: "Language Learning", icon: null, type: "language-learning", content: VocabularyManagerView, closable: true },
+      { id: "other", title: "Other", icon: null, type: "dashboard", content: () => null, closable: true },
+    ];
+    const { rerender } = render(<TabContent tabs={tabs} activeTabId="language" />);
+    await screen.findByText("hablo");
+
+    fireEvent.click(screen.getByRole("button", { name: "languageLearning.vocabulary.import" }));
+    fireEvent.change(screen.getByRole("textbox", { name: "languageLearning.vocabulary.importTitle" }), {
+      target: { value: "hola" },
+    });
+    rerender(<TabContent tabs={tabs} activeTabId="other" />);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    rerender(<TabContent tabs={tabs} activeTabId="language" />);
+    expect(screen.getByRole("textbox", { name: "languageLearning.vocabulary.importTitle" })).toHaveValue("hola");
   });
 });

@@ -259,7 +259,7 @@ export function LanguageTutorHost() {
   if (!request || snapshot.status !== "ready" || !snapshot.profile) return null;
   if (contextStatus === "stale") {
     return (
-      <div className="fixed inset-x-4 bottom-20 z-[75] mx-auto max-w-lg rounded-xl border border-amber-500/40 bg-card p-3 text-sm shadow-xl" role="alert">
+      <div className="fixed inset-x-4 bottom-20 z-[75] mx-auto max-w-lg rounded-xl border border-warning/40 bg-card p-3 text-sm shadow-xl" role="alert">
         <p className="font-medium">Tutor source changed</p>
         <p className="mt-1 text-xs text-muted-foreground">This explanation was selected from an older source fingerprint. Refresh it before asking a source-grounded question.</p>
         <div className="mt-2 flex justify-end gap-2">

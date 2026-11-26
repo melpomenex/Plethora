@@ -124,7 +124,7 @@ export function LanguageAssessmentPanel() {
 
   if (!profileId || !targetLanguage) {
     return (
-      <div className="rounded-xl bg-stone-800/60 p-5 text-sm text-stone-400 ring-1 ring-inset ring-stone-700/60">
+      <div className="rounded-xl bg-card p-5 text-sm text-muted-foreground ring-1 ring-inset ring-border">
         {t("languageLearning.assessment.noProfile")}
       </div>
     );
@@ -133,15 +133,15 @@ export function LanguageAssessmentPanel() {
   return (
     <div className="mx-auto max-w-3xl space-y-5 p-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="flex items-center gap-2 text-sm font-semibold text-stone-300">
-          <ChartBar className="h-4 w-4 text-emerald-400" />
+        <h3 className="flex items-center gap-2 text-sm font-semibold text-foreground">
+          <ChartBar className="h-4 w-4 text-primary" />
           {t("languageLearning.assessment.title")}
         </h3>
         {!isRunning && result ? (
           <button
             type="button"
             onClick={startAssessment}
-            className="inline-flex items-center gap-1.5 rounded-full bg-stone-800 px-4 py-2 text-sm font-medium text-stone-200 ring-1 ring-inset ring-stone-700 hover:bg-stone-700"
+            className="inline-flex items-center gap-1.5 rounded-full bg-surface-container px-4 py-2 text-sm font-medium text-foreground ring-1 ring-inset ring-border hover:bg-surface-container-highest"
           >
             <ArrowClockwise className="h-4 w-4" />
             {t("languageLearning.assessment.restart")}
@@ -150,20 +150,20 @@ export function LanguageAssessmentPanel() {
       </div>
 
       {error ? (
-        <div className="flex items-center gap-2 text-sm text-red-400">
+        <div className="flex items-center gap-2 text-sm text-destructive">
           <ShieldWarning className="h-4 w-4" />
           {error}
         </div>
       ) : null}
 
       {!session ? (
-        <div className="rounded-xl bg-stone-800/60 p-5 ring-1 ring-inset ring-stone-700/60">
-          <p className="text-sm text-stone-300">{t("languageLearning.assessment.intro")}</p>
-          <p className="mt-2 text-xs text-stone-400">{t("languageLearning.assessment.introDetails")}</p>
+        <div className="rounded-xl bg-card p-5 ring-1 ring-inset ring-border">
+          <p className="text-sm text-foreground">{t("languageLearning.assessment.intro")}</p>
+          <p className="mt-2 text-xs text-muted-foreground">{t("languageLearning.assessment.introDetails")}</p>
           <button
             type="button"
             onClick={startAssessment}
-            className="mt-4 rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-500"
+            className="mt-4 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground md-state"
           >
             {t("languageLearning.assessment.start")}
           </button>
@@ -171,17 +171,17 @@ export function LanguageAssessmentPanel() {
       ) : null}
 
       {isRunning && currentItem ? (
-        <div className="rounded-xl bg-stone-800/60 p-5 ring-1 ring-inset ring-stone-700/60">
+        <div className="rounded-xl bg-card p-5 ring-1 ring-inset ring-border">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-2">
-              <span className="rounded-full bg-emerald-500/15 px-2.5 py-0.5 text-xs font-medium text-emerald-300 ring-1 ring-inset ring-emerald-500/40">
+              <span className="rounded-full bg-secondary-container px-2.5 py-0.5 text-xs font-medium text-on-secondary-container ring-1 ring-inset ring-primary/40">
                 {t(DIMENSION_LABEL_KEYS[currentItem.dimension])}
               </span>
-              <span className="rounded-full bg-stone-800 px-2.5 py-0.5 text-xs text-stone-400 ring-1 ring-inset ring-stone-700">
+              <span className="rounded-full bg-surface-container px-2.5 py-0.5 text-xs text-muted-foreground ring-1 ring-inset ring-border">
                 {t(FORMAT_LABEL_KEYS[currentItem.responseFormat])}
               </span>
             </div>
-            <span className="text-xs text-stone-500">
+            <span className="text-xs text-muted-foreground">
               {t("languageLearning.assessment.progress", {
                 answered: String(answeredCount),
                 total: String(session.config.maxItems),
@@ -190,7 +190,7 @@ export function LanguageAssessmentPanel() {
           </div>
 
           {currentItem.dimension === "listeningComprehension" || currentItem.audioTranscriptHint ? (
-            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-stone-900/60 p-3 ring-1 ring-inset ring-stone-800">
+            <div className="mt-4 flex flex-wrap items-center gap-2 rounded-lg bg-surface-container-low p-3 ring-1 ring-inset ring-border">
               <button
                 type="button"
                 onClick={() => {
@@ -202,7 +202,7 @@ export function LanguageAssessmentPanel() {
                     window.speechSynthesis.speak(utterance);
                   }
                 }}
-                className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600/20 px-3 py-1 text-xs font-medium text-emerald-300 ring-1 ring-inset ring-emerald-500/40 hover:bg-emerald-600/30"
+                className="inline-flex items-center gap-1.5 rounded-full bg-secondary-container px-3 py-1 text-xs font-medium text-on-secondary-container ring-1 ring-inset ring-primary/40 md-state"
               >
                 <SpeakerHigh className="h-3.5 w-3.5" />
                 Play audio stimulus
@@ -211,27 +211,27 @@ export function LanguageAssessmentPanel() {
                 <button
                   type="button"
                   onClick={() => setShowTranscriptHint((prev) => !prev)}
-                  className="rounded-full bg-stone-800 px-3 py-1 text-xs text-stone-300 ring-1 ring-inset ring-stone-700 hover:bg-stone-700"
+                  className="rounded-full bg-surface-container px-3 py-1 text-xs text-foreground ring-1 ring-inset ring-border hover:bg-surface-container-highest"
                 >
                   {showTranscriptHint ? "Hide transcript hint" : "Show transcript hint"}
                 </button>
               ) : null}
               {showTranscriptHint && currentItem.audioTranscriptHint ? (
-                <p className="w-full text-xs text-stone-300">{currentItem.audioTranscriptHint}</p>
+                <p className="w-full text-xs text-foreground">{currentItem.audioTranscriptHint}</p>
               ) : null}
             </div>
           ) : null}
 
           {currentItem.contextPassage ? (
-            <p className="mt-4 rounded-lg bg-stone-900/60 p-3 text-sm leading-relaxed text-stone-300 ring-1 ring-inset ring-stone-800">
+            <p className="mt-4 rounded-lg bg-surface-container-low p-3 text-sm leading-relaxed text-foreground ring-1 ring-inset ring-border">
               {currentItem.contextPassage}
             </p>
           ) : null}
 
-          <p className="mt-4 text-sm text-stone-100">{currentItem.prompt}</p>
+          <p className="mt-4 text-sm text-foreground">{currentItem.prompt}</p>
 
           {currentItem.rubricHint ? (
-            <p className="mt-2 text-xs text-stone-400">{currentItem.rubricHint}</p>
+            <p className="mt-2 text-xs text-muted-foreground">{currentItem.rubricHint}</p>
           ) : null}
 
           {currentItem.responseFormat === "multiple-choice" && currentItem.options ? (
@@ -240,12 +240,13 @@ export function LanguageAssessmentPanel() {
                 <button
                   key={index}
                   type="button"
+                  aria-pressed={selectedOption === index}
                   onClick={() => setSelectedOption(index)}
                   className={cn(
                     "block w-full rounded-lg px-3 py-2.5 text-left text-sm ring-1 ring-inset transition-colors",
                     selectedOption === index
-                      ? "bg-emerald-500/15 text-emerald-200 ring-emerald-500/40"
-                      : "bg-stone-900/50 text-stone-300 ring-stone-700 hover:bg-stone-800",
+                      ? "bg-secondary-container text-on-secondary-container ring-primary/40"
+                      : "bg-surface-container-low text-foreground ring-border hover:bg-surface-container",
                   )}
                 >
                   {option}
@@ -258,7 +259,7 @@ export function LanguageAssessmentPanel() {
               onChange={(event) => setTextAnswer(event.target.value)}
               rows={3}
               placeholder={t("languageLearning.assessment.answerPlaceholder")}
-              className="mt-3 w-full rounded-lg bg-stone-900/60 p-3 text-sm text-stone-100 ring-1 ring-inset ring-stone-700 placeholder:text-stone-500 focus:outline-none focus:ring-emerald-500"
+              className="mt-3 w-full rounded-lg bg-surface-container-low p-3 text-sm text-foreground ring-1 ring-inset ring-border placeholder:text-muted-foreground md-focus-ring focus-visible:ring-primary"
             />
           )}
 
@@ -267,7 +268,7 @@ export function LanguageAssessmentPanel() {
               type="button"
               disabled={busy}
               onClick={() => submitResponse(true)}
-              className="inline-flex items-center gap-1.5 rounded-full bg-stone-800 px-4 py-2 text-sm font-medium text-stone-300 ring-1 ring-inset ring-stone-700 hover:bg-stone-700 disabled:opacity-40"
+              className="inline-flex items-center gap-1.5 rounded-full bg-surface-container px-4 py-2 text-sm font-medium text-foreground ring-1 ring-inset ring-border hover:bg-surface-container-highest disabled:opacity-40"
             >
               <SkipForward className="h-4 w-4" />
               {t("languageLearning.assessment.skip")}
@@ -277,7 +278,7 @@ export function LanguageAssessmentPanel() {
                 type="button"
                 disabled={busy}
                 onClick={stopEarly}
-                className="inline-flex items-center gap-1.5 rounded-full bg-stone-800 px-4 py-2 text-sm font-medium text-stone-300 ring-1 ring-inset ring-stone-700 hover:bg-stone-700 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-full bg-surface-container px-4 py-2 text-sm font-medium text-foreground ring-1 ring-inset ring-border hover:bg-surface-container-highest disabled:opacity-40"
               >
                 <X className="h-4 w-4" />
                 {t("languageLearning.assessment.finishEarly")}
@@ -286,7 +287,7 @@ export function LanguageAssessmentPanel() {
                 type="button"
                 disabled={busy || (currentItem.responseFormat === "multiple-choice" && selectedOption === null) || (currentItem.responseFormat !== "multiple-choice" && !textAnswer.trim())}
                 onClick={() => submitResponse(false)}
-                className="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-5 py-2 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
+                className="inline-flex items-center gap-1.5 rounded-full bg-primary px-5 py-2 text-sm font-semibold text-primary-foreground md-state md-focus-ring disabled:opacity-40"
               >
                 <Check className="h-4 w-4" />
                 {t("languageLearning.assessment.submit")}
@@ -294,7 +295,7 @@ export function LanguageAssessmentPanel() {
             </div>
           </div>
 
-          <p className="mt-4 text-xs leading-relaxed text-stone-500">{session.disclaimer}</p>
+          <p className="mt-4 text-xs leading-relaxed text-muted-foreground">{session.disclaimer}</p>
         </div>
       ) : null}
 
@@ -310,17 +311,17 @@ export function LanguageAssessmentPanel() {
                     ? "languageLearning.assessment.status.insufficient"
                     : "languageLearning.assessment.status.unavailable";
               return (
-                <div key={dimension} className="rounded-xl bg-stone-800/60 p-4 ring-1 ring-inset ring-stone-700/60">
+                <div key={dimension} className="rounded-xl bg-card p-4 ring-1 ring-inset ring-border">
                   <div className="flex items-center justify-between gap-2">
-                    <span className="text-xs font-medium text-stone-400">{t(DIMENSION_LABEL_KEYS[dimension])}</span>
+                    <span className="text-xs font-medium text-muted-foreground">{t(DIMENSION_LABEL_KEYS[dimension])}</span>
                     <span
                       className={cn(
                         "rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset",
                         estimate.status === "calibrated"
-                          ? "bg-emerald-500/15 text-emerald-300 ring-emerald-500/40"
+                          ? "bg-secondary-container text-on-secondary-container ring-primary/40"
                           : estimate.status === "insufficient-evidence"
-                            ? "bg-amber-500/15 text-amber-300 ring-amber-500/40"
-                            : "bg-stone-800 text-stone-500 ring-stone-700",
+                            ? "bg-warning/15 text-foreground ring-warning/40"
+                            : "bg-surface-container text-muted-foreground ring-border",
                       )}
                     >
                       {t(statusKey)}
@@ -328,30 +329,30 @@ export function LanguageAssessmentPanel() {
                   </div>
                   {estimate.available && estimate.estimatedLevel ? (
                     <>
-                      <div className="mt-2 text-2xl font-semibold text-stone-100">{estimate.estimatedLevel}</div>
-                      <div className="mt-1 text-xs text-stone-400">
+                      <div className="mt-2 text-2xl font-semibold text-foreground">{estimate.estimatedLevel}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">
                         {t("languageLearning.assessment.range", {
                           low: estimate.confidenceInterval.minBand ?? "?",
                           high: estimate.confidenceInterval.maxBand ?? "?",
                         })}
                       </div>
-                      <div className="mt-2 space-y-1 text-xs text-stone-500">
+                      <div className="mt-2 space-y-1 text-xs text-muted-foreground">
                         <div>{t("languageLearning.assessment.score", { score: String(Math.round(estimate.numericScore ?? 0)) })}</div>
                         <div>{t("languageLearning.assessment.confidence", { value: String(Math.round(estimate.confidenceScore * 100)) })}</div>
                         <div>{t("languageLearning.assessment.samples", { count: String(estimate.sampleCount) })}</div>
                       </div>
                     </>
                   ) : (
-                    <div className="mt-2 text-sm text-stone-500">{estimate.calibrationNote}</div>
+                    <div className="mt-2 text-sm text-muted-foreground">{estimate.calibrationNote}</div>
                   )}
                 </div>
               );
             })}
           </div>
 
-          <div className="flex items-start gap-2 rounded-lg bg-stone-800/60 p-3 ring-1 ring-inset ring-stone-700/60">
-            <ShieldWarning className="mt-0.5 h-4 w-4 shrink-0 text-stone-500" />
-            <p className="text-xs leading-relaxed text-stone-400">{result.disclaimer}</p>
+          <div className="flex items-start gap-2 rounded-lg bg-card p-3 ring-1 ring-inset ring-border">
+            <ShieldWarning className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <p className="text-xs leading-relaxed text-muted-foreground">{result.disclaimer}</p>
           </div>
         </div>
       ) : null}

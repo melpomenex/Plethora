@@ -393,7 +393,7 @@ export function TutorSheet({
           </div>
 
         {cloudBlocked && (
-          <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-xs" role="alert">
+          <div className="rounded-lg border border-warning/40 bg-warning/10 p-3 text-xs" role="alert">
             <p className="font-medium">Cloud tutor consent required</p>
             <p className="mt-1 text-muted-foreground">{privacyPolicy.disclosure}</p>
             {cloudConsent === null ? (
