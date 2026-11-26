@@ -11,6 +11,9 @@ export function createConfiguredShadowingProviders(): ShadowingRecognitionProvid
     supports: (languageTag) => Boolean(languageTag.trim()),
     recognize: async (input, signal) => {
       if (signal?.aborted) throw new Error("cancelled");
+      if (input.privacy === "local-only") {
+        throw new Error("cloud-stt-consent-required");
+      }
       const response = await transcribeWithGroq({
         file: input.audio,
         language: input.languageTag,

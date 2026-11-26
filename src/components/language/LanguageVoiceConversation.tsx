@@ -196,6 +196,10 @@ export function LanguageVoiceConversation() {
       });
       const provider = providers[0];
       if (!provider || !activeProfile) return;
+      if (provider.route === "cloud" && !cloudConsentRef.current) {
+        setError(t("languageLearning.voice.cloudConsent"));
+        return;
+      }
       const recognition = await provider.recognize(
         {
           attemptId: `voice:${Date.now()}`,
@@ -386,7 +390,7 @@ export function LanguageVoiceConversation() {
         <div className="flex flex-wrap items-center gap-3">
           <button
             type="button"
-            disabled={micStatus === "processing" || micStatus === "requesting" || busy}
+            disabled={micStatus === "processing" || micStatus === "requesting" || busy || (providers[0]?.route === "cloud" && !cloudConsent)}
             onClick={recording ? () => void stopRecording() : () => void startRecording()}
             className={cn(
               "inline-flex items-center gap-2 rounded-full px-5 py-2 text-sm font-semibold transition-colors disabled:opacity-40",
