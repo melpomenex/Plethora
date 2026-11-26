@@ -247,6 +247,8 @@ export interface FlashcardStudioLanguageProvenance {
   partOfSpeech?: string;
   mediaStartMs?: number;
   mediaEndMs?: number;
+  /** Original-media range carried through to SRS draft provenance. */
+  mediaRange?: { mediaId: string; startMs: number; endMs: number };
   draftKey?: string;
   itemType?: LanguageDraftItemType;
   sourceAnchor?: unknown;
@@ -2661,6 +2663,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
                 ...(langProvenance.origin ? { origin: langProvenance.origin } : {}),
                 ...(langProvenance.providerId ? { providerId: langProvenance.providerId } : {}),
                 ...(langProvenance.providerVersion ? { providerVersion: langProvenance.providerVersion } : {}),
+                ...(langProvenance.mediaRange ? { mediaRange: langProvenance.mediaRange } : {}),
                 languageProvenance: {
                   ...langProvenance,
                   ...(computedDraftKey ? { draftKey: computedDraftKey } : {}),

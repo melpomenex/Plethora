@@ -5,6 +5,7 @@ import {
   Camera,
   CaretDown,
   CaretUp,
+  ChatsCircle,
   FilmStrip,
   Pause,
   Play,
@@ -446,6 +447,9 @@ function LanguageVideoHostConnected({
       selectedText,
       profileId: snapshot.profile?.id,
       languageTag: snapshot.profile?.targetLanguage,
+      ...(action === "practice"
+        ? { practiceSource: { mediaId: videoId, startMs: active.startMs, endMs: active.endMs } }
+        : {}),
       origin: "video",
     });
   };
@@ -498,6 +502,7 @@ function LanguageVideoHostConnected({
       ...payload,
       ...(translation ? { translatedSentence: translation } : {}),
       ...(capturedFrame ? { frameDataUrl: capturedFrame.dataUrl } : {}),
+      mediaRange: { mediaId: videoId, startMs: active.startMs, endMs: active.endMs },
     };
     if (typeof window !== "undefined") {
       window.dispatchEvent(new CustomEvent("plethora-language-mining-draft", { detail: draftDetail }));
@@ -704,6 +709,15 @@ function LanguageVideoHostConnected({
         >
           Mine
         </button>
+        {snapshot.capabilities.tutor?.available && (
+          <button
+            type="button"
+            className="inline-flex min-h-[36px] items-center gap-1 rounded-md border border-border px-2.5 py-1 hover:bg-muted sm:min-h-0 sm:px-2"
+            onClick={() => send("tutor", active.text)}
+          >
+            <ChatsCircle className="h-3.5 w-3.5" aria-hidden="true" /> Tutor
+          </button>
+        )}
         <button
           type="button"
           aria-pressed={loopCurrent}

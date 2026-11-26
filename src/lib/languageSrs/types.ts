@@ -11,6 +11,8 @@ export interface LanguageDraftProvenance {
   phraseId?: string;
   sentenceId?: string;
   sourceAnchor?: SourceAnchor;
+  /** Original-media range when the draft is anchored to an audio/video source. */
+  mediaRange?: { mediaId: string; startMs: number; endMs: number };
   providerId?: string;
   providerVersion?: string;
   createdAt: number;

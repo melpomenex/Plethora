@@ -10,6 +10,7 @@ import { isGroqConfigured } from "../../api/groqTranscription";
 import { advertisedPronunciationDimensions, canProvidePronunciation, evaluatePronunciationFeedback, type PronunciationFeedbackResult } from "../../lib/languagePronunciation";
 import type { ShadowingFlow, ShadowingSttRoute } from "../../lib/languageShadowing";
 import type { PracticeSource } from "../../lib/languagePractice";
+import { languagePracticeSourceFromAction } from "../../lib/languagePractice/source";
 import { buildLearnerContext, type ContextLexiconRow } from "../../lib/languageTutor";
 import { WritingPracticeService, type WritingPromptMode, type WritingResult } from "../../lib/languageWriting";
 import { listLanguageLexicalEntries } from "../../api/languageLexicon";
@@ -20,20 +21,7 @@ import { createLanguageLearningDraft } from "../../lib/languageSrs";
 const STORAGE_PREFIX = "plethora.language-practice.session.";
 
 function toPracticeSource(request: LanguageHostActionDetail): PracticeSource {
-  const locator = request.sourceAnchor?.locator;
-  const locatorRecord = locator && typeof locator === "object" ? locator as Record<string, unknown> : null;
-  const mediaId = typeof locatorRecord?.mediaId === "string" ? locatorRecord.mediaId : request.source.source.mediaId;
-  const startMs = typeof locatorRecord?.startMs === "number" ? locatorRecord.startMs : undefined;
-  const endMs = typeof locatorRecord?.endMs === "number" ? locatorRecord.endMs : undefined;
-  return {
-    sourceType: request.source.source.sourceType,
-    sourceId: request.source.contentId,
-    sourceAnchor: request.sourceAnchor,
-    sourceFingerprint: request.source.contentFingerprint,
-    mediaId,
-    startMs,
-    endMs,
-  };
+  return languagePracticeSourceFromAction(request);
 }
 
 function newAttempt(request: LanguageHostActionDetail, mode: PracticeMode): PracticeAttempt {

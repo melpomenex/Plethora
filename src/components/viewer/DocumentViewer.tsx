@@ -14,6 +14,7 @@ import {
 import { AnnotationRemovalMenu } from "./AnnotationRemovalMenu";
 import { PdfAnnotationsPanel, type PdfAnnotationDraft, type PdfAnnotationsRequest } from "./PdfAnnotationsPanel";
 import { pdfAnnotationFromExtract, type PdfAnnotation } from "../../lib/pdf/annotationModel";
+import { miningPayloadToFlashcardProvenance } from "../../lib/languageMining/provenance";
 import { emitUserInteraction, emitInteractionFeedback } from "../../lib/feedback/orchestrator";
 import { playDocumentRatedSound } from "../../utils/soundService";
 import { useEffect, useLayoutEffect, useState, useRef, useCallback, useMemo, lazy, Suspense, type CSSProperties } from "react";
@@ -1552,7 +1553,7 @@ export function DocumentViewer({
 
   useEffect(() => {
     const onLanguageMiningDraft = (event: Event) => {
-      const payload = (event as CustomEvent<{ sourceId?: string; documentId?: string; text?: string; context?: string; sourceFingerprint?: string; sourceAnchor?: unknown }>).detail;
+      const payload = (event as CustomEvent<{ sourceId?: string; documentId?: string; text?: string; context?: string; sourceFingerprint?: string; sourceAnchor?: unknown; mediaId?: string; mediaStartMs?: number; mediaEndMs?: number; mediaRange?: { mediaId: string; startMs: number; endMs: number } }>).detail;
       if (!payload?.text?.trim()) return;
       if (payload.documentId && payload.documentId !== documentId) return;
       setFlashcardStudioSeed({
@@ -1563,7 +1564,7 @@ export function DocumentViewer({
         resetDraftCards: true,
         autoEditDraft: true,
         deckTag: "language",
-        languageProvenance: { sourceAnchor: payload.sourceAnchor, sourceFingerprint: payload.sourceFingerprint, origin: "mining" },
+        languageProvenance: miningPayloadToFlashcardProvenance(payload),
       });
     };
     window.addEventListener("plethora-language-mining-draft", onLanguageMiningDraft);
