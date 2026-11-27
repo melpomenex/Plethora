@@ -1,9 +1,6 @@
 import { useResolvedThemeAppearance } from '../../themes/appearanceContext';
 import { paperReaderCss } from '../../themes/paperMaterialCss';
 import { createRetryableLazy } from "../../utils/retryableLazy";
-const StudyModeWorkspace = createRetryableLazy("StudyModeWorkspace", () =>
-  import("./StudyModeWorkspace").then((m) => ({ default: m.StudyModeWorkspace }))
-);
 import { RatingOrb } from "../review/RatingOrb";
 import type { VideoViewerContext } from "../../lib/ai/assistant/scopes";
 import { lazy as lazyTranslation, Suspense as TranslationSuspense } from "react";
@@ -596,6 +593,16 @@ interface DocumentViewerProps {
    * behind this one, so its session state is intact on return.
    */
   reviewReturn?: boolean;
+  /** Coordinated Read vs. Study presentation mode owned by DocumentViewerWrapper. */
+  presentationMode?: "read" | "study";
+  onEnterStudyMode?: (options?: { selectionText?: string | null }) => void;
+  onExitStudyMode?: () => void;
+  onRegisterPromoteFlashcard?: (handler: ((prompt: string, explanation: string) => void) | null) => void;
+  studyJumpRequest?: {
+    id: number;
+    quote?: string;
+    locator?: import("../../types/searchHit").ExactSearchHitLocation;
+  } | null;
 }
 
 type ViewerSearchDirection = "next" | "prev";
@@ -672,6 +679,11 @@ export function DocumentViewer({
   captureReader,
   captureCardPreview,
   reviewReturn,
+  presentationMode = "read",
+  onEnterStudyMode,
+  onExitStudyMode,
+  onRegisterPromoteFlashcard,
+  studyJumpRequest,
 }: DocumentViewerProps) {
   const toast = useToast();
   const { t } = useI18n();
@@ -811,7 +823,7 @@ export function DocumentViewer({
   const [isLoading, setIsLoading] = useState(true);
   const [, setPagesRendered] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>(focusedExtractId ? "extracts" : initialViewMode ?? "document");
-  const [studyModeOpen, setStudyModeOpen] = useState(false);
+  const studyModeOpen = presentationMode === "study";
   const [displayedDocumentId, setDisplayedDocumentId] = useState<string | null>(null);
   const isDocumentView = viewMode === "document";
   useEffect(() => {
@@ -826,6 +838,43 @@ export function DocumentViewer({
     () => containerRef.current?.querySelector<HTMLDivElement>("div[data-document-scroll-container]") ?? null,
     [],
   );
+
+  // Expose explicit flashcard promotion to StudyModeWorkspace via FlashcardStudioModal
+  useEffect(() => {
+    if (!onRegisterPromoteFlashcard) return;
+    onRegisterPromoteFlashcard((prompt, explanation) => {
+      setFlashcardStudioSeed({
+        key: `study-mode:${documentId}:${Date.now()}`,
+        documentId,
+        excerpt: `${prompt}\n\n${explanation}`.trim(),
+        initialQuestion: prompt.trim(),
+        initialAnswer: explanation.trim(),
+        draftCardType: "qa",
+        resetDraftCards: true,
+        autoEditDraft: true,
+        deckTag: currentDocument?.title ?? null,
+      });
+    });
+    return () => onRegisterPromoteFlashcard(null);
+  }, [currentDocument?.title, documentId, onRegisterPromoteFlashcard]);
+
+  // Handle explicit citation jump requests from StudyModeWorkspace
+  const lastHandledStudyJumpIdRef = useRef<number>(0);
+  useEffect(() => {
+    if (!studyJumpRequest || studyJumpRequest.id === lastHandledStudyJumpIdRef.current) return;
+    lastHandledStudyJumpIdRef.current = studyJumpRequest.id;
+    const loc = studyJumpRequest.locator;
+    if (loc?.kind === "pdf" && typeof loc.pageNumber === "number") {
+      setPageNumber(Math.max(1, loc.pageNumber));
+    } else if (loc && "scrollPercent" in loc && typeof loc.scrollPercent === "number") {
+      const container = getDocumentScrollContainer();
+      if (container) {
+        const pct = loc.scrollPercent > 1 ? loc.scrollPercent / 100 : loc.scrollPercent;
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        container.scrollTo({ top: pct * maxScroll, behavior: "smooth" });
+      }
+    }
+  }, [getDocumentScrollContainer, studyJumpRequest]);
 
   // Clear transient video context when switching documents.
   useEffect(() => {
@@ -1531,7 +1580,7 @@ export function DocumentViewer({
   const [initialHighlightColor, setInitialHighlightColor] = useState<string | undefined>(undefined);
   const [pdfTextSelectionCapability, setPdfTextSelectionCapability] = useState<PdfTextSelectionCapability | null>(null);
   const [isExtractDialogOpen, setIsExtractDialogOpen] = useState(false);
-  const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; draftCardType?: "qa" | "cloze" | "multiple-choice" | "image-occlusion" | null; imageAssetId?: string; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string; deckTag?: string | null; languageProvenance?: { profileId?: string; sourceAnchor?: unknown; sourceFingerprint?: string; origin?: string } } | null>(null);
+  const [flashcardStudioSeed, setFlashcardStudioSeed] = useState<{ key: string; documentId?: string | null; excerpt?: string; initialQuestion?: string; initialAnswer?: string; draftCardType?: "qa" | "cloze" | "multiple-choice" | "image-occlusion" | null; imageAssetId?: string; resetDraftCards?: boolean; autoEditDraft?: boolean; extractId?: string; deckTag?: string | null; languageProvenance?: { profileId?: string; sourceAnchor?: unknown; sourceFingerprint?: string; origin?: string } } | null>(null);
   const [isDockedQAOpen, setIsDockedQAOpen] = useState(false);
   const [isSocraticMarginOpen, setIsSocraticMarginOpen] = useState(false);
 
@@ -8046,10 +8095,16 @@ export function DocumentViewer({
                   EXTRACT
                 </span>
               )}
-              {(settings.studyMode?.showEntryPoints ?? true) && (
+              {(settings.studyMode?.showEntryPoints ?? true) && (onEnterStudyMode || onExitStudyMode) && (
                 <button
                   type="button"
-                  onClick={() => setStudyModeOpen((prev) => !prev)}
+                  onClick={() => {
+                    if (studyModeOpen) {
+                      onExitStudyMode?.();
+                    } else {
+                      onEnterStudyMode?.({ selectionText: activeExtractSelection || null });
+                    }
+                  }}
                   className={cn(
                     "px-2 py-1 rounded-md text-xs font-medium transition-colors flex items-center gap-1",
                     studyModeOpen
@@ -8058,6 +8113,7 @@ export function DocumentViewer({
                   )}
                   title={studyModeOpen ? "Exit Study Mode" : "Study this document (Optional Study Mode)"}
                   aria-pressed={studyModeOpen}
+                  data-testid="reader-study-mode-toggle"
                 >
                   <Lightbulb className="w-3.5 h-3.5" />
                   <span className="hidden sm:inline">Study</span>
@@ -9515,25 +9571,12 @@ export function DocumentViewer({
         </div>
       )}
       </div>
-      {!embedded && isTabActive && tabId && hasStudyTrailControls && (
+      {!embedded && !studyModeOpen && isTabActive && tabId && hasStudyTrailControls && (
         <GuidedReadingPanel
           tabId={tabId}
           isMobile={isMobileTouch}
           onOpenNotes={() => setViewMode("extracts")}
         />
-      )}
-      {!embedded && studyModeOpen && currentDocument && (
-        <div className="w-full md:w-[440px] lg:w-[480px] shrink-0 h-full overflow-hidden">
-          <Suspense fallback={<div className="p-4 text-xs text-muted-foreground">Loading Study Mode...</div>}>
-            <StudyModeWorkspace
-              documentId={currentDocument.id}
-              documentTitle={currentDocument.title}
-              sourceRevision={currentDocument.contentHash ?? currentDocument.dateModified ?? ""}
-              passageText={currentDocument.content ?? ""}
-              onExitStudyMode={() => setStudyModeOpen(false)}
-            />
-          </Suspense>
-        </div>
       )}
       </div>
 
@@ -9542,7 +9585,8 @@ export function DocumentViewer({
       {/* V2 touch: the anchored pill bar owns selection actions — the legacy
           floating extract button (which appears straight off the selection
           event, mid-gesture) stays desktop-only until the flag is removed. */}
-      {!(selectionV2 && isMobileTouch) &&
+      {!studyModeOpen &&
+        !(selectionV2 && isMobileTouch) &&
         activeExtractSelection &&
         viewMode === "document" &&
         !mobileSheetOpen && (

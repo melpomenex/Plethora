@@ -3,11 +3,12 @@ import type { VideoViewerContext } from "../../lib/ai/assistant/scopes";
 /**
  * Wrapper component that adds Assistant panel to DocumentViewer
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowLeft } from "@phosphor-icons/react";
 import { DocumentViewer as BaseDocumentViewer } from "./DocumentViewer";
 import { AssistantPanel, type AssistantContext, type AssistantPosition, READER_MIN_WIDTH } from "../assistant/AssistantPanel";
 import { PwaAssistantButton } from "../assistant/PwaAssistantButton";
-import { useDocumentStore, useSettingsStore } from "../../stores";
+import { useDocumentStore, useSettingsStore, useTabsStore } from "../../stores";
 import { MobileDocumentWrapper } from "../mobile/MobileDocumentWrapper";
 import * as documentsApi from "../../api/documents";
 import { trimToTokenWindow } from "../../utils/tokenizer";
@@ -15,6 +16,25 @@ import { useFormFactor } from "../../hooks/useFormFactor";
 import { useReadingSessionTracker } from "../../hooks/useReadingSessionTracker";
 import { isPWA } from "../../lib/pwa";
 import { useIsActiveTab } from "../common/Tabs";
+import { useTabId } from "../common/Tabs/TabContent";
+import { createRetryableLazy } from "../../utils/retryableLazy";
+import { registerOverlayDismissal } from "../../lib/overlayStack";
+import { moveStudyPassage, useStudyTrail } from "../../lib/study-plans/reading/trailController";
+import type { ExactSearchHitLocation } from "../../types/searchHit";
+import type { DocumentPresentationMode, StudyWorkspaceLayout } from "../../types/studyMode";
+import type { StudyAssistantContextSummary } from "../../lib/study-plans/studyMode/studyAssistantContext";
+import {
+  clampSourceSplitPercent,
+  readRememberedPresentationMode,
+  readSourceSplitPercent,
+  toggleStudyWorkspaceLayout,
+  writeRememberedPresentationMode,
+  writeSourceSplitPercent,
+} from "./study-mode/studyWorkspaceState";
+
+const StudyModeWorkspace = createRetryableLazy("StudyModeWorkspace", () =>
+  import("./StudyModeWorkspace").then((m) => ({ default: m.StudyModeWorkspace })),
+);
 import {
   getAssistantContextErrorMessage,
   resolveGenericAssistantContext,
@@ -134,6 +154,8 @@ export function DocumentViewer({
   captureCardPreview,
 }: DocumentViewerWithAssistantProps) {
   const isActiveTab = useIsActiveTab();
+  const tabId = useTabId();
+  const addTab = useTabsStore((state) => state.addTab);
 
   // Reading in the Reader now counts. Opening the document starts a session,
   // active reading feeds it, and navigating away ends it — so a document read
@@ -187,6 +209,240 @@ export function DocumentViewer({
   const isMobile = Boolean(mobileAssistant) || formFactor === "phone";
   const documents = useDocumentStore((state) => state.documents);
   const currentDoc = documents.find((doc) => doc.id === documentId) ?? currentDocument ?? null;
+  const rememberModePerSource = Boolean(settings.studyMode?.rememberModePerSource);
+
+  // Authoritative per-document Read vs. Study presentation mode & layout coordinator
+  const [presentationMode, setPresentationMode] = useState<DocumentPresentationMode>(() =>
+    embedded ? "read" : readRememberedPresentationMode(documentId, rememberModePerSource),
+  );
+  const [studyLayout, setStudyLayout] = useState<StudyWorkspaceLayout>("focused");
+  const [studySelectionSeed, setStudySelectionSeed] = useState<string | null>(null);
+  const [studyJumpRequest, setStudyJumpRequest] = useState<{
+    id: number;
+    quote?: string;
+    locator?: ExactSearchHitLocation;
+  } | null>(null);
+  const [studyAssistantSummary, setStudyAssistantSummary] =
+    useState<StudyAssistantContextSummary | null>(null);
+  const [sourceSplitPercent, setSourceSplitPercent] = useState<number>(() => readSourceSplitPercent());
+  const promoteFlashcardRef = useRef<((prompt: string, explanation: string) => void) | null>(null);
+  const readerSurfaceHostRef = useRef<HTMLDivElement | null>(null);
+  const workspaceHostRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset presentation mode cleanly when switching to a different document
+  useEffect(() => {
+    setPresentationMode(
+      embedded ? "read" : readRememberedPresentationMode(documentId, rememberModePerSource),
+    );
+    setStudyLayout("focused");
+    setStudySelectionSeed(null);
+    setStudyAssistantSummary(null);
+  }, [documentId, embedded, rememberModePerSource]);
+
+  const handleEnterStudyMode = useCallback(
+    (options?: { selectionText?: string | null }) => {
+      if (embedded) return;
+      if (options?.selectionText?.trim()) {
+        setStudySelectionSeed(options.selectionText.trim());
+      } else if (selectionRef.current?.trim()) {
+        setStudySelectionSeed(selectionRef.current.trim());
+      }
+      setPresentationMode("study");
+      setStudyLayout("focused");
+      writeRememberedPresentationMode(documentId, "study", rememberModePerSource);
+    },
+    [documentId, embedded, rememberModePerSource],
+  );
+
+  const handleExitStudyMode = useCallback(() => {
+    setPresentationMode("read");
+    setStudyLayout("focused");
+    writeRememberedPresentationMode(documentId, "read", rememberModePerSource);
+  }, [documentId, rememberModePerSource]);
+
+  const handleToggleStudySource = useCallback(() => {
+    setStudyLayout((prev) => toggleStudyWorkspaceLayout(prev, "with-source"));
+  }, []);
+
+  const handleToggleStudyAssistant = useCallback(() => {
+    setStudyLayout((prev) => toggleStudyWorkspaceLayout(prev, "with-assistant"));
+  }, []);
+
+  const handleStudyJumpToSource = useCallback(
+    (quote?: string, locator?: ExactSearchHitLocation) => {
+      setStudyLayout("with-source");
+      setStudyJumpRequest((prev) => ({
+        id: (prev?.id ?? 0) + 1,
+        quote,
+        locator,
+      }));
+    },
+    [],
+  );
+
+  const handleOpenAiSettings = useCallback(() => {
+    addTab({
+      title: "Settings",
+      icon: "settings",
+      type: "settings",
+      content: null as unknown as React.ComponentType,
+      closable: true,
+    });
+  }, [addTab]);
+
+  const handleRegisterPromoteFlashcard = useCallback(
+    (handler: ((prompt: string, explanation: string) => void) | null) => {
+      promoteFlashcardRef.current = handler;
+    },
+    [],
+  );
+
+  // Mark hidden reader container inert while focused/with-assistant Study Mode owns the workspace
+  const isReaderSuspendedByStudy =
+    !embedded && presentationMode === "study" && studyLayout !== "with-source";
+  useEffect(() => {
+    const el = readerSurfaceHostRef.current as (HTMLDivElement & { inert?: boolean }) | null;
+    if (el) {
+      el.inert = isReaderSuspendedByStudy;
+    }
+  }, [isReaderSuspendedByStudy]);
+
+  // Register transient Study Mode companion view on mobile with overlayStack for native Back
+  useEffect(() => {
+    if (embedded || presentationMode !== "study" || studyLayout === "focused") return;
+    return registerOverlayDismissal(() => {
+      setStudyLayout("focused");
+      return true;
+    });
+  }, [embedded, presentationMode, studyLayout]);
+
+  const startSourceSplitResize = useCallback(
+    (startX: number) => {
+      const container = workspaceHostRef.current;
+      if (!container) return;
+      const rect = container.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      const startPercent = sourceSplitPercent;
+      const onMove = (ev: MouseEvent) => {
+        const deltaPct = ((ev.clientX - startX) / rect.width) * 100;
+        setSourceSplitPercent(clampSourceSplitPercent(startPercent + deltaPct));
+      };
+      const onUp = (ev: MouseEvent) => {
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
+        const deltaPct = ((ev.clientX - startX) / rect.width) * 100;
+        writeSourceSplitPercent(clampSourceSplitPercent(startPercent + deltaPct));
+      };
+      window.addEventListener("mousemove", onMove);
+      window.addEventListener("mouseup", onUp);
+    },
+    [sourceSplitPercent],
+  );
+
+  // Study Trail / Study Plan integration
+  const studyTrailState = useStudyTrail((state) =>
+    tabId && state.tabId === tabId ? state : null,
+  );
+  const activeStudyPlanContext = useMemo(() => {
+    const active = studyTrailState?.active;
+    const req = studyTrailState?.request;
+    if (!active || !req) return undefined;
+    const topic = active.topics.find((n) => n.nodeId === req.assignment.topicId);
+    return {
+      planId: active.detail.plan.id,
+      versionId: active.detail.version.id,
+      topicId: req.assignment.topicId,
+      segmentId: req.assignment.id,
+      topicTitle: topic?.title,
+    };
+  }, [studyTrailState?.active, studyTrailState?.request]);
+
+  const activeStudyTrailNav = useMemo(() => {
+    const active = studyTrailState?.active;
+    const req = studyTrailState?.request;
+    if (!active || !req) return null;
+    const idx = active.assignments.findIndex((a) => a.id === req.assignment.id);
+    if (idx < 0) return null;
+    return {
+      stepLabel: `Passage ${idx + 1}/${active.assignments.length}`,
+      canPrev: idx > 0,
+      canNext: idx + 1 < active.assignments.length,
+      onPrev: () => void moveStudyPassage(-1),
+      onNext: () => void moveStudyPassage(1),
+    };
+  }, [studyTrailState?.active, studyTrailState?.request]);
+
+  // Live canonical locator for Study Mode
+  const studyCurrentLocator = useMemo<ExactSearchHitLocation | null>(() => {
+    const docType = (currentDoc?.fileType || "text").toLowerCase();
+    if (docType === "pdf") {
+      return { kind: "pdf", pageNumber: Math.max(1, scrollState.pageNumber ?? currentDoc?.currentPage ?? 1) };
+    }
+    if (docType === "epub" && currentDoc?.currentCfi) {
+      return { kind: "epub", cfi: currentDoc.currentCfi };
+    }
+    if (docType === "youtube" || docType === "video" || docType === "audio") {
+      return {
+        kind: docType === "youtube" ? "youtube" : docType === "audio" ? "audio" : "video",
+        timeSeconds: Math.max(0, Math.floor(videoContext?.currentTime ?? 0)),
+      };
+    }
+    return {
+      kind: docType === "html" ? "html" : docType === "markdown" ? "markdown" : "text",
+      scrollPercent: scrollState.scrollPercent ?? currentDoc?.currentScrollPercent ?? 0,
+    };
+  }, [
+    currentDoc?.currentCfi,
+    currentDoc?.currentPage,
+    currentDoc?.currentScrollPercent,
+    currentDoc?.fileType,
+    scrollState.pageNumber,
+    scrollState.scrollPercent,
+    videoContext?.currentTime,
+  ]);
+
+  const outlineEntry = useDocumentOutlineStore((state) => state.outlineByDocId.get(documentId));
+  const sharedMediaSections = useDocumentOutlineStore((state) =>
+    state.mediaSectionsByDocId.get(documentId),
+  );
+  const studySections = useMemo<SectionNode[]>(() => {
+    if (mediaSections.length > 0) return mediaSections;
+    if (sharedMediaSections && sharedMediaSections.length > 0) return sharedMediaSections;
+    if (outlineEntry?.pdfOutline && outlineEntry.pdfOutline.length > 0) {
+      return outlineEntry.pdfOutline.map((item, idx) => ({
+        id: `pdf-outline-${idx}`,
+        title: item.title,
+        level: 1,
+        breadcrumb: [item.title],
+        page: item.pageNumber,
+        preview: item.title,
+        content: "",
+        children: [],
+        parentId: null,
+        source: "pdf-outline",
+        documentId,
+      }));
+    }
+    if (outlineEntry?.epubToc && outlineEntry.epubToc.length > 0) {
+      return outlineEntry.epubToc.map((item, idx) => {
+        const title = item.label || item.title || `Chapter ${idx + 1}`;
+        return {
+          id: `epub-toc-${idx}`,
+          title,
+          level: 1,
+          breadcrumb: [title],
+          href: item.href,
+          preview: title,
+          content: "",
+          children: [],
+          parentId: null,
+          source: "epub-toc",
+          documentId,
+        };
+      });
+    }
+    return [];
+  }, [documentId, mediaSections, outlineEntry, sharedMediaSections]);
   const selectionRef = useRef(selection);
   const pdfContextTextRef = useRef(pdfContextText);
   const pdfTextWindowRef = useRef<PdfTextWindow | undefined>(undefined);
@@ -487,15 +743,19 @@ export function DocumentViewer({
 
   const assistantContext = useMemo<AssistantContext>(() => {
     const maxTokens = contextWindowTokens && contextWindowTokens > 0 ? contextWindowTokens : 2000;
+    const effectiveAssistantContent =
+      presentationMode === "study" && studyAssistantSummary
+        ? studyAssistantSummary.contextText
+        : assistantContent;
 
     const base = {
       documentId,
       selection: selection || undefined,
-      content: assistantContent,
+      content: effectiveAssistantContent,
       contextWindowTokens: maxTokens,
-      status: assistantStatus,
-      statusMessage: assistantStatusMessage,
-      source: assistantSource,
+      status: presentationMode === "study" && studyAssistantSummary ? ("ready" as const) : assistantStatus,
+      statusMessage: presentationMode === "study" && studyAssistantSummary ? undefined : assistantStatusMessage,
+      source: presentationMode === "study" && studyAssistantSummary ? "study-mode-scope" : assistantSource,
       coverage: assistantCoverageRef.current,
       sections: mediaSections.length > 0 ? mediaSections : undefined,
       resolveForPrompt: resolveContextForPrompt,
@@ -537,9 +797,11 @@ export function DocumentViewer({
     currentDoc?.title,
     documentId,
     mediaSections,
+    presentationMode,
     resolveContextForPrompt,
     scrollState,
     selection,
+    studyAssistantSummary,
     videoContext,
   ]);
 
@@ -632,6 +894,11 @@ export function DocumentViewer({
         hideRatingOrbs={hideRatingOrbs}
         captureReader={captureReader}
         captureCardPreview={captureCardPreview}
+        presentationMode={embedded ? "read" : presentationMode}
+        onEnterStudyMode={embedded ? undefined : handleEnterStudyMode}
+        onExitStudyMode={embedded ? undefined : handleExitStudyMode}
+        onRegisterPromoteFlashcard={embedded ? undefined : handleRegisterPromoteFlashcard}
+        studyJumpRequest={studyJumpRequest}
         />
       {languageLearningEnabled && (
         <>
@@ -678,8 +945,129 @@ export function DocumentViewer({
     return documentViewer;
   }
 
+  const studyWorkspaceNode =
+    presentationMode === "study" && currentDoc ? (
+      <div className="flex-1 min-w-0 h-full overflow-hidden">
+        <Suspense
+          fallback={
+            <div className="flex h-full items-center justify-center p-6 text-xs text-muted-foreground">
+              Loading Study Mode...
+            </div>
+          }
+        >
+          <StudyModeWorkspace
+            documentId={currentDoc.id}
+            documentTitle={currentDoc.title}
+            docType={currentDoc.fileType || "text"}
+            sourceRevision={currentDoc.contentHash ?? currentDoc.dateModified ?? ""}
+            passageText={currentDoc.content ?? documentContent ?? ""}
+            liveContextText={
+              pdfContextText ?? pdfOcrContextText ?? videoContext?.transcript ?? assistantContent ?? null
+            }
+            sections={studySections}
+            pdfPageNumber={scrollState.pageNumber ?? currentDoc.currentPage ?? null}
+            pdfTotalPages={currentDoc.totalPages ?? null}
+            mediaCurrentTimeSeconds={videoContext?.currentTime ?? null}
+            studyPlanContext={activeStudyPlanContext}
+            studyTrailNav={activeStudyTrailNav}
+            initialSelection={studySelectionSeed}
+            currentLocator={studyCurrentLocator}
+            isMobile={isMobile}
+            workspaceLayout={studyLayout}
+            onToggleSource={handleToggleStudySource}
+            onToggleAssistant={handleToggleStudyAssistant}
+            onOpenAiSettings={handleOpenAiSettings}
+            onStudyAssistantContextChange={setStudyAssistantSummary}
+            onJumpToSource={handleStudyJumpToSource}
+            onExitStudyMode={handleExitStudyMode}
+            onPromoteFlashcard={(prompt, explanation) => {
+              promoteFlashcardRef.current?.(prompt, explanation);
+            }}
+          />
+        </Suspense>
+      </div>
+    ) : null;
+
+  // Dedicated Study Mode workspace presentation (mutually exclusive from Read Mode)
+  if (presentationMode === "study") {
+    const showCanonicalReader = studyLayout === "with-source";
+    const showAssistantInStudy = studyLayout === "with-assistant";
+
+    return (
+      <div
+        ref={workspaceHostRef}
+        className="flex h-full min-h-0 w-full overflow-hidden bg-background"
+        data-document-presentation-mode="study"
+        data-study-workspace-layout={studyLayout}
+      >
+        {/* Single canonical reader instance: hidden + inert unless Source Comparison is active */}
+        <div
+          ref={readerSurfaceHostRef}
+          aria-hidden={!showCanonicalReader}
+          data-testid="study-canonical-reader-host"
+          className={
+            showCanonicalReader
+              ? isMobile
+                ? "flex flex-col flex-1 min-w-0 h-full overflow-hidden"
+                : "flex flex-col shrink-0 h-full overflow-hidden border-r border-border"
+              : "hidden"
+          }
+          style={
+            showCanonicalReader && !isMobile
+              ? { width: `${sourceSplitPercent}%`, minWidth: READER_MIN_WIDTH }
+              : undefined
+          }
+        >
+          {showCanonicalReader && isMobile && (
+            <div className="flex items-center justify-between gap-2 px-3 py-2 border-b border-border bg-card shrink-0">
+              <button
+                type="button"
+                onClick={() => setStudyLayout("focused")}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md border border-border bg-background hover:bg-muted"
+              >
+                <ArrowLeft className="w-3.5 h-3.5" aria-hidden="true" />
+                <span>Back to Study Mode</span>
+              </button>
+              <span className="text-xs text-muted-foreground truncate">{currentDoc?.title}</span>
+            </div>
+          )}
+          <div className="flex-1 min-h-0 flex overflow-hidden">
+            {isMobile ? (
+              <MobileDocumentWrapper
+                documentId={documentId}
+                documentTitle={currentDoc?.title ?? ""}
+                className="flex-1 min-w-0 min-h-0 overflow-hidden"
+              >
+                {documentViewer}
+              </MobileDocumentWrapper>
+            ) : (
+              documentViewer
+            )}
+          </div>
+        </div>
+
+        {/* Desktop resizable divider between Canonical Source and Study Workspace */}
+        {showCanonicalReader && !isMobile && (
+          <div
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Resize source comparison pane"
+            onMouseDown={(e) => startSourceSplitResize(e.clientX)}
+            className="w-1.5 cursor-col-resize bg-border/60 hover:bg-primary/50 transition-colors shrink-0"
+          />
+        )}
+
+        {/* Active Study Mode Workspace (hidden on mobile only while full-screen source comparison is active) */}
+        {(!isMobile || !showCanonicalReader) && studyWorkspaceNode}
+
+        {/* Existing Assistant Panel (replaces source pane; never a 3rd column) */}
+        {!isMobile && showAssistantInStudy && assistantPanel}
+      </div>
+    );
+  }
+
   return (
-    <div className="flex h-full min-h-0 overflow-hidden">
+    <div className="flex h-full min-h-0 overflow-hidden" data-document-presentation-mode="read">
       {isMobile ? (
         <>
           <MobileDocumentWrapper
