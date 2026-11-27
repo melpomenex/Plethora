@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import { resolveRequestPolicy } from "../../api/llm/policy";
 import { scopedBodyTokenBudget } from "../../utils/scopedContextBudget";
 import { enforceAssistantPrivacyAndConsent } from "../../lib/ai/assistant/privacyGate";
@@ -3154,7 +3155,7 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
 
   if (!isOpen) return null;
 
-  return (
+  const modalContent = (
     <div
       className="fixed inset-0 z-[9990] flex items-stretch justify-center bg-black/60 backdrop-blur-sm p-0 sm:items-center sm:p-4 animate-in fade-in duration-200"
       {...backdropDismiss}
@@ -4398,6 +4399,10 @@ export function FlashcardStudioModal({ isOpen, onClose, seed }: FlashcardStudioM
       )}
     </div>
   );
+
+  return typeof document !== "undefined"
+    ? createPortal(modalContent, document.body)
+    : modalContent;
 }
 
 export default FlashcardStudioModal;

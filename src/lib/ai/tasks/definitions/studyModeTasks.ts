@@ -21,6 +21,7 @@ export interface StudyModeComponentInput extends StudyModeBaseInput {
     | "summary"
     | "prerequisite";
   objectiveText?: string;
+  styleAdjustment?: string;
 }
 
 export interface StudyModeComponentOutput {
@@ -65,7 +66,7 @@ const SLIDES_SCHEMA: AISchemaDescriptor = {
 const FORMATIVE_QA_SCHEMA: AISchemaDescriptor = {
   name: "StudyModeFormativeQuestionOutput",
   nativeName: "study_mode_formative_question_output",
-  json: '{"questionKind":"multiple_choice|short_answer","prompt":"string","options":["string"],"correctIndex":0,"explanation":"string","requiredKeyFacts":["string"],"citations":[{"sourceId":"string","quote":"string"}]}',
+  json: '{"questionKind":"multiple_choice|free_recall|short_answer|fill_blank|ordering|scenario_error","prompt":"string","hint":"string","options":["string"],"correctIndex":0,"distractorMisconceptions":{"1":"string"},"expectedBlanks":["string"],"orderingItems":["string"],"correctOrder":["string"],"scenarioText":"string","explanation":"string","requiredKeyFacts":["string"],"citations":[{"sourceId":"string","quote":"string"}]}',
 };
 
 const PEDAGOGICAL_EVAL_SCHEMA: AISchemaDescriptor = {
@@ -111,13 +112,14 @@ export const studyModeComponentTask: AITaskDefinition<
     "Every citation quote MUST be an exact substring from the untrusted source passage.",
   ].join("\n"),
   maxOutputTokens: 2048,
-  timeoutMs: 60_000,
+  timeoutMs: 120_000,
   streaming: false,
   buildInput: (input) => ({
     text: [
       formatContextHeader(input),
       `Requested componentType: ${input.componentType}`,
       input.objectiveText ? `Learning objective: ${input.objectiveText}` : "",
+      input.styleAdjustment ? `Inline style adjustment: ${input.styleAdjustment}` : "",
       `Respond ONLY with JSON matching: ${COMPONENT_SCHEMA.json}`,
     ]
       .filter(Boolean)
@@ -149,7 +151,7 @@ export const studyModeMindMapTask: AITaskDefinition<
     "Do not invent relationships unsupported by the source.",
   ].join("\n"),
   maxOutputTokens: 2048,
-  timeoutMs: 60_000,
+  timeoutMs: 120_000,
   streaming: false,
   buildInput: (input) => ({
     text: `${formatContextHeader(input)}\nRespond ONLY with JSON matching: ${MIND_MAP_SCHEMA.json}`,
@@ -175,7 +177,7 @@ export const studyModeTimelineTask: AITaskDefinition<
     "Never fabricate dates or causal links.",
   ].join("\n"),
   maxOutputTokens: 2048,
-  timeoutMs: 60_000,
+  timeoutMs: 120_000,
   streaming: false,
   buildInput: (input) => ({
     text: `${formatContextHeader(input)}\nRespond ONLY with JSON matching: ${TIMELINE_SCHEMA.json}`,
@@ -201,7 +203,7 @@ export const studyModeAudioScriptTask: AITaskDefinition<
     "If teacher_student mode is used and the student voices a misconception, the teacher MUST explicitly correct it.",
   ].join("\n"),
   maxOutputTokens: 2048,
-  timeoutMs: 60_000,
+  timeoutMs: 120_000,
   streaming: false,
   buildInput: (input) => ({
     text: `${formatContextHeader(input)}\nRequested mode: ${input.mode}\nRespond ONLY with JSON matching: ${AUDIO_SCRIPT_SCHEMA.json}`,
@@ -227,7 +229,7 @@ export const studyModeSlidesTask: AITaskDefinition<
     "Narration should complement slide bullets rather than repeating them verbatim.",
   ].join("\n"),
   maxOutputTokens: 2048,
-  timeoutMs: 60_000,
+  timeoutMs: 120_000,
   streaming: false,
   buildInput: (input) => ({
     text: `${formatContextHeader(input)}\nRespond ONLY with JSON matching: ${SLIDES_SCHEMA.json}`,
@@ -239,7 +241,17 @@ export const studyModeSlidesTask: AITaskDefinition<
 };
 
 export const studyModeFormativeQuestionTask: AITaskDefinition<
-  StudyModeBaseInput & { questionKind: "multiple_choice" | "short_answer" },
+  StudyModeBaseInput & {
+    questionKind:
+      | "multiple_choice"
+      | "short_answer"
+      | "free_recall"
+      | "fill_blank"
+      | "ordering"
+      | "scenario_error";
+    targetDifficulty?: number;
+    priorPrompts?: string[];
+  },
   Record<string, unknown>
 > = {
   id: "study-mode-generate-formative-questions",
@@ -250,12 +262,28 @@ export const studyModeFormativeQuestionTask: AITaskDefinition<
   systemInstruction: [
     UNTRUSTED_CONTAINMENT_CLAUSE,
     "Generate one fair, unambiguous formative question grounded in the source passage.",
+    "Include a concise progressive hint that scaffolds without giving away the answer.",
+    "For multiple_choice, include distractorMisconceptions explaining why wrong choices are flawed.",
+    "For fill_blank, include ___ blanks in prompt and expectedBlanks array.",
+    "For ordering, provide 3-5 shuffled orderingItems and their canonical correctOrder.",
+    "For scenario_error, provide scenarioText containing a subtle conceptual error and requiredKeyFacts naming the flaw.",
+    "Never repeat or paraphrase any listed prior prompts.",
   ].join("\n"),
-  maxOutputTokens: 1536,
-  timeoutMs: 45_000,
+  maxOutputTokens: 2048,
+  timeoutMs: 120_000,
   streaming: false,
   buildInput: (input) => ({
-    text: `${formatContextHeader(input)}\nQuestion kind: ${input.questionKind}\nRespond ONLY with JSON matching: ${FORMATIVE_QA_SCHEMA.json}`,
+    text: [
+      formatContextHeader(input),
+      `Question kind: ${input.questionKind}`,
+      `Target difficulty (1=foundational .. 5=challenging): ${input.targetDifficulty ?? 2}`,
+      input.priorPrompts && input.priorPrompts.length > 0
+        ? `Avoid repeating these prior prompts:\n- ${input.priorPrompts.slice(-6).join("\n- ")}`
+        : "",
+      `Respond ONLY with JSON matching: ${FORMATIVE_QA_SCHEMA.json}`,
+    ]
+      .filter(Boolean)
+      .join("\n"),
   }),
   validate: (raw) =>
     validateNonEmptyObject(raw) && typeof raw.prompt === "string"
@@ -276,8 +304,8 @@ export const studyModePedagogicalEvalTask: AITaskDefinition<
     UNTRUSTED_CONTAINMENT_CLAUSE,
     "Evaluate the educational artifact using the LearnLM Appendix B rubric (pass, partial, fail, not_assessable).",
   ].join("\n"),
-  maxOutputTokens: 1536,
-  timeoutMs: 45_000,
+  maxOutputTokens: 2048,
+  timeoutMs: 120_000,
   streaming: false,
   buildInput: (input) => ({
     text: [
