@@ -22,6 +22,9 @@ export const StudyModePreferencesDrawer: React.FC<StudyModePreferencesDrawerProp
   const [explanationDetail, setExplanationDetail] = useState("balanced");
   const [vocabularyTolerance, setVocabularyTolerance] = useState("standard");
   const [teachingApproach, setTeachingApproach] = useState("balanced");
+  const [examplePreference, setExamplePreference] = useState("everyday");
+  const [questionDifficulty, setQuestionDifficulty] = useState("adaptive");
+  const [explanationLanguage, setExplanationLanguage] = useState("");
   const [interestsText, setInterestsText] = useState("");
   const [saving, setSaving] = useState(false);
 
@@ -35,6 +38,9 @@ export const StudyModePreferencesDrawer: React.FC<StudyModePreferencesDrawerProp
         setExplanationDetail(match.explanationDetail);
         setVocabularyTolerance(match.vocabularyTolerance);
         setTeachingApproach(match.teachingApproach);
+        setExamplePreference(match.examplePreference || "everyday");
+        setQuestionDifficulty(match.questionDifficulty || "adaptive");
+        setExplanationLanguage(match.explanationLanguage ?? "");
         setInterestsText(match.interests.join(", "));
       }
     });
@@ -52,6 +58,9 @@ export const StudyModePreferencesDrawer: React.FC<StudyModePreferencesDrawerProp
         explanationDetail,
         vocabularyTolerance,
         teachingApproach,
+        examplePreference,
+        questionDifficulty,
+        explanationLanguage: explanationLanguage.trim() || null,
         interests: interestsText
           .split(",")
           .map((s) => s.trim())
@@ -142,6 +151,53 @@ export const StudyModePreferencesDrawer: React.FC<StudyModePreferencesDrawerProp
             <option value="standard">Standard</option>
             <option value="technical">Full technical</option>
           </select>
+        </label>
+        <label className="space-y-1">
+          <span className="font-medium text-foreground">Teaching Approach</span>
+          <select
+            value={teachingApproach}
+            onChange={(e) => setTeachingApproach(e.target.value)}
+            className="w-full rounded border border-border bg-background px-2 py-1.5"
+          >
+            <option value="balanced">Balanced</option>
+            <option value="example-first">Example-first</option>
+            <option value="first-principles">First principles</option>
+            <option value="socratic">Socratic questioning</option>
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="font-medium text-foreground">Practice Difficulty</span>
+          <select
+            value={questionDifficulty}
+            onChange={(e) => setQuestionDifficulty(e.target.value)}
+            className="w-full rounded border border-border bg-background px-2 py-1.5"
+          >
+            <option value="foundational">Foundational</option>
+            <option value="adaptive">Adaptive</option>
+            <option value="challenging">Challenging</option>
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="font-medium text-foreground">Example Style</span>
+          <select
+            value={examplePreference}
+            onChange={(e) => setExamplePreference(e.target.value)}
+            className="w-full rounded border border-border bg-background px-2 py-1.5"
+          >
+            <option value="everyday">Everyday analogies</option>
+            <option value="worked">Step-by-step worked</option>
+            <option value="domain">Technical / domain-specific</option>
+          </select>
+        </label>
+        <label className="space-y-1">
+          <span className="font-medium text-foreground">Explanation Language (optional)</span>
+          <input
+            type="text"
+            value={explanationLanguage}
+            onChange={(e) => setExplanationLanguage(e.target.value)}
+            placeholder="Default (matches source)"
+            className="w-full rounded border border-border bg-background px-2 py-1.5"
+          />
         </label>
         <label className="space-y-1 sm:col-span-2">
           <span className="font-medium text-foreground">Interests / Familiar Analogies (comma-separated)</span>
