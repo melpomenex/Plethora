@@ -317,7 +317,14 @@ async function executeTask<I, O>(
   }
 
   const policy = boundedRequestPolicy(options.requestPolicy, provider.getRequestPolicy?.());
-  const maxOutputTokens = Math.min(options.maxOutputTokens ?? task.maxOutputTokens, policy?.maxOutputTokens ?? Infinity);
+  // Reasoning models spend maxOutputTokens on internal thinking before emitting
+  // visible output; give them headroom on the first attempt when not overridden.
+  const requestedOutputTokens =
+    options.maxOutputTokens ??
+    (provider.kind === "cloud" && capabilities?.reasoning
+      ? Math.max(task.maxOutputTokens, 32768)
+      : task.maxOutputTokens);
+  const maxOutputTokens = Math.min(requestedOutputTokens, policy?.maxOutputTokens ?? Infinity);
   throwIfCancelled();
 
   // ── Token budget (estimation only — no blocking token-count IPC, keeping
@@ -663,7 +670,11 @@ async function repairOnce<I, O>(
           ? Math.min(ctx.policy.configuredContextTokens, ctx.capabilities.contextTokens)
           : ctx.policy.configuredContextTokens;
     const availableOutput = Math.max(ctx.maxOutputTokens, contextLimit - repairInputTokens);
-    const desiredCeiling = Math.min(Math.max(ctx.policy.maxOutputTokens, 8192), Math.max(ctx.maxOutputTokens * 2, 8192));
+    const fallbackCeiling = ctx.provider.kind === "cloud" && isEmptyOrReasoning ? 32768 : 8192;
+    const desiredCeiling = Math.min(
+      Math.max(ctx.policy.maxOutputTokens, fallbackCeiling),
+      Math.max(ctx.maxOutputTokens * 2, fallbackCeiling),
+    );
     repairMaxOutputTokens = Math.min(desiredCeiling, availableOutput);
   }
   const repairRequest: AIRequest = {

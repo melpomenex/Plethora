@@ -170,4 +170,28 @@ describe("single corrective allowance and terminal cause", () => {
     expect(provider.requests[0].maxOutputTokens).toBe(512);
     expect(provider.requests[1].maxOutputTokens).toBeGreaterThan(512);
   });
+
+  it("allocates reasoning headroom on initial cloud attempt and raises repair ceiling to 32768 on empty/reasoning-only", async () => {
+    const provider = new FakeAIProvider({
+      kind: "cloud",
+      capabilities: { reasoning: true, contextTokens: 128_000 },
+      responses: [
+        response("", { responseKind: "reasoning-only", finishReason: "length" }),
+        response(valid, { finishReason: "stop" }),
+      ],
+    });
+    const result = await runTask(task, "EVIDENCE", {
+      provider,
+      requestPolicy: {
+        configuredContextTokens: 128_000,
+        promptBudgetTokens: 95_232,
+        outputReserveTokens: 32_768,
+        maxOutputTokens: 32_768,
+      },
+    });
+    expect(result.output).toEqual({ ok: true });
+    expect(provider.requests).toHaveLength(2);
+    expect(provider.requests[0].maxOutputTokens).toBe(32_768);
+    expect(provider.requests[1].maxOutputTokens).toBe(32_768);
+  });
 });

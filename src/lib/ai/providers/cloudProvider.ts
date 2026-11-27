@@ -43,7 +43,34 @@ const VISION_CAPABLE_PROVIDERS = new Set<CloudLLMProviderName>([
 /** Heuristic: does the configured model name advertise reasoning output? */
 export function cloudModelSupportsReasoning(model: string | undefined): boolean {
   if (!model) return false;
-  return /(?:^|[^a-z0-9])(?:o1|o3|o4|r1)(?:[^a-z0-9]|$)|reasoner|thinking/i.test(model);
+  return /(?:^|[^a-z0-9])(?:o1|o3|o4|r1|hy4)(?:[^a-z0-9]|$)|reasoner|thinking|hydrogen|gemini-(?:2\.5|3|4)/i.test(model);
+}
+
+function buildCloudRequestPolicy(
+  config: LLMProviderConfig | null,
+  maxOutputOverride?: number
+) {
+  const isOllama = config?.provider === "ollama";
+  const isCloudReasoning =
+    !!config &&
+    !isOllama &&
+    (config.modelPricing?.[config.model]?.reasoning ?? cloudModelSupportsReasoning(config.model));
+  const providerMaxOutput =
+    config && isCloudReasoning
+      ? Math.max(config.maxTokens ?? 0, 32768)
+      : config?.maxTokens;
+  return resolveRequestPolicy({
+    provider: config?.provider,
+    providerMaxOutput,
+    maxOutputOverride,
+    // Match capabilitiesFromCloudConfig: non-Ollama cloud endpoints default to
+    // 128k context unless the user explicitly configured a smaller window.
+    providerContextTokens:
+      config?.contextWindowTokens ?? (config && !isOllama ? 128000 : undefined),
+    perModelOverride: config?.modelContextWindows?.[config.model],
+    autoPreset: isOllama ? config?.contextWindowPreset === "auto" : false,
+    applyOllamaDefaultGuard: isOllama,
+  });
 }
 
 /**
@@ -149,15 +176,7 @@ export class CloudProvider implements AIProvider {
   }
 
   getRequestPolicy() {
-    const config = this.activeConfig();
-    return resolveRequestPolicy({
-      provider: config?.provider,
-      providerMaxOutput: config?.maxTokens,
-      providerContextTokens: config?.contextWindowTokens,
-      perModelOverride: config?.modelContextWindows?.[config.model],
-      autoPreset: config?.contextWindowPreset === "auto",
-      applyOllamaDefaultGuard: config?.provider === "ollama",
-    });
+    return buildCloudRequestPolicy(this.activeConfig());
   }
 
   sendsTextOffDevice(): boolean {
@@ -190,15 +209,7 @@ export class CloudProvider implements AIProvider {
       apiKey: config.apiKey || undefined,
       baseUrl: config.baseUrl,
       taskManagedRecovery: req.taskManagedRecovery,
-      policy: resolveRequestPolicy({
-        provider: config.provider,
-        providerMaxOutput: config.maxTokens,
-        maxOutputOverride: req.maxOutputTokens ?? config.maxTokens,
-        providerContextTokens: config.contextWindowTokens,
-        perModelOverride: config.modelContextWindows?.[config.model],
-        autoPreset: config.contextWindowPreset === "auto",
-        applyOllamaDefaultGuard: config.provider === "ollama",
-      }),
+      policy: buildCloudRequestPolicy(config, req.maxOutputTokens ?? config.maxTokens),
     };
 
     if (opts.stream === false || (opts.stream !== true && !opts.onChunk)) {

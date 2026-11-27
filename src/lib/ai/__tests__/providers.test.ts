@@ -318,6 +318,27 @@ describe("CloudProvider", () => {
     ).toBe(true);
     expect(cloudModelSupportsReasoning("gpt-4o-mini")).toBe(false);
     expect(cloudModelSupportsReasoning("o1-preview")).toBe(true);
+    expect(cloudModelSupportsReasoning("hy4-flash")).toBe(true);
+    expect(cloudModelSupportsReasoning("gemini-2.5-flash")).toBe(true);
+  });
+
+  it("does not clamp cloud repair maxOutputTokens to 8192 fallback context when contextWindowTokens is unset", async () => {
+    useLLMProvidersStore.setState({
+      providers: [providerConfig({ provider: "gemini", model: "hy4-flash", maxTokens: 4096 })],
+    });
+    const chat = vi.fn(async (request: LLMRequest): Promise<LLMResponse> => {
+      expect(request.maxTokens).toBe(32768);
+      expect(request.policy?.maxOutputTokens).toBe(32768);
+      expect(request.policy?.configuredContextTokens).toBe(128000);
+      return { content: "ok" };
+    });
+    const cloud = new CloudProvider({ chat });
+    expect(cloud.getRequestPolicy().maxOutputTokens).toBe(32768);
+    await cloud.generateStream(
+      { requestId: "cloud-repair-1", text: "hello", maxOutputTokens: 32768 },
+      { stream: false }
+    );
+    expect(chat).toHaveBeenCalledOnce();
   });
 
   it("sends the system instruction as a system message and emits the whole text", async () => {
