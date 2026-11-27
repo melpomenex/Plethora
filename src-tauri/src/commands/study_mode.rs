@@ -40,6 +40,28 @@ pub async fn get_study_mode_session(
 }
 
 #[tauri::command]
+pub async fn find_study_mode_session_by_scope(
+    repo: State<'_, Repository>,
+    scope_kind: String,
+    scope_key: Option<String>,
+    document_id: Option<String>,
+    study_plan_id: Option<String>,
+    topic_id: Option<String>,
+    segment_id: Option<String>,
+) -> Result<Option<StudyModeSession>> {
+    StudyModeRepository::find_session_by_scope(
+        repo.pool(),
+        &scope_kind,
+        scope_key.as_deref(),
+        document_id.as_deref(),
+        study_plan_id.as_deref(),
+        topic_id.as_deref(),
+        segment_id.as_deref(),
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn save_study_mode_artifact(
     repo: State<'_, Repository>,
     input: SaveStudyModeArtifactInput,
@@ -77,6 +99,22 @@ pub async fn dismiss_study_mode_artifact(
     artifact_id: String,
 ) -> Result<()> {
     StudyModeRepository::dismiss_artifact(repo.pool(), &artifact_id).await
+}
+
+#[tauri::command]
+pub async fn restore_study_mode_artifact(
+    repo: State<'_, Repository>,
+    artifact_id: String,
+) -> Result<StudyModeArtifact> {
+    StudyModeRepository::restore_artifact(repo.pool(), &artifact_id).await
+}
+
+#[tauri::command]
+pub async fn delete_study_mode_artifact(
+    repo: State<'_, Repository>,
+    artifact_id: String,
+) -> Result<()> {
+    StudyModeRepository::delete_artifact(repo.pool(), &artifact_id).await
 }
 
 #[tauri::command]

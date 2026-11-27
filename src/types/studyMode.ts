@@ -1,16 +1,79 @@
+import type { ExactSearchHitLocation } from "./searchHit";
+
+export type DocumentPresentationMode = "read" | "study";
+
+export type StudyWorkspaceLayout = "focused" | "with-source" | "with-assistant";
+
 export type StudyModeScopeKind =
   | "standalone_document"
   | "standalone_selection"
   | "study_plan_topic"
   | "study_plan_segment";
 
-export type StudyModeViewTab =
-  | "learn"
+export type StudyModeViewTab = "learn" | "practice" | "explore" | "progress";
+
+export type LegacyStudyModeViewTab =
+  | StudyModeViewTab
   | "source"
-  | "practice"
   | "mind_map"
   | "audio"
   | "slides";
+
+export type StudyModeExploreSubView = "concept_map" | "timeline" | "audio" | "slides";
+
+export type StudyModeSessionDuration = 5 | 15 | 30;
+
+export interface StudySourceAnchor {
+  sourceId: string;
+  sourceRevision: string;
+  quote?: string;
+  charStart?: number;
+  charEnd?: number;
+  locator: ExactSearchHitLocation;
+  label?: string;
+}
+
+export interface StudyModeSessionSnapshot {
+  activeTab: StudyModeViewTab;
+  exploreSubView: StudyModeExploreSubView;
+  activeObjectiveId: string | null;
+  activeQuestionId: string | null;
+  draftAnswer?: string | null;
+  activeScopeId?: string | null;
+  sessionDurationMin: StudyModeSessionDuration;
+  focusMode: boolean;
+  lastLocator: ExactSearchHitLocation | null;
+  leftPaneWidth: number;
+  rightPaneWidth: number;
+  leftPaneCollapsed: boolean;
+  rightPaneCollapsed: boolean;
+  updatedAt: string;
+}
+
+export function normalizeStudyModeTab(raw?: string | null): {
+  tab: StudyModeViewTab;
+  exploreSubView?: StudyModeExploreSubView;
+} {
+  switch (raw) {
+    case "learn":
+    case "source":
+      return { tab: "learn" };
+    case "practice":
+      return { tab: "practice" };
+    case "explore":
+      return { tab: "explore" };
+    case "mind_map":
+      return { tab: "explore", exploreSubView: "concept_map" };
+    case "audio":
+      return { tab: "explore", exploreSubView: "audio" };
+    case "slides":
+      return { tab: "explore", exploreSubView: "slides" };
+    case "progress":
+      return { tab: "progress" };
+    default:
+      return { tab: "learn" };
+  }
+}
 
 export type StudyModeKnowledgeAuthority =
   | "source-only"
@@ -55,6 +118,7 @@ export interface StudyModeVerificationResult {
 export interface StudyModeSession {
   id: string;
   scopeKind: StudyModeScopeKind;
+  scopeKey?: string | null;
   documentId: string | null;
   studyPlanId: string | null;
   planVersionId: string | null;

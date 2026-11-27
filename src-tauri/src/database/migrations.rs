@@ -6620,6 +6620,14 @@ pub const MIGRATIONS: &[Migration] = &[
             ON study_efficacy_events(metric_kind, recorded_at DESC);
         "#,
     ),
+    Migration::new(
+        "166_study_mode_session_scope_key",
+        r#"
+        ALTER TABLE study_mode_sessions ADD COLUMN scope_key TEXT;
+        CREATE INDEX IF NOT EXISTS idx_study_mode_sessions_scope_key
+            ON study_mode_sessions(scope_key, updated_at DESC);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

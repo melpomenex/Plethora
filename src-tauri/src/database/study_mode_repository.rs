@@ -35,11 +35,12 @@ impl StudyModeRepository {
         sqlx::query(
             r#"
             INSERT INTO study_mode_sessions (
-                id, scope_kind, document_id, study_plan_id, plan_version_id,
+                id, scope_kind, scope_key, document_id, study_plan_id, plan_version_id,
                 topic_id, segment_id, source_revision, knowledge_authority,
                 active_view, last_locator_json, status, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, 'active', ?12, ?12)
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 'active', ?13, ?13)
             ON CONFLICT(id) DO UPDATE SET
+                scope_key = COALESCE(excluded.scope_key, study_mode_sessions.scope_key),
                 source_revision = excluded.source_revision,
                 knowledge_authority = excluded.knowledge_authority,
                 active_view = excluded.active_view,
@@ -50,6 +51,7 @@ impl StudyModeRepository {
         )
         .bind(&id)
         .bind(&input.scope_kind)
+        .bind(&input.scope_key)
         .bind(&input.document_id)
         .bind(&input.study_plan_id)
         .bind(&input.plan_version_id)
@@ -69,7 +71,7 @@ impl StudyModeRepository {
     pub async fn get_session(pool: &SqlitePool, id: &str) -> Result<StudyModeSession> {
         let row = sqlx::query(
             r#"
-            SELECT id, scope_kind, document_id, study_plan_id, plan_version_id,
+            SELECT id, scope_kind, scope_key, document_id, study_plan_id, plan_version_id,
                    topic_id, segment_id, source_revision, knowledge_authority,
                    active_view, last_locator_json, status, created_at, updated_at
             FROM study_mode_sessions
@@ -84,6 +86,7 @@ impl StudyModeRepository {
         Ok(StudyModeSession {
             id: row.get("id"),
             scope_kind: row.get("scope_kind"),
+            scope_key: row.get("scope_key"),
             document_id: row.get("document_id"),
             study_plan_id: row.get("study_plan_id"),
             plan_version_id: row.get("plan_version_id"),
@@ -97,6 +100,95 @@ impl StudyModeRepository {
             created_at: row.get("created_at"),
             updated_at: row.get("updated_at"),
         })
+    }
+
+    pub async fn find_session_by_scope(
+        pool: &SqlitePool,
+        scope_kind: &str,
+        scope_key: Option<&str>,
+        document_id: Option<&str>,
+        study_plan_id: Option<&str>,
+        topic_id: Option<&str>,
+        segment_id: Option<&str>,
+    ) -> Result<Option<StudyModeSession>> {
+        if let Some(sk) = scope_key.filter(|s| !s.trim().is_empty()) {
+            let row = sqlx::query(
+                r#"
+                SELECT id, scope_kind, scope_key, document_id, study_plan_id, plan_version_id,
+                       topic_id, segment_id, source_revision, knowledge_authority,
+                       active_view, last_locator_json, status, created_at, updated_at
+                FROM study_mode_sessions
+                WHERE scope_key = ?1
+                ORDER BY updated_at DESC
+                LIMIT 1
+                "#,
+            )
+            .bind(sk)
+            .fetch_optional(pool)
+            .await?;
+
+            if let Some(row) = row {
+                return Ok(Some(StudyModeSession {
+                    id: row.get("id"),
+                    scope_kind: row.get("scope_kind"),
+                    scope_key: row.get("scope_key"),
+                    document_id: row.get("document_id"),
+                    study_plan_id: row.get("study_plan_id"),
+                    plan_version_id: row.get("plan_version_id"),
+                    topic_id: row.get("topic_id"),
+                    segment_id: row.get("segment_id"),
+                    source_revision: row.get("source_revision"),
+                    knowledge_authority: row.get("knowledge_authority"),
+                    active_view: row.get("active_view"),
+                    last_locator_json: row.get("last_locator_json"),
+                    status: row.get("status"),
+                    created_at: row.get("created_at"),
+                    updated_at: row.get("updated_at"),
+                }));
+            }
+        }
+
+        let row = sqlx::query(
+            r#"
+            SELECT id, scope_kind, scope_key, document_id, study_plan_id, plan_version_id,
+                   topic_id, segment_id, source_revision, knowledge_authority,
+                   active_view, last_locator_json, status, created_at, updated_at
+            FROM study_mode_sessions
+            WHERE scope_kind = ?1
+              AND COALESCE(document_id, '') = COALESCE(?2, '')
+              AND COALESCE(study_plan_id, '') = COALESCE(?3, '')
+              AND COALESCE(topic_id, '') = COALESCE(?4, '')
+              AND COALESCE(segment_id, '') = COALESCE(?5, '')
+              AND scope_key IS NULL
+            ORDER BY updated_at DESC
+            LIMIT 1
+            "#,
+        )
+        .bind(scope_kind)
+        .bind(document_id)
+        .bind(study_plan_id)
+        .bind(topic_id)
+        .bind(segment_id)
+        .fetch_optional(pool)
+        .await?;
+
+        Ok(row.map(|row| StudyModeSession {
+            id: row.get("id"),
+            scope_kind: row.get("scope_kind"),
+            scope_key: row.get("scope_key"),
+            document_id: row.get("document_id"),
+            study_plan_id: row.get("study_plan_id"),
+            plan_version_id: row.get("plan_version_id"),
+            topic_id: row.get("topic_id"),
+            segment_id: row.get("segment_id"),
+            source_revision: row.get("source_revision"),
+            knowledge_authority: row.get("knowledge_authority"),
+            active_view: row.get("active_view"),
+            last_locator_json: row.get("last_locator_json"),
+            status: row.get("status"),
+            created_at: row.get("created_at"),
+            updated_at: row.get("updated_at"),
+        }))
     }
 
     pub async fn save_artifact(
@@ -268,6 +360,24 @@ impl StudyModeRepository {
         let now = Utc::now().to_rfc3339();
         sqlx::query("UPDATE study_mode_artifacts SET dismissed = 1, updated_at = ?1 WHERE id = ?2")
             .bind(&now)
+            .bind(artifact_id)
+            .execute(pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn restore_artifact(pool: &SqlitePool, artifact_id: &str) -> Result<StudyModeArtifact> {
+        let now = Utc::now().to_rfc3339();
+        sqlx::query("UPDATE study_mode_artifacts SET dismissed = 0, updated_at = ?1 WHERE id = ?2")
+            .bind(&now)
+            .bind(artifact_id)
+            .execute(pool)
+            .await?;
+        Self::get_artifact(pool, artifact_id).await
+    }
+
+    pub async fn delete_artifact(pool: &SqlitePool, artifact_id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM study_mode_artifacts WHERE id = ?1")
             .bind(artifact_id)
             .execute(pool)
             .await?;
@@ -753,36 +863,56 @@ impl StudyModeRepository {
                 input.session_id.as_deref().unwrap_or(&input.question_id),
                 now.get(0..10).unwrap_or("day")
             );
+            let evidence_outcome = match outcome.as_str() {
+                "understood" => "correct",
+                "partial" => "partial",
+                _ => {
+                    if misconception.is_some() {
+                        "misconception"
+                    } else {
+                        "incorrect"
+                    }
+                }
+            };
+            let hint_level = if input.used_hint.unwrap_or(false) { 1_i64 } else { 0_i64 };
             for cid in &concept_ids {
                 let ev_id = Uuid::new_v4().to_string();
                 let res = sqlx::query(
                     r#"
                     INSERT OR IGNORE INTO learning_evidence (
-                        id, source_kind, source_id, concept_id, evidence_group_id,
-                        question_fingerprint, score, max_score, normalized_score,
-                        used_hint, confidence, grader_origin, misconception, observed_at, created_at
+                        id, concept_id, concept_label, plan_id, node_id,
+                        source_kind, source_id, grade_id, evidence_group_id,
+                        question_fingerprint, observed_score, outcome, misconception,
+                        learner_confidence, hint_level, grader_origin, occurred_at,
+                        policy_version, created_at, updated_at
                     ) VALUES (
-                        ?1, 'formative-practice', ?2, ?3, ?4,
-                        ?5, ?6, 1.0, ?6,
-                        ?7, ?8, ?9, ?10, ?11, ?11
+                        ?1, ?2, ?3, NULL, NULL,
+                        'practice-check', ?4, NULL, ?5,
+                        ?6, ?7, ?8, ?9,
+                        ?10, ?11, ?12, ?13,
+                        'evidence-v1', ?13, ?13
                     )
                     "#,
                 )
                 .bind(&ev_id)
-                .bind(&submission_id)
                 .bind(cid)
+                .bind(cid)
+                .bind(&submission_id)
                 .bind(&group_id)
                 .bind(&question_fingerprint)
                 .bind(score)
-                .bind(if input.used_hint.unwrap_or(false) { 1 } else { 0 })
-                .bind(input.confidence)
-                .bind(&grader_origin)
+                .bind(evidence_outcome)
                 .bind(&misconception)
+                .bind(input.confidence)
+                .bind(hint_level)
+                .bind(&grader_origin)
                 .bind(&now)
                 .execute(&mut *tx)
                 .await;
-                if res.is_ok() {
-                    evidence_recorded = true;
+                if let Ok(done) = res {
+                    if done.rows_affected() > 0 {
+                        evidence_recorded = true;
+                    }
                 }
             }
             if evidence_recorded {
@@ -958,6 +1088,23 @@ mod tests {
         assert_eq!(wrong.outcome, "needs_review");
         assert_eq!(wrong.score, 0.0);
         assert!(!wrong.deduplicated);
+        assert!(wrong.evidence_recorded, "formative submission must record learning_evidence");
+
+        let evidence_count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM learning_evidence WHERE source_kind = 'practice-check' AND source_id = ?1",
+        )
+        .bind(&wrong.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(evidence_count, 1);
+
+        // Verify FSRS learning_items was not mutated
+        let fsrs_count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM learning_items")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(fsrs_count, 0);
 
         // Duplicate submission_key returns deduplicated result
         let dup = StudyModeRepository::submit_formative_answer(
@@ -1049,5 +1196,82 @@ mod tests {
             .unwrap();
         assert!(reloaded.is_stale);
         assert_eq!(reloaded.validation_status, "stale");
+    }
+
+    #[tokio::test]
+    async fn sessions_isolate_distinct_scope_keys_on_same_document() {
+        let pool = create_test_db().await;
+
+        let s1 = StudyModeRepository::upsert_session(
+            &pool,
+            UpsertStudyModeSessionInput {
+                id: None,
+                scope_kind: "standalone_document".to_string(),
+                scope_key: Some("doc:book-1|scope:ch1".to_string()),
+                document_id: None,
+                study_plan_id: None,
+                plan_version_id: None,
+                topic_id: None,
+                segment_id: None,
+                source_revision: "rev-1".to_string(),
+                knowledge_authority: Some("source-only".to_string()),
+                active_view: Some("learn".to_string()),
+                last_locator_json: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        let s2 = StudyModeRepository::upsert_session(
+            &pool,
+            UpsertStudyModeSessionInput {
+                id: None,
+                scope_kind: "standalone_document".to_string(),
+                scope_key: Some("doc:book-1|scope:ch2".to_string()),
+                document_id: None,
+                study_plan_id: None,
+                plan_version_id: None,
+                topic_id: None,
+                segment_id: None,
+                source_revision: "rev-1".to_string(),
+                knowledge_authority: Some("source-only".to_string()),
+                active_view: Some("practice".to_string()),
+                last_locator_json: None,
+            },
+        )
+        .await
+        .unwrap();
+
+        assert_ne!(s1.id, s2.id);
+
+        let found1 = StudyModeRepository::find_session_by_scope(
+            &pool,
+            "standalone_document",
+            Some("doc:book-1|scope:ch1"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(found1.id, s1.id);
+        assert_eq!(found1.active_view, "learn");
+
+        let found2 = StudyModeRepository::find_session_by_scope(
+            &pool,
+            "standalone_document",
+            Some("doc:book-1|scope:ch2"),
+            None,
+            None,
+            None,
+            None,
+        )
+        .await
+        .unwrap()
+        .unwrap();
+        assert_eq!(found2.id, s2.id);
+        assert_eq!(found2.active_view, "practice");
     }
 }

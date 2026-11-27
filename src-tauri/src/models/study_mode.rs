@@ -35,6 +35,7 @@ impl StudyModeScopeKind {
 pub struct StudyModeSession {
     pub id: String,
     pub scope_kind: String,
+    pub scope_key: Option<String>,
     pub document_id: Option<String>,
     pub study_plan_id: Option<String>,
     pub plan_version_id: Option<String>,
@@ -54,6 +55,8 @@ pub struct StudyModeSession {
 pub struct UpsertStudyModeSessionInput {
     pub id: Option<String>,
     pub scope_kind: String,
+    #[serde(default)]
+    pub scope_key: Option<String>,
     pub document_id: Option<String>,
     pub study_plan_id: Option<String>,
     pub plan_version_id: Option<String>,
