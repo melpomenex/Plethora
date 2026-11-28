@@ -382,8 +382,10 @@ export function modelFor(id: string, config: DecisionModelConfig): string | unde
       return config.openaiModelId || "gpt-6-luna";
     case GEMINI_DECISIONS_PROVIDER_ID:
       return config.geminiModelId || "gemini-decision-1";
+    case LAYA_PROVIDER_ID:
+      return "typed-decisions";
     default:
-      // Laya and a generic `laya-serve` serve one model and reject the field.
+      // A generic `laya-serve` endpoint serves one model unless configured.
       return undefined;
   }
 }

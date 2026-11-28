@@ -322,7 +322,7 @@ pub(crate) fn body_model_for(provider: DecisionProvider, model: Option<&str>) ->
         DecisionProvider::GeminiDecisions => trimmed
             .map(str::to_string)
             .or_else(|| Some("gemini-decision-1".to_string())),
-        DecisionProvider::SystemOne => None,
+        DecisionProvider::SystemOne => trimmed.map(str::to_string),
         _ => trimmed
             .map(str::to_string)
             .or_else(|| Some("jev-latest".to_string())),
@@ -663,9 +663,20 @@ pub(crate) mod tests {
 
     #[test]
     fn a_local_server_sends_no_model_field_at_all() {
-        // `laya-serve` serves one model and rejects the field.
         let request = base(DecisionProvider::SystemOne);
         assert!(build_body(&request).get("model").is_none());
+    }
+
+    #[test]
+    fn system_one_forwards_explicit_model_name() {
+        // Managed `laya-serve` loads `typed-decisions` in `LAYA_EXTRA_MODELS`
+        // and routes to `convaiinnovations/laya` unless `model` is specified.
+        let mut request = base(DecisionProvider::SystemOne);
+        request.model = Some("typed-decisions".to_string());
+        assert_eq!(
+            build_body(&request)["model"],
+            serde_json::json!("typed-decisions")
+        );
     }
 
     #[test]

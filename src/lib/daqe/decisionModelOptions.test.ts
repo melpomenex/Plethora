@@ -278,8 +278,8 @@ describe("endpoints and model names", () => {
       "geminiApiKey",
     );
     expect(setupGaps(GEMINI_DECISIONS_PROVIDER_ID, { allowRemote: true, apiKey: "k" })).toEqual([]);
-    // Laya serves one model and rejects the field.
-    expect(modelFor(LAYA_PROVIDER_ID, ready)).toBeUndefined();
+    // Managed Laya loads the `typed-decisions` checkpoint; generic endpoints omit the field.
+    expect(modelFor(LAYA_PROVIDER_ID, ready)).toBe("typed-decisions");
     expect(modelFor(LOCAL_DECISION_ENGINE_PROVIDER_ID, ready)).toBeUndefined();
   });
 

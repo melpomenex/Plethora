@@ -443,7 +443,7 @@ export const DaqeDecisionModelSettings = React.memo(function DaqeDecisionModelSe
       {/* ── Connection test ────────────────────────────────────────────────
           Placed above the opt-in deliberately: a reader who has just typed a key
           wants to press the button before reading anything else about privacy. */}
-      {keyProvider ? (
+      {selected !== "none" && selected !== "spine" ? (
         <div className="space-y-1.5 rounded-md border border-border bg-muted/20 p-3">
           <button
             type="button"

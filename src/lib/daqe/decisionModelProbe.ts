@@ -34,7 +34,7 @@ import {
   daqueHttpProviderFor,
   type DaqeHttpResponse,
 } from "../../api/ai";
-import { modelFor, type DecisionModelConfig } from "./decisionModelOptions";
+import { baseUrlFor, modelFor, type DecisionModelConfig } from "./decisionModelOptions";
 import { isTauri } from "../tauri";
 
 /** The probe's two questions. Kept minimal so the call is nearly free. */
@@ -236,7 +236,7 @@ async function probeViaBackend(
   try {
     response = await daqueDecisionRequest({
       provider,
-      baseUrl: config.baseUrl,
+      baseUrl: baseUrlFor(providerId, config),
       model: modelFor(providerId, config),
       cloudflareAccountId: config.cloudflareAccountId,
       state: PROBE_STATE,

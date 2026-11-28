@@ -1452,7 +1452,9 @@ function decisionConfigFrom(
           ? daqe.geminiDecisionModelId
           : providerId === "openrouter-decisions"
             ? daqe.openrouterDecisionModelId
-            : undefined;
+            : providerId === "laya"
+              ? "typed-decisions"
+              : undefined;
 
   const baseUrl =
     daqe.decisionEngine?.baseUrl?.trim() ||

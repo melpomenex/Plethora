@@ -640,6 +640,7 @@ pub async fn laya_server_start(
         .env("LAYA_PORT", LAYA_MODEL_PORT.to_string())
         .env("LAYA_MODELS", "typed-decisions")
         .env("LAYA_EXTRA_MODELS", extra_models.to_string())
+        .env("LAYA_DEFAULT_MODEL", "typed-decisions")
         .env("LAYA_PRELOAD", "1")
         .env("HF_HOME", root.join("huggingface"))
         .env("HF_HUB_OFFLINE", "1")
