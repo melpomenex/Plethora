@@ -6638,6 +6638,493 @@ pub const MIGRATIONS: &[Migration] = &[
         ALTER TABLE podcast_ad_settings ADD COLUMN auto_transcribe_on_download INTEGER NOT NULL DEFAULT 0;
         "#,
     ),
+    Migration::new(
+        "168_unify_learning_state_events",
+        r#"
+        CREATE TABLE IF NOT EXISTS learning_events (
+            seq INTEGER PRIMARY KEY AUTOINCREMENT,
+            id TEXT NOT NULL UNIQUE,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            event_type TEXT NOT NULL CHECK (event_type IN (
+                'review_committed',
+                'review_undone',
+                'reading_progressed',
+                'reading_completed',
+                'extract_created',
+                'card_created',
+                'guided_check_completed',
+                'practice_attempted',
+                'assessment_submitted',
+                'assessment_graded',
+                'assessment_grade_invalidated',
+                'concept_mastery_declared',
+                'goal_created',
+                'goal_updated',
+                'goal_completed',
+                'session_started',
+                'session_paused',
+                'session_resumed',
+                'session_completed',
+                'remediation_completed'
+            )),
+            actor TEXT NOT NULL DEFAULT 'user' CHECK (actor IN ('user', 'system', 'sync')),
+            surface TEXT NOT NULL DEFAULT 'unknown' CHECK (surface IN (
+                'review', 'scroll_mode', 'quick_review', 'zen_review', 'queue',
+                'reader', 'study_mode', 'guided_trail', 'exam', 'unified_session',
+                'knowledge_atlas', 'today_dashboard', 'background', 'sync', 'unknown'
+            )),
+            session_id TEXT,
+            goal_id TEXT,
+            entity_kind TEXT NOT NULL CHECK (entity_kind IN (
+                'learning_item', 'extract', 'document', 'concept', 'study_plan',
+                'study_plan_node', 'assessment_attempt', 'exam_grade', 'guided_trail',
+                'learning_goal', 'learning_session', 'remediation'
+            )),
+            entity_id TEXT NOT NULL,
+            document_id TEXT,
+            is_local_only INTEGER NOT NULL DEFAULT 0 CHECK (is_local_only IN (0, 1)),
+            is_ai_excluded INTEGER NOT NULL DEFAULT 0 CHECK (is_ai_excluded IN (0, 1)),
+            payload_json TEXT NOT NULL DEFAULT '{}',
+            occurred_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            retracted_by_event_id TEXT REFERENCES learning_events(id) ON DELETE SET NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_learning_events_entity
+            ON learning_events(entity_kind, entity_id, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_learning_events_type_occurred
+            ON learning_events(event_type, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_learning_events_document
+            ON learning_events(document_id) WHERE document_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_learning_events_session
+            ON learning_events(session_id) WHERE session_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_learning_events_goal
+            ON learning_events(goal_id) WHERE goal_id IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS learning_event_checkpoints (
+            consumer_id TEXT PRIMARY KEY,
+            last_seq INTEGER NOT NULL DEFAULT 0,
+            policy_version TEXT NOT NULL DEFAULT 'v1',
+            updated_at TEXT NOT NULL
+        );
+        "#,
+    ),
+    Migration::new(
+        "169_persistent_learner_model",
+        r#"
+        CREATE TABLE IF NOT EXISTS competency_evidence (
+            id TEXT PRIMARY KEY,
+            concept_id TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+            dimension TEXT NOT NULL CHECK (dimension IN (
+                'exposure', 'comprehension', 'retention', 'application', 'transfer'
+            )),
+            source_kind TEXT NOT NULL CHECK (source_kind IN (
+                'reading_progress', 'extract_created', 'guided_check',
+                'fsrs_review', 'socratic_practice', 'practice_attempt',
+                'exam_grade', 'diagnostic_grade', 'language_practice'
+            )),
+            source_event_id TEXT REFERENCES learning_events(id) ON DELETE SET NULL,
+            source_record_id TEXT NOT NULL,
+            evidence_group_id TEXT NOT NULL,
+            card_family_id TEXT,
+            session_id TEXT,
+            observed_score REAL CHECK (observed_score IS NULL OR (observed_score >= 0.0 AND observed_score <= 1.0)),
+            base_weight REAL NOT NULL CHECK (base_weight > 0.0 AND base_weight <= 2.0),
+            elapsed_days REAL,
+            hint_level INTEGER NOT NULL DEFAULT 0 CHECK (hint_level >= 0),
+            is_verified INTEGER NOT NULL DEFAULT 1 CHECK (is_verified IN (0, 1)),
+            is_invalidated INTEGER NOT NULL DEFAULT 0 CHECK (is_invalidated IN (0, 1)),
+            invalidated_by_event_id TEXT REFERENCES learning_events(id) ON DELETE SET NULL,
+            document_id TEXT,
+            is_local_only INTEGER NOT NULL DEFAULT 0 CHECK (is_local_only IN (0, 1)),
+            is_ai_excluded INTEGER NOT NULL DEFAULT 0 CHECK (is_ai_excluded IN (0, 1)),
+            occurred_at TEXT NOT NULL,
+            policy_version TEXT NOT NULL DEFAULT 'competency-v1',
+            created_at TEXT NOT NULL,
+            UNIQUE(concept_id, dimension, source_kind, source_record_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_competency_evidence_concept_dim
+            ON competency_evidence(concept_id, dimension, is_invalidated, occurred_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_competency_evidence_source_event
+            ON competency_evidence(source_event_id) WHERE source_event_id IS NOT NULL;
+        CREATE INDEX IF NOT EXISTS idx_competency_evidence_group
+            ON competency_evidence(concept_id, dimension, evidence_group_id);
+
+        CREATE TABLE IF NOT EXISTS competency_projections (
+            concept_id TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+            dimension TEXT NOT NULL CHECK (dimension IN (
+                'exposure', 'comprehension', 'retention', 'application', 'transfer'
+            )),
+            status TEXT NOT NULL CHECK (status IN (
+                'unknown', 'insufficient_evidence', 'needs_attention', 'developing', 'demonstrated'
+            )),
+            estimate REAL CHECK (estimate IS NULL OR (estimate >= 0.0 AND estimate <= 1.0)),
+            confidence REAL NOT NULL DEFAULT 0.0 CHECK (confidence >= 0.0 AND confidence <= 1.0),
+            effective_weight REAL NOT NULL DEFAULT 0.0,
+            raw_evidence_count INTEGER NOT NULL DEFAULT 0,
+            independent_groups INTEGER NOT NULL DEFAULT 0,
+            distinct_days INTEGER NOT NULL DEFAULT 0,
+            uncertainty_reasons_json TEXT NOT NULL DEFAULT '[]',
+            evidence_ids_json TEXT NOT NULL DEFAULT '[]',
+            contains_local_only_evidence INTEGER NOT NULL DEFAULT 0 CHECK (contains_local_only_evidence IN (0, 1)),
+            contains_ai_excluded_evidence INTEGER NOT NULL DEFAULT 0 CHECK (contains_ai_excluded_evidence IN (0, 1)),
+            last_evidence_at TEXT,
+            policy_version TEXT NOT NULL DEFAULT 'competency-v1',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (concept_id, dimension)
+        );
+
+        CREATE TABLE IF NOT EXISTS learner_competency_declarations (
+            id TEXT PRIMARY KEY,
+            concept_id TEXT NOT NULL REFERENCES concepts(id) ON DELETE CASCADE,
+            declared_level TEXT NOT NULL CHECK (declared_level IN (
+                'unfamiliar', 'familiar', 'confident', 'needs_refresh'
+            )),
+            note TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(concept_id)
+        );
+        "#,
+    ),
+    Migration::new(
+        "170_unified_learning_goals",
+        r#"
+        CREATE TABLE IF NOT EXISTS learning_goals (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            description TEXT,
+            kind TEXT NOT NULL CHECK (kind IN (
+                'exploration', 'retention', 'mastery', 'deadline', 'skill', 'continuous', 'language'
+            )),
+            status TEXT NOT NULL DEFAULT 'active' CHECK (status IN (
+                'active', 'paused', 'completed', 'archived'
+            )),
+            priority INTEGER NOT NULL DEFAULT 50 CHECK (priority >= 0 AND priority <= 100),
+            study_plan_id TEXT UNIQUE REFERENCES study_plans(id) ON DELETE SET NULL,
+            language_code TEXT,
+            target_date TEXT,
+            daily_minutes_budget INTEGER CHECK (daily_minutes_budget IS NULL OR (daily_minutes_budget >= 5 AND daily_minutes_budget <= 480)),
+            target_dimensions_json TEXT NOT NULL DEFAULT '["comprehension","retention"]',
+            target_mastery_threshold REAL NOT NULL DEFAULT 0.80 CHECK (target_mastery_threshold > 0.0 AND target_mastery_threshold <= 1.0),
+            policy_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            completed_at TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_learning_goals_status_priority
+            ON learning_goals(status, priority DESC, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_learning_goals_target_date
+            ON learning_goals(target_date) WHERE target_date IS NOT NULL AND status = 'active';
+
+        CREATE TABLE IF NOT EXISTS learning_goal_sources (
+            id TEXT PRIMARY KEY,
+            goal_id TEXT NOT NULL REFERENCES learning_goals(id) ON DELETE CASCADE,
+            source_kind TEXT NOT NULL CHECK (source_kind IN (
+                'document', 'collection', 'saved_queue', 'study_plan', 'smart_feed', 'concept', 'tag'
+            )),
+            source_id TEXT NOT NULL,
+            source_role TEXT NOT NULL DEFAULT 'primary' CHECK (source_role IN (
+                'primary', 'supplemental', 'exploration_candidate'
+            )),
+            weight REAL NOT NULL DEFAULT 1.0 CHECK (weight > 0.0 AND weight <= 5.0),
+            added_at TEXT NOT NULL,
+            UNIQUE(goal_id, source_kind, source_id),
+            CHECK (source_kind != 'smart_feed' OR source_role = 'exploration_candidate')
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_learning_goal_sources_goal
+            ON learning_goal_sources(goal_id, source_role);
+        CREATE INDEX IF NOT EXISTS idx_learning_goal_sources_lookup
+            ON learning_goal_sources(source_kind, source_id);
+
+        CREATE TABLE IF NOT EXISTS learning_goal_milestones (
+            id TEXT PRIMARY KEY,
+            goal_id TEXT NOT NULL REFERENCES learning_goals(id) ON DELETE CASCADE,
+            title TEXT NOT NULL,
+            target_date TEXT,
+            status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'completed', 'skipped')),
+            linked_node_id TEXT,
+            sort_order INTEGER NOT NULL DEFAULT 0,
+            completed_at TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_learning_goal_milestones_goal
+            ON learning_goal_milestones(goal_id, sort_order ASC);
+        "#,
+    ),
+    Migration::new(
+        "171_learning_activity_runtime",
+        r#"
+        CREATE TABLE IF NOT EXISTS learning_sessions (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL DEFAULT 'balanced',
+            goal_id TEXT NULL,
+            time_budget_minutes INTEGER NULL,
+            elapsed_active_seconds INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL CHECK (status IN ('active', 'paused', 'completed', 'abandoned')),
+            current_item_index INTEGER NOT NULL DEFAULT 0,
+            is_local_only INTEGER NOT NULL DEFAULT 0 CHECK (is_local_only IN (0, 1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            paused_at TEXT NULL,
+            completed_at TEXT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_learning_sessions_status_updated
+            ON learning_sessions(status, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS learning_session_items (
+            id TEXT PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES learning_sessions(id) ON DELETE CASCADE,
+            position INTEGER NOT NULL,
+            activity_id TEXT NOT NULL,
+            dedupe_key TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            target_entity_type TEXT NOT NULL,
+            target_entity_id TEXT NOT NULL,
+            activity_json TEXT NOT NULL,
+            state TEXT NOT NULL CHECK (state IN (
+                'queued', 'active', 'paused', 'completed', 'skipped', 'deferred', 'skipped_unavailable'
+            )),
+            started_at TEXT NULL,
+            completed_at TEXT NULL,
+            active_seconds INTEGER NOT NULL DEFAULT 0,
+            completion_event_id TEXT NULL,
+            resume_checkpoint_json TEXT NULL,
+            UNIQUE(session_id, position)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_learning_session_items_session_pos
+            ON learning_session_items(session_id, position);
+        CREATE INDEX IF NOT EXISTS idx_learning_session_items_dedupe
+            ON learning_session_items(dedupe_key, state);
+        "#,
+    ),
+    Migration::new(
+        "172_adaptive_curricula_and_remediation",
+        r#"
+        ALTER TABLE study_plan_prerequisites
+            ADD COLUMN relationship_type TEXT NOT NULL DEFAULT 'requires'
+            CHECK (relationship_type IN (
+                'requires', 'builds_upon', 'related_to', 'example_of',
+                'contrasts_with', 'applies', 'alternative_explanation_of'
+            ));
+        ALTER TABLE study_plan_prerequisites
+            ADD COLUMN provenance TEXT NOT NULL DEFAULT 'imported'
+            CHECK (provenance IN ('manual', 'source_explicit', 'ai_inferred', 'imported'));
+        ALTER TABLE study_plan_prerequisites
+            ADD COLUMN confidence REAL NOT NULL DEFAULT 1.0
+            CHECK (confidence >= 0.0 AND confidence <= 1.0);
+        ALTER TABLE study_plan_prerequisites
+            ADD COLUMN is_uncertain INTEGER NOT NULL DEFAULT 0 CHECK (is_uncertain IN (0, 1));
+        ALTER TABLE study_plan_prerequisites
+            ADD COLUMN evidence_anchor_json TEXT;
+        ALTER TABLE study_plan_prerequisites
+            ADD COLUMN user_override_state TEXT NOT NULL DEFAULT 'none'
+            CHECK (user_override_state IN ('none', 'bypassed', 'confirmed', 'retyped', 'rejected'));
+        ALTER TABLE study_plan_prerequisites
+            ADD COLUMN bypass_reason TEXT;
+        ALTER TABLE study_plan_prerequisites
+            ADD COLUMN updated_at TEXT NOT NULL DEFAULT '';
+
+        CREATE TABLE IF NOT EXISTS curriculum_node_overrides (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            override_kind TEXT NOT NULL CHECK (override_kind IN (
+                'manual_skip', 'manual_unskip', 'pinned_next', 'grounding_converted'
+            )),
+            reason TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            UNIQUE(plan_id, node_id, override_kind)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_curriculum_node_overrides_plan_node
+            ON curriculum_node_overrides(plan_id, node_id);
+
+        CREATE TABLE IF NOT EXISTS curriculum_grounding_checks (
+            id TEXT PRIMARY KEY,
+            plan_id TEXT NOT NULL,
+            node_id TEXT NOT NULL,
+            source_document_id TEXT,
+            status TEXT NOT NULL CHECK (status IN (
+                'verified', 'reanchored', 'drifted', 'missing_source', 'converted_ungrounded'
+            )),
+            last_checked_at TEXT NOT NULL,
+            detail_json TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_curriculum_grounding_checks_plan_node
+            ON curriculum_grounding_checks(plan_id, node_id);
+
+        ALTER TABLE assessment_blueprints
+            ADD COLUMN assessment_purpose TEXT NOT NULL DEFAULT 'formative'
+            CHECK (assessment_purpose IN (
+                'diagnostic', 'formative', 'retrieval_practice', 'mastery',
+                'mock_exam', 'summative_exam', 'practical_skill', 'self_assessment'
+            ));
+        ALTER TABLE assessment_blueprint_revisions
+            ADD COLUMN assessment_purpose TEXT NOT NULL DEFAULT 'formative'
+            CHECK (assessment_purpose IN (
+                'diagnostic', 'formative', 'retrieval_practice', 'mastery',
+                'mock_exam', 'summative_exam', 'practical_skill', 'self_assessment'
+            ));
+        ALTER TABLE exam_attempts
+            ADD COLUMN assessment_purpose TEXT NOT NULL DEFAULT 'formative'
+            CHECK (assessment_purpose IN (
+                'diagnostic', 'formative', 'retrieval_practice', 'mastery',
+                'mock_exam', 'summative_exam', 'practical_skill', 'self_assessment'
+            ));
+
+        ALTER TABLE learning_evidence ADD COLUMN assessment_purpose TEXT;
+        ALTER TABLE learning_evidence
+            ADD COLUMN target_dimension TEXT
+            CHECK (target_dimension IS NULL OR target_dimension IN (
+                'exposure', 'comprehension', 'retention', 'application', 'transfer'
+            ));
+        ALTER TABLE learning_evidence ADD COLUMN invalidated_at TEXT;
+        ALTER TABLE learning_evidence
+            ADD COLUMN invalidation_reason TEXT
+            CHECK (invalidation_reason IS NULL OR invalidation_reason IN (
+                'regraded', 'manual_override', 'question_invalidated', 'source_retracted'
+            ));
+        ALTER TABLE learning_evidence ADD COLUMN superseded_by_grade_id TEXT;
+
+        CREATE INDEX IF NOT EXISTS idx_learning_evidence_concept_invalidated
+            ON learning_evidence(concept_id, invalidated_at);
+
+        ALTER TABLE learning_remediations
+            ADD COLUMN target_dimension TEXT NOT NULL DEFAULT 'comprehension'
+            CHECK (target_dimension IN (
+                'exposure', 'comprehension', 'retention', 'application', 'transfer'
+            ));
+        ALTER TABLE learning_remediations
+            ADD COLUMN modality TEXT NOT NULL DEFAULT 'guided_reading';
+        ALTER TABLE learning_remediations
+            ADD COLUMN attempt_count INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE learning_remediations
+            ADD COLUMN escalation_stage INTEGER NOT NULL DEFAULT 0;
+        ALTER TABLE learning_remediations ADD COLUMN cooldown_until TEXT;
+        ALTER TABLE learning_remediations ADD COLUMN dismissed_at TEXT;
+        ALTER TABLE learning_remediations ADD COLUMN dismiss_reason TEXT;
+        ALTER TABLE learning_remediations ADD COLUMN rationale_deterministic TEXT;
+        "#,
+    ),
+    Migration::new(
+        "173_coach_and_motivation_systems",
+        r#"
+        CREATE TABLE IF NOT EXISTS coach_preferences (
+            id TEXT PRIMARY KEY DEFAULT 'default',
+            proactivity_level TEXT NOT NULL DEFAULT 'balanced'
+                CHECK (proactivity_level IN ('disabled', 'on_demand', 'minimal', 'balanced', 'proactive')),
+            ai_explanations_enabled INTEGER NOT NULL DEFAULT 0 CHECK (ai_explanations_enabled IN (0, 1)),
+            quiet_hours_enabled INTEGER NOT NULL DEFAULT 0 CHECK (quiet_hours_enabled IN (0, 1)),
+            quiet_hours_start TEXT,
+            quiet_hours_end TEXT,
+            disabled_signals_json TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS coach_recommendations (
+            id TEXT PRIMARY KEY,
+            signal_type TEXT NOT NULL,
+            dedupe_key TEXT NOT NULL,
+            severity TEXT NOT NULL CHECK (severity IN ('info', 'advisory', 'urgent')),
+            confidence REAL NOT NULL,
+            evidence_refs_json TEXT NOT NULL,
+            proposed_action_json TEXT NOT NULL,
+            deterministic_summary_json TEXT NOT NULL,
+            ai_explanation_json TEXT,
+            status TEXT NOT NULL DEFAULT 'active'
+                CHECK (status IN ('active', 'accepted', 'dismissed', 'snoozed', 'expired')),
+            snooze_until TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_coach_recs_status_created
+            ON coach_recommendations(status, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS coach_signal_dismissals (
+            signal_type TEXT NOT NULL,
+            dedupe_key TEXT NOT NULL,
+            dismissed_at TEXT NOT NULL,
+            cooldown_until TEXT,
+            reason TEXT,
+            PRIMARY KEY (signal_type, dedupe_key)
+        );
+
+        CREATE TABLE IF NOT EXISTS motivation_preferences (
+            id TEXT PRIMARY KEY DEFAULT 'default',
+            motivation_enabled INTEGER NOT NULL DEFAULT 1 CHECK (motivation_enabled IN (0, 1)),
+            targets_enabled INTEGER NOT NULL DEFAULT 1 CHECK (targets_enabled IN (0, 1)),
+            streaks_enabled INTEGER NOT NULL DEFAULT 1 CHECK (streaks_enabled IN (0, 1)),
+            xp_enabled INTEGER NOT NULL DEFAULT 0 CHECK (xp_enabled IN (0, 1)),
+            milestones_enabled INTEGER NOT NULL DEFAULT 1 CHECK (milestones_enabled IN (0, 1)),
+            celebrations_enabled INTEGER NOT NULL DEFAULT 0 CHECK (celebrations_enabled IN (0, 1)),
+            daily_minutes_target INTEGER NOT NULL DEFAULT 20,
+            weekly_minutes_target INTEGER NOT NULL DEFAULT 120,
+            rest_days_mask INTEGER NOT NULL DEFAULT 0,
+            streak_grace_days_per_week INTEGER NOT NULL DEFAULT 1,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS motivation_xp_ledger (
+            id TEXT PRIMARY KEY,
+            source_event_id TEXT NOT NULL,
+            rule_id TEXT NOT NULL,
+            xp_amount INTEGER NOT NULL CHECK (xp_amount >= 0),
+            category TEXT NOT NULL CHECK (category IN (
+                'reading', 'recall', 'practice', 'assessment', 'synthesis', 'consistency'
+            )),
+            awarded_at TEXT NOT NULL,
+            UNIQUE (source_event_id, rule_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_motivation_xp_awarded_at
+            ON motivation_xp_ledger(awarded_at DESC);
+
+        CREATE TABLE IF NOT EXISTS motivation_milestones (
+            id TEXT PRIMARY KEY,
+            milestone_key TEXT NOT NULL UNIQUE,
+            category TEXT NOT NULL CHECK (category IN ('consistency', 'activity', 'mastery_outcome')),
+            title TEXT NOT NULL,
+            description TEXT NOT NULL,
+            evidence_ref_id TEXT,
+            achieved_at TEXT NOT NULL,
+            revoked_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS reading_goals (
+            id TEXT PRIMARY KEY,
+            goal_type TEXT NOT NULL CHECK (goal_type IN ('daily_minutes', 'daily_pages', 'weekly_minutes')),
+            target_value INTEGER NOT NULL CHECK (target_value > 0),
+            is_active INTEGER NOT NULL DEFAULT 1,
+            created_at TEXT NOT NULL,
+            modified_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS reading_goal_progress (
+            id TEXT PRIMARY KEY,
+            goal_id TEXT NOT NULL REFERENCES reading_goals(id) ON DELETE CASCADE,
+            date TEXT NOT NULL,
+            current_value REAL NOT NULL DEFAULT 0.0,
+            is_completed INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL,
+            UNIQUE (goal_id, date)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_reading_goal_progress_goal_date
+            ON reading_goal_progress(goal_id, date);
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path
@@ -9854,6 +10341,96 @@ mod tests {
         assert_eq!(feedback_left, 0);
         assert_eq!(emb_left, 0);
         assert_eq!(articles_left, 1, "Deleting a Smart Feed must NEVER delete underlying rss_articles");
+
+        let fk_violations: Vec<(String, i64, String, i64)> =
+            sqlx::query_as("PRAGMA foreign_key_check")
+                .fetch_all(&pool)
+                .await
+                .unwrap();
+        assert!(fk_violations.is_empty(), "FK check failed: {:?}", fk_violations);
+    }
+
+    #[tokio::test]
+    async fn migrations_171_172_173_apply_cleanly_and_enforce_constraints() {
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+
+        run_migrations(&pool).await.expect("initial migrations must apply cleanly");
+        // Idempotent second run
+        run_migrations(&pool).await.expect("re-running migrations must be idempotent");
+
+        // 171: learning_sessions + learning_session_items
+        sqlx::query(
+            "INSERT INTO learning_sessions (id, profile_id, status, created_at, updated_at)
+             VALUES ('sess-1', 'balanced', 'active', '2026-11-28T00:00:00Z', '2026-11-28T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO learning_session_items (
+                id, session_id, position, activity_id, dedupe_key, kind,
+                target_entity_type, target_entity_id, activity_json, state
+             ) VALUES (
+                'item-1', 'sess-1', 0, 'act-1', 'srs:card-1:0', 'srs_review',
+                'learning_item', 'card-1', '{}', 'queued'
+             )",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let bad_session_status = sqlx::query(
+            "INSERT INTO learning_sessions (id, status, created_at, updated_at)
+             VALUES ('sess-bad', 'invalid', '2026-11-28T00:00:00Z', '2026-11-28T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(bad_session_status.is_err());
+
+        // 172: curriculum_node_overrides + curriculum_grounding_checks + assessment_purpose
+        sqlx::query(
+            "INSERT INTO curriculum_node_overrides (id, plan_id, node_id, override_kind, created_at, updated_at)
+             VALUES ('ovr-1', 'plan-1', 'node-1', 'manual_skip', '2026-11-28T00:00:00Z', '2026-11-28T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO curriculum_grounding_checks (id, plan_id, node_id, status, last_checked_at)
+             VALUES ('chk-1', 'plan-1', 'node-1', 'verified', '2026-11-28T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        // 173: coach & motivation systems + idempotent XP ledger
+        sqlx::query(
+            "INSERT INTO coach_preferences (id, updated_at) VALUES ('default', '2026-11-28T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            "INSERT INTO motivation_xp_ledger (id, source_event_id, rule_id, xp_amount, category, awarded_at)
+             VALUES ('xp-1', 'evt-1', 'review_committed', 10, 'recall', '2026-11-28T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+
+        let dup_xp = sqlx::query(
+            "INSERT INTO motivation_xp_ledger (id, source_event_id, rule_id, xp_amount, category, awarded_at)
+             VALUES ('xp-2', 'evt-1', 'review_committed', 10, 'recall', '2026-11-28T00:00:00Z')",
+        )
+        .execute(&pool)
+        .await;
+        assert!(dup_xp.is_err(), "UNIQUE(source_event_id, rule_id) must reject duplicate XP");
 
         let fk_violations: Vec<(String, i64, String, i64)> =
             sqlx::query_as("PRAGMA foreign_key_check")

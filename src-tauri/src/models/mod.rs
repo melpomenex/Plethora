@@ -18,7 +18,10 @@ pub mod language_knowledge;
 pub mod language_lexicon;
 pub mod language_practice;
 pub mod language_profile;
+pub mod learner_model;
+pub mod learning_event;
 pub mod learning_evidence;
+pub mod learning_goal;
 pub mod learning_item;
 pub mod playlist;
 pub mod position;
@@ -66,7 +69,10 @@ pub use language_profile::{
     ProfileLifecycle, ProfilePreferences, ResolvedLanguageProfileContext, DEFAULT_ACCOUNT_SCOPE,
     DEFAULT_WORKSPACE_SCOPE, LANGUAGE_PROFILE_SCHEMA_VERSION,
 };
+pub use learner_model::*;
+pub use learning_event::*;
 pub use learning_evidence::*;
+pub use learning_goal::*;
 pub use learning_item::{
     CardVersionEntry, ItemState, ItemType, LearningItem, MemoryState, ReviewRating,
 };
