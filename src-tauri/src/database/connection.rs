@@ -317,7 +317,11 @@ impl Database {
             // connection inherits it, rather than a one-shot PRAGMA on the first)
             .journal_mode(sqlx::sqlite::SqliteJournalMode::Wal)
             // NORMAL synchronous with WAL gives good durability/performance trade-off
-            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal);
+            .synchronous(sqlx::sqlite::SqliteSynchronous::Normal)
+            // Keep temp tables/indices in memory to avoid temp-file lock/IO contention
+            .pragma("temp_store", "MEMORY")
+            // Bound WAL growth so checkpoints stay small and predictable
+            .pragma("wal_autocheckpoint", "1000");
 
         // SQLite serializes writes, so a large pool mostly adds connection
         // startup and lock contention on low-power Android devices. Keep a
@@ -432,6 +436,144 @@ impl Database {
     pub async fn close(self) {
         self.pool.close().await;
     }
+
+    /// Begin an immediate write transaction (`BEGIN IMMEDIATE`) with retry on
+    /// `SQLITE_BUSY`, avoiding SQLite's `SHARED -> RESERVED` upgrade deadlock.
+    pub async fn begin_write(&self) -> sqlx::Result<WriteTransaction> {
+        begin_write(&self.pool).await
+    }
+}
+
+/// Returns `true` if `err` is a SQLite busy/locked error (`SQLITE_BUSY` = 5,
+/// `SQLITE_LOCKED` = 6, or their extended codes).
+pub fn is_sqlite_busy_error(err: &sqlx::Error) -> bool {
+    if let sqlx::Error::Database(db_err) = err {
+        if let Some(primary) = db_err
+            .code()
+            .and_then(|c| c.parse::<i32>().ok())
+            .map(|c| c & 0xff)
+        {
+            if primary == 5 || primary == 6 {
+                return true;
+            }
+        }
+        let msg = db_err.message();
+        return msg.contains("database is locked") || msg.contains("database table is locked");
+    }
+    false
+}
+
+/// A SQLite write transaction started with `BEGIN IMMEDIATE` so the write lock
+/// is acquired up front (honoring `busy_timeout`) rather than upgrading from a
+/// `SHARED` read snapshot (which fails immediately with `SQLITE_BUSY`).
+///
+/// Automatically rolls back on drop if neither `commit` nor `rollback` was
+/// called.
+pub struct WriteTransaction {
+    conn: Option<sqlx::pool::PoolConnection<Sqlite>>,
+}
+
+impl std::ops::Deref for WriteTransaction {
+    type Target = sqlx::SqliteConnection;
+
+    fn deref(&self) -> &Self::Target {
+        self.conn
+            .as_deref()
+            .expect("WriteTransaction used after commit/rollback")
+    }
+}
+
+impl std::ops::DerefMut for WriteTransaction {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.conn
+            .as_deref_mut()
+            .expect("WriteTransaction used after commit/rollback")
+    }
+}
+
+impl WriteTransaction {
+    /// Commit the transaction.
+    pub async fn commit(mut self) -> sqlx::Result<()> {
+        let mut conn = self
+            .conn
+            .take()
+            .expect("WriteTransaction already completed");
+        if let Err(err) = sqlx::query("COMMIT").execute(&mut *conn).await {
+            let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+            return Err(err);
+        }
+        Ok(())
+    }
+
+    /// Explicitly roll back the transaction.
+    pub async fn rollback(mut self) -> sqlx::Result<()> {
+        let mut conn = self
+            .conn
+            .take()
+            .expect("WriteTransaction already completed");
+        sqlx::query("ROLLBACK").execute(&mut *conn).await?;
+        Ok(())
+    }
+}
+
+impl Drop for WriteTransaction {
+    fn drop(&mut self) {
+        if let Some(mut conn) = self.conn.take() {
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    let _ = sqlx::query("ROLLBACK").execute(&mut *conn).await;
+                });
+            }
+        }
+    }
+}
+
+/// Acquire a connection from `pool` and start a `BEGIN IMMEDIATE` transaction,
+/// retrying with backoff if SQLite reports `SQLITE_BUSY`.
+pub async fn begin_write(pool: &SqlitePool) -> sqlx::Result<WriteTransaction> {
+    const BACKOFF_MS: [u64; 5] = [25, 50, 100, 200, 400];
+    for (attempt, delay_ms) in BACKOFF_MS.iter().enumerate() {
+        let mut conn = pool.acquire().await?;
+        match sqlx::query("BEGIN IMMEDIATE").execute(&mut *conn).await {
+            Ok(_) => return Ok(WriteTransaction { conn: Some(conn) }),
+            Err(err) if is_sqlite_busy_error(&err) && attempt + 1 < BACKOFF_MS.len() => {
+                drop(conn);
+                tracing::debug!(
+                    "BEGIN IMMEDIATE hit SQLITE_BUSY (attempt {}), retrying in {}ms",
+                    attempt + 1,
+                    delay_ms
+                );
+                tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("loop returns on final attempt")
+}
+
+/// Retry an async SQLite operation when it fails with `SQLITE_BUSY` /
+/// `SQLITE_LOCKED`.
+pub async fn retry_on_sqlite_busy<F, Fut, T>(mut op: F) -> sqlx::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = sqlx::Result<T>>,
+{
+    const BACKOFF_MS: [u64; 4] = [25, 75, 150, 300];
+    for (attempt, delay_ms) in BACKOFF_MS.iter().enumerate() {
+        match op().await {
+            Ok(val) => return Ok(val),
+            Err(err) if is_sqlite_busy_error(&err) && attempt + 1 < BACKOFF_MS.len() => {
+                tracing::debug!(
+                    "SQLite operation hit SQLITE_BUSY (attempt {}), retrying in {}ms",
+                    attempt + 1,
+                    delay_ms
+                );
+                tokio::time::sleep(Duration::from_millis(*delay_ms)).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+    unreachable!("loop returns on final attempt")
 }
 
 #[cfg(test)]
@@ -839,5 +981,88 @@ mod tests {
         ] {
             assert!(name.contains(".corrupt."));
         }
+    }
+
+    #[tokio::test]
+    async fn begin_write_serializes_concurrent_read_then_write_without_busy() {
+        let dir = temp_test_dir("begin-write-concurrent");
+        let db_path = dir.join("test.db");
+        let db = Database::new(db_path).await.unwrap();
+
+        sqlx::query("CREATE TABLE counter (id INTEGER PRIMARY KEY, val INTEGER NOT NULL)")
+            .execute(db.pool())
+            .await
+            .unwrap();
+        sqlx::query("INSERT INTO counter (id, val) VALUES (1, 0)")
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        let mut handles = Vec::new();
+        for _ in 0..8 {
+            let db_clone = db.clone();
+            handles.push(tokio::spawn(async move {
+                for _ in 0..5 {
+                    let mut tx = db_clone.begin_write().await.unwrap();
+                    let val: i64 = sqlx::query_scalar("SELECT val FROM counter WHERE id = 1")
+                        .fetch_one(&mut *tx)
+                        .await
+                        .unwrap();
+                    tokio::time::sleep(Duration::from_millis(2)).await;
+                    sqlx::query("UPDATE counter SET val = ?1 WHERE id = 1")
+                        .bind(val + 1)
+                        .execute(&mut *tx)
+                        .await
+                        .unwrap();
+                    tx.commit().await.unwrap();
+                }
+            }));
+        }
+
+        for h in handles {
+            h.await.unwrap();
+        }
+
+        let final_val: i64 = sqlx::query_scalar("SELECT val FROM counter WHERE id = 1")
+            .fetch_one(db.pool())
+            .await
+            .unwrap();
+        assert_eq!(final_val, 40);
+
+        db.close().await;
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn write_transaction_rollback_on_drop_releases_lock() {
+        let dir = temp_test_dir("write-tx-drop");
+        let db_path = dir.join("test.db");
+        let db = Database::new(db_path).await.unwrap();
+
+        sqlx::query("CREATE TABLE items (id INTEGER PRIMARY KEY)")
+            .execute(db.pool())
+            .await
+            .unwrap();
+
+        {
+            let mut tx = db.begin_write().await.unwrap();
+            sqlx::query("INSERT INTO items (id) VALUES (1)")
+                .execute(&mut *tx)
+                .await
+                .unwrap();
+            // Dropped without commit
+        }
+
+        // Subsequent write must succeed and not see the rolled-back row.
+        let mut tx2 = db.begin_write().await.unwrap();
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM items")
+            .fetch_one(&mut *tx2)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        tx2.commit().await.unwrap();
+
+        db.close().await;
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

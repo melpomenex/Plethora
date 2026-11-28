@@ -383,7 +383,7 @@ async fn flush_segment_batch(
     if transcript_id > 0 {
         // One transaction for the whole batch; chunk the multi-row INSERT so each
         // statement stays under SQLite's 999-bind limit (5 binds/row).
-        let tx_result = repo.pool().begin().await;
+        let tx_result = repo.begin_write().await;
         let mut tx = match tx_result {
             Ok(t) => t,
             Err(e) => {

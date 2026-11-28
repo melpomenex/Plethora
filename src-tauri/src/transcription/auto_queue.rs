@@ -387,7 +387,7 @@ impl AutoTranscriptionQueue {
         if full_text.is_empty() {
             anyhow::bail!("No readable transcript segments were saved");
         }
-        let mut completion = repo.pool().begin().await?;
+        let mut completion = repo.begin_write().await?;
         crate::database::repository::sync_document_transcript_content(
             &mut *completion,
             &entry.document_id,
@@ -600,7 +600,7 @@ async fn persist_segment_batch(
     buffer: &[TranscriptSegment],
 ) -> anyhow::Result<()> {
     if transcript_id > 0 {
-        let mut tx = repo.pool().begin().await?;
+        let mut tx = repo.begin_write().await?;
 
         for chunk in buffer.chunks(SEG_ROWS_PER_STMT) {
             let mut builder: QueryBuilder<Sqlite> = QueryBuilder::new(

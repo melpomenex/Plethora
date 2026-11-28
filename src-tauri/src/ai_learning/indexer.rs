@@ -1172,7 +1172,7 @@ async fn apply_chunk_diff(
         .filter(|id| !new_ids.contains(id))
         .collect();
     if !orphans.is_empty() {
-        let mut tx = repo.pool().begin().await?;
+        let mut tx = repo.begin_write().await?;
         for id in &orphans {
             sqlx::query("DELETE FROM semantic_chunks WHERE id = ?1")
                 .bind(id)

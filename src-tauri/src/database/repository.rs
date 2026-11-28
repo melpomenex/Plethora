@@ -358,6 +358,14 @@ impl Repository {
         &self.pool
     }
 
+    /// Begin an immediate write transaction (`BEGIN IMMEDIATE`) with retry on
+    /// `SQLITE_BUSY`. Prefer this over `pool().begin()` for write transactions.
+    pub async fn begin_write(
+        &self,
+    ) -> std::result::Result<crate::database::connection::WriteTransaction, sqlx::Error> {
+        crate::database::connection::begin_write(&self.pool).await
+    }
+
     // Helper to parse file type from string
     fn parse_file_type(s: &str) -> FileType {
         match s {

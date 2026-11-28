@@ -283,8 +283,7 @@ pub async fn save_transcript(
     segments: Vec<engine::TranscriptSegment>,
 ) -> Result<()> {
     let mut tx = repo
-        .pool()
-        .begin()
+        .begin_write()
         .await
         .map_err(|e| crate::error::PlethoraError::Internal(e.to_string()))?;
 

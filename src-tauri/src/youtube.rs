@@ -1359,7 +1359,7 @@ pub async fn persist_canonical_youtube_transcript(
     }
     let text = build_canonical_timed_transcript_text(segments);
     let json = serde_json::to_string(segments).map_err(|e| e.to_string())?;
-    let mut tx = repo.pool().begin().await.map_err(|e| e.to_string())?;
+    let mut tx = repo.begin_write().await.map_err(|e| e.to_string())?;
     sqlx::query("INSERT INTO youtube_transcripts (id, document_id, video_id, transcript, segments_json, date_created, date_modified, word_timings_version, language) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?6, ?7, ?8) ON CONFLICT(video_id) DO UPDATE SET document_id=COALESCE(excluded.document_id,youtube_transcripts.document_id), transcript=excluded.transcript, segments_json=excluded.segments_json, date_modified=excluded.date_modified, word_timings_version=excluded.word_timings_version, language=COALESCE(excluded.language,youtube_transcripts.language)")
         .bind(uuid::Uuid::new_v4().to_string()).bind(document_id).bind(video_id).bind(&text).bind(json)
         .bind(chrono::Utc::now()).bind(YOUTUBE_WORD_TIMINGS_VERSION).bind(language)
