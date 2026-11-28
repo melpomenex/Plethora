@@ -158,7 +158,8 @@ fn find_legacy_db(root: &Path) -> Result<PathBuf> {
 async fn open_legacy_db(path: &Path) -> Result<SqlitePool> {
     let options = SqliteConnectOptions::new()
         .filename(path)
-        .create_if_missing(false);
+        .create_if_missing(false)
+        .busy_timeout(std::time::Duration::from_secs(30));
 
     let pool = SqlitePool::connect_with(options)
         .await

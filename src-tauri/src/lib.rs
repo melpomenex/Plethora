@@ -646,6 +646,7 @@ async fn restore_local_db_backup(
             &db_path,
             rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
         )?;
+        live_db.busy_timeout(std::time::Duration::from_secs(30))?;
         let backup = rusqlite::backup::Backup::new(&backup_db, &mut live_db)?;
         backup.run_to_completion(5, std::time::Duration::from_millis(250), None)?;
         Ok::<(), rusqlite::Error>(())

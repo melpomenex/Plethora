@@ -569,6 +569,9 @@ impl BackupManager {
                 rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE,
             )
             .map_err(|e| AppError::Internal(format!("Failed to open live database: {}", e)))?;
+            live_db
+                .busy_timeout(std::time::Duration::from_secs(30))
+                .map_err(|e| AppError::Internal(format!("Failed to set busy_timeout: {}", e)))?;
 
             let backup = rusqlite::backup::Backup::new(&backup_db, &mut live_db)
                 .map_err(|e| AppError::Internal(format!("Failed to init backup: {}", e)))?;
