@@ -67,6 +67,10 @@ import { ContextMenu, ContextMenuItemType, type ContextMenuItem } from "../commo
 import { CaptureActivityCard } from "../analytics/CaptureActivityCard";
 import { StudyPlansDashboardCard } from "../study-plans/StudyPlansDashboardCard";
 import { SleepLearningDashboardCard } from "../health/SleepLearningDashboardCard";
+import { StartLearningHero } from "../today/StartLearningHero";
+import { UnifiedSessionRunnerBar } from "../today/UnifiedSessionRunnerBar";
+import { LearningGoalsSection } from "../today/LearningGoalsSection";
+import { LearningGoalWizardModal } from "../today/LearningGoalWizardModal";
 import { TodaysHorizonBanner } from "../dashboard/TodaysHorizonBanner";
 import { DashboardCustomizeSectionFrame } from "../dashboard/DashboardCustomizeSectionFrame";
 import { QuickActionsPicker, type QuickActionCategory } from "../dashboard/QuickActionsPicker";
@@ -182,6 +186,7 @@ export function DashboardTab() {
   const [showQuickActionPicker, setShowQuickActionPicker] = useState(false);
   const [showWidgetGallery, setShowWidgetGallery] = useState(false);
   const [showUrlImportDialog, setShowUrlImportDialog] = useState(false);
+  const [showGoalWizard, setShowGoalWizard] = useState(false);
   const [liveAnnouncement, setLiveAnnouncement] = useState("");
   const [dragState, setDragState] = useState<{
     draggingId: DashboardSectionId;
@@ -1384,50 +1389,25 @@ export function DashboardTab() {
     switch (sectionId) {
       case "focus":
         return (
-          <FocusPanel
-            className={isCustomizing ? "mb-0" : "mb-6 md:mb-8"}
+          <div
+            className={cn("space-y-4", isCustomizing ? "mb-0" : "mb-6 md:mb-8")}
             onContextMenu={(e) => dashboardMenu.openEvent(e, buildFocusPanelMenuItems())}
           >
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="min-w-0">
-                <p className="text-sm font-medium text-primary">{t("dashboard.quickActions")}</p>
-                <h2 className="mt-1 text-xl font-semibold text-foreground">
-                  {hasNoDocuments
-                    ? t("dashboard.importFirst")
-                    : focusAction.id === "review"
-                    ? t("dashboard.startReview")
-                    : focusAction.id === "continue-reading"
-                      ? t("continueReading.title")
-                    : focusAction.id === "queue"
-                      ? t("dashboard.continueReading")
-                      : t("dashboard.browseDocuments")}
-                </h2>
-                <p className={error ? "mt-1 text-sm text-destructive" : "mt-1 text-sm text-muted-foreground"} role={error ? "alert" : undefined}>
-                  {error
-                    ? `${t("dashboard.failedLoadAnalytics")}: ${error}`
-                    : isLoading
-                    ? t("dashboard.loadingAnalytics")
-                    : focusCount > 0
-                      ? t("dashboard.due", { count: focusCount })
-                      : t("dashboard.importFirst")}
+            <UnifiedSessionRunnerBar />
+            <StartLearningHero
+              dueCount={stats?.cards_due_today ?? 0}
+              resumableDocs={resumableDocs}
+              onImportDocument={importDocument}
+              onOpenAddGoal={() => setShowGoalWizard(true)}
+            />
+            {error && (
+              <FocusPanel className="mb-0">
+                <p className="text-sm text-destructive" role="alert">
+                  {`${t("dashboard.failedLoadAnalytics")}: ${error}`}
                 </p>
-              </div>
-              <ActionButton
-                variant="primary"
-                size="large"
-                onClick={() => {
-                  if (hasNoDocuments) {
-                    importDocument();
-                  } else {
-                    openTab(focusAction);
-                  }
-                }}
-              >
-                <FocusIcon className="h-5 w-5" aria-hidden="true" />
-                {hasNoDocuments ? t("dashboard.import") : focusAction.id === "review" ? t("dashboard.startReview") : t("common.open")}
-              </ActionButton>
-            </div>
-          </FocusPanel>
+              </FocusPanel>
+            )}
+          </div>
         );
 
       case "quick-actions": {
@@ -1695,7 +1675,8 @@ export function DashboardTab() {
 
       case "study-plans":
         return (
-          <div className={isCustomizing ? "" : "mb-6 md:mb-8"} data-study-plans-card="true">
+          <div className={cn("space-y-4", isCustomizing ? "" : "mb-6 md:mb-8")} data-study-plans-card="true">
+            <LearningGoalsSection onAddGoal={() => setShowGoalWizard(true)} />
             <StudyPlansDashboardCard />
           </div>
         );
@@ -2096,6 +2077,10 @@ export function DashboardTab() {
             data: { documentId: doc.id },
           });
         }}
+      />
+      <LearningGoalWizardModal
+        isOpen={showGoalWizard}
+        onClose={() => setShowGoalWizard(false)}
       />
     </SafeScrollContainer>
   );
