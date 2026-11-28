@@ -58,6 +58,7 @@ enum TtsRequest {
     Unload {
         reply: Sender<Result<(), String>>,
     },
+    Shutdown,
 }
 
 struct WorkerState {
@@ -123,7 +124,7 @@ static ACTIVE_SYNTHESIS: AtomicU64 = AtomicU64::new(0);
 /// The desktop sherpa TTS engine. Cloneable handle; all work happens on the
 /// dedicated worker thread.
 pub struct SherpaTtsEngine {
-    tx: Sender<TtsRequest>,
+    tx: Option<Sender<TtsRequest>>,
     worker: Mutex<Option<JoinHandle<()>>>,
 }
 
@@ -142,9 +143,15 @@ impl SherpaTtsEngine {
             .spawn(move || worker_loop(rx))
             .expect("spawn sherpa-tts worker");
         SherpaTtsEngine {
-            tx,
+            tx: Some(tx),
             worker: Mutex::new(Some(worker)),
         }
+    }
+
+    fn sender(&self) -> Result<&Sender<TtsRequest>, String> {
+        self.tx
+            .as_ref()
+            .ok_or_else(|| "sherpa TTS worker terminated".to_string())
     }
 
     /// Load a model from an installed HF directory + validated contract.
@@ -155,7 +162,7 @@ impl SherpaTtsEngine {
         contract: RunContract,
     ) -> Result<LoadedModelInfo, String> {
         let (reply_tx, reply_rx) = channel();
-        self.tx
+        self.sender()?
             .send(TtsRequest::Load {
                 model_id,
                 model_dir,
@@ -187,7 +194,7 @@ impl SherpaTtsEngine {
         let (reply_tx, reply_rx) = channel();
         let cancel = Arc::new(AtomicBool::new(false));
         ACTIVE_SYNTHESIS.fetch_add(1, Ordering::SeqCst);
-        self.tx
+        self.sender()?
             .send(TtsRequest::Synthesize {
                 text,
                 sid,
@@ -215,7 +222,7 @@ impl SherpaTtsEngine {
     /// Unload the current model and free all ONNX sessions.
     pub async fn unload(&self) -> Result<(), String> {
         let (reply_tx, reply_rx) = channel();
-        self.tx
+        self.sender()?
             .send(TtsRequest::Unload { reply: reply_tx })
             .map_err(|_| "sherpa TTS worker terminated".to_string())?;
         tokio::task::spawn_blocking(move || {
@@ -230,9 +237,14 @@ impl SherpaTtsEngine {
 
 impl Drop for SherpaTtsEngine {
     fn drop(&mut self) {
-        // Best-effort synchronous unload: send Unload and give the worker a
-        // moment, then join. The worker's Drop guard also destroys the engine.
-        let _ = self.tx.send(TtsRequest::Unload { reply: channel().0 });
+        // Cancel any in-flight synthesis, send Shutdown and drop the sender
+        // before joining so the worker exits its recv loop instead of
+        // deadlocking on an open channel.
+        self.cancel();
+        if let Some(tx) = self.tx.take() {
+            let _ = tx.send(TtsRequest::Shutdown);
+            drop(tx);
+        }
         if let Ok(mut guard) = self.worker.lock() {
             if let Some(handle) = guard.take() {
                 let _ = handle.join();
@@ -270,6 +282,10 @@ fn worker_loop(rx: Receiver<TtsRequest>) {
             TtsRequest::Unload { reply } => {
                 state.destroy_engine();
                 let _ = reply.send(Ok(()));
+            }
+            TtsRequest::Shutdown => {
+                state.destroy_engine();
+                break;
             }
         }
     }
@@ -394,4 +410,24 @@ fn synthesize_once(
         samples,
         sample_rate,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+
+    #[test]
+    fn drop_terminates_worker_without_deadlock() {
+        let (done_tx, done_rx) = channel();
+        std::thread::spawn(move || {
+            let engine = SherpaTtsEngine::new();
+            drop(engine);
+            let _ = done_tx.send(());
+        });
+
+        done_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("SherpaTtsEngine::drop deadlocked instead of stopping its worker thread");
+    }
 }
