@@ -120,6 +120,9 @@ export async function getPodcastAdSettings(): Promise<PodcastAdSettings> {
     minAdDurationSeconds: 10,
     mobileChargingOnly: true,
     processingMode: "smart",
+    showSkipNotifications: true,
+    boundarySnapWindowSeconds: 2.5,
+    autoTranscribeOnDownload: false,
   };
 }
 

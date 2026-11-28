@@ -256,6 +256,9 @@ impl Repository {
             let mode: String = row
                 .try_get("processing_mode")
                 .unwrap_or_else(|_| "smart".to_string());
+            let show_notifications: i64 = row.try_get("show_skip_notifications").unwrap_or(1);
+            let snap_window: f32 = row.try_get("boundary_snap_window_seconds").unwrap_or(2.5);
+            let auto_transcribe: i64 = row.try_get("auto_transcribe_on_download").unwrap_or(0);
 
             Ok(PodcastAdSettings {
                 id: row.get("id"),
@@ -267,6 +270,9 @@ impl Repository {
                 min_ad_duration_seconds: min_dur,
                 mobile_charging_only: mobile_charging != 0,
                 processing_mode: mode,
+                show_skip_notifications: show_notifications != 0,
+                boundary_snap_window_seconds: snap_window,
+                auto_transcribe_on_download: auto_transcribe != 0,
             })
         } else {
             Ok(PodcastAdSettings::default())
@@ -279,8 +285,10 @@ impl Repository {
             "INSERT OR REPLACE INTO podcast_ad_settings (
                 id, auto_detect_ads, skip_external_ads, skip_cross_promo,
                 skip_self_promo, min_confidence, min_ad_duration_seconds,
-                mobile_charging_only, processing_mode, updated_at
-            ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
+                mobile_charging_only, processing_mode,
+                show_skip_notifications, boundary_snap_window_seconds, auto_transcribe_on_download,
+                updated_at
+            ) VALUES ('default', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, datetime('now'))",
         )
         .bind(if settings.auto_detect_ads { 1 } else { 0 })
         .bind(if settings.skip_external_ads { 1 } else { 0 })
@@ -290,6 +298,9 @@ impl Repository {
         .bind(settings.min_ad_duration_seconds)
         .bind(if settings.mobile_charging_only { 1 } else { 0 })
         .bind(&settings.processing_mode)
+        .bind(if settings.show_skip_notifications { 1 } else { 0 })
+        .bind(settings.boundary_snap_window_seconds)
+        .bind(if settings.auto_transcribe_on_download { 1 } else { 0 })
         .execute(self.pool())
         .await?;
 

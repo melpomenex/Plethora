@@ -1698,6 +1698,26 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["podcast", "duration", "threshold", "ad", "minimum"],
     targetId: "settings.podcast.min_ad_duration",
   },
+  {
+    id: "settings.podcast.show_skip_notifications",
+    kind: "setting",
+    section: SettingsTab.AudioTranscription,
+    label: lit("Show Skip Notifications"),
+    description: lit("Display a floating toast with an Undo button when a podcast ad is skipped"),
+    aliases: [lit("ad skip toast"), lit("skip notification")],
+    keywords: ["podcast", "skip", "toast", "notification", "undo", "ad"],
+    targetId: "settings.podcast.show_skip_notifications",
+  },
+  {
+    id: "settings.podcast.boundary_snap_window",
+    kind: "setting",
+    section: SettingsTab.AudioTranscription,
+    label: lit("Boundary Snap Window"),
+    description: lit("Adjust silence search tolerance around detected podcast ad cue points"),
+    aliases: [lit("silence snap window"), lit("ad boundary tolerance")],
+    keywords: ["podcast", "boundary", "snap", "silence", "window", "ad"],
+    targetId: "settings.podcast.boundary_snap_window",
+  },
 
   /* ── Media & Playback ────────────────────────────────────────────────── */
   {

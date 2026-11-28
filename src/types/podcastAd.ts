@@ -62,6 +62,9 @@ export interface PodcastAdSettings {
   minAdDurationSeconds: number;
   mobileChargingOnly: boolean;
   processingMode: "battery_saver" | "smart" | "always" | "manual" | string;
+  showSkipNotifications?: boolean;
+  boundarySnapWindowSeconds?: number;
+  autoTranscribeOnDownload?: boolean;
 }
 
 export interface PodcastAdCorrection {

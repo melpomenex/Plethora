@@ -1,11 +1,14 @@
 //! Interval Merger, Deduplicator & Safety Sanity Guard
 //!
-//! Merges overlapping and closely spaced ad intervals (<3.0s gap), filters micro-intervals (<10s),
-//! and validates episode sanity limits (>50% ad duration guard).
+//! Merges overlapping and closely spaced ad intervals (<5.0s gap), filters micro-intervals (<10s),
+//! enforces the 8-minute max single ad segment cap, and validates episode sanity limits (>40% ad duration guard).
 
 use crate::models::podcast_ad::PodcastAdInterval;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
+
+const MAX_SINGLE_AD_DURATION_MS: i64 = 480_000; // 8 minutes
+const MERGE_GAP_MS: i64 = 5_000; // 5 seconds
 
 /// Result of interval processing and sanity checks
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -44,8 +47,8 @@ pub fn merge_and_filter_intervals(
         }
 
         if let Some(prev) = merged.last_mut() {
-            // Check if current interval overlaps or is within 3.0s of previous interval
-            if inv.start_ms <= prev.end_ms + 3_000 {
+            // Check if current interval overlaps or is within 5.0s of previous interval
+            if inv.start_ms <= prev.end_ms + MERGE_GAP_MS {
                 // Merge: extend end time, take max confidence
                 prev.end_ms = prev.end_ms.max(inv.end_ms);
                 prev.confidence = prev.confidence.max(inv.confidence);
@@ -57,19 +60,50 @@ pub fn merge_and_filter_intervals(
     }
 
     // 3. Filter out micro-intervals shorter than min_ad_duration_ms (default 10,000ms)
+    //    and runaway segments exceeding 8 minutes (480,000ms).
     let min_dur = if min_ad_duration_ms > 0 {
         min_ad_duration_ms
     } else {
         10_000
     };
-    let filtered: Vec<PodcastAdInterval> = merged
+    let mut filtered: Vec<PodcastAdInterval> = merged
         .into_iter()
-        .filter(|inv| (inv.end_ms - inv.start_ms) >= min_dur)
+        .filter(|inv| {
+            let dur = inv.end_ms - inv.start_ms;
+            dur >= min_dur && dur <= MAX_SINGLE_AD_DURATION_MS
+        })
         .collect();
 
-    // 4. Compute total ad duration and check > 50% sanity limit
-    let total_ad_duration_ms: i64 = filtered.iter().map(|inv| inv.end_ms - inv.start_ms).sum();
-    let is_suspicious = episode_duration_ms > 0 && total_ad_duration_ms > (episode_duration_ms / 2);
+    // 4. Compute total ad duration and enforce <= 40% sanity limit
+    let mut total_ad_duration_ms: i64 = filtered.iter().map(|inv| inv.end_ms - inv.start_ms).sum();
+    let max_total_ms = if episode_duration_ms > 0 {
+        (episode_duration_ms * 40) / 100
+    } else {
+        i64::MAX
+    };
+    let is_suspicious = episode_duration_ms > 0 && total_ad_duration_ms > max_total_ms;
+
+    if is_suspicious {
+        // Drop lowest-confidence non-manual intervals until total <= 40% of episode duration
+        while total_ad_duration_ms > max_total_ms {
+            let drop_idx = filtered
+                .iter()
+                .enumerate()
+                .filter(|(_, inv)| inv.origin != "manual_user")
+                .min_by(|(_, a), (_, b)| {
+                    a.confidence
+                        .partial_cmp(&b.confidence)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                })
+                .map(|(idx, _)| idx);
+
+            let Some(idx) = drop_idx else {
+                break;
+            };
+            let removed = filtered.remove(idx);
+            total_ad_duration_ms -= removed.end_ms - removed.start_ms;
+        }
+    }
 
     IntervalMergeResult {
         intervals: filtered,
@@ -132,14 +166,14 @@ mod tests {
     }
 
     #[test]
-    fn triggers_suspicious_flag_when_ads_exceed_50_percent() {
+    fn triggers_suspicious_flag_and_caps_when_ads_exceed_40_percent() {
         let raw = vec![
-            inv(0, 65_000, "external_ad", 0.90), // 65s out of 100s episode
+            inv(0, 50_000, "external_ad", 0.90), // 50s out of 100s episode (> 40%)
         ];
 
         let res = merge_and_filter_intervals(raw, 100_000, 10_000);
         assert!(res.is_suspicious);
-        assert_eq!(res.total_ad_duration_ms, 65_000);
+        assert_eq!(res.total_ad_duration_ms, 0);
     }
 
     #[test]

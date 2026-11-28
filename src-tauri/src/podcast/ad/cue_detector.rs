@@ -16,14 +16,14 @@ static SELF_PROMO_REGEX: OnceLock<Regex> = OnceLock::new();
 
 fn intro_regex() -> &'static Regex {
     INTRO_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:sponsored\s+by|brought\s+to\s+you\s+by|presented\s+by|made\s+possible\s+by|support\s+(?:for|from)\s+this\s+(?:podcast|show)|a\s+word\s+from\s+our\s+sponsors?|thanks\s+to\s+our\s+sponsors?|thank\s+you\s+to\s+our\s+(?:partner|sponsor)|special\s+thanks\s+to|today's\s+(?:episode|show)\s+is\s+(?:supported|brought\s+to\s+you|sponsored)\s+by|this\s+(?:episode|show|podcast)\s+is\s+(?:supported|brought\s+to\s+you|sponsored)\s+by|a\s+quick\s+break\s+from\s+our\s+sponsor|our\s+(?:presenting\s+)?sponsor)\b")
+        Regex::new(r"(?i)\b(?:sponsored\s+by|brought\s+to\s+you\s+by|presented\s+by|made\s+possible\s+by|support\s+(?:for|from)\s+this\s+(?:podcast|show)|a\s+word\s+from\s+our\s+sponsors?|thanks\s+to\s+our\s+sponsors?|thank\s+you\s+to\s+our\s+(?:partner|sponsor)|special\s+thanks\s+to|today's\s+(?:episode|show)\s+is\s+(?:supported|brought\s+to\s+you|sponsored)\s+by|this\s+(?:episode|show|podcast)\s+is\s+(?:supported|brought\s+to\s+you|sponsored)\s+by|a\s+quick\s+break\s+from\s+our\s+sponsor|our\s+(?:presenting\s+)?sponsor|before\s+we\s+(?:get\s+started|begin|dive\s+in|jump\s+in)|let\s+me\s+tell\s+you\s+about|i\s+want\s+to\s+tell\s+you\s+about|we(?:'re|\s+are)\s+partnering\s+with|i(?:'ve|\s+have)\s+partnered\s+with|our\s+friends\s+at|this\s+message\s+is\s+from|a\s+quick\s+message\s+from|proudly\s+sponsored\s+by)\b")
             .expect("Valid intro regex")
     })
 }
 
 fn promo_regex() -> &'static Regex {
     PROMO_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:promo\s+code|use\s+(?:the\s+)?code|discount\s+code|coupon\s+code|at\s+checkout|for\s+\d+%\s+off|free\s+shipping|enter\s+code|money[- ]back\s+guarantee|risk[- ]free\s+trial)\b")
+        Regex::new(r"(?i)\b(?:promo\s+code|use\s+(?:the\s+|my\s+)?code|with\s+code|discount\s+code|coupon\s+code|at\s+checkout|(?:for|save|get)\s+\d+%\s+off|\d+%\s+off|free\s+(?:shipping|trial|sample|guide|kit)|enter\s+code|money[- ]back\s+guarantee|risk[- ]free\s+trial|link\s+in\s+(?:the\s+)?(?:description|show\s+notes)|call\s+(?:1[-.\s]?)?(?:800|888|877|866|855|844|833)[-.\s]?\d{3}[-.\s]?\d{4}|text\s+[a-z0-9]+\s+to\s+\d{4,6})\b")
             .expect("Valid promo regex")
     })
 }
@@ -31,7 +31,7 @@ fn promo_regex() -> &'static Regex {
 fn url_regex() -> &'static Regex {
     URL_REGEX.get_or_init(|| {
         Regex::new(
-            r"(?i)\b(?:(?:dot\s+com\s+slash|\.com/|https?://[^\s]+|\.org/|\.co/)[a-zA-Z0-9_\-]+|[a-zA-Z0-9\-]+\.(?:com|org|co|io)(?:/[a-zA-Z0-9_\-]+)?)\b",
+            r"(?i)\b(?:(?:dot\s+com\s+slash|\.com/|https?://[^\s]+|\.org/|\.co/)[a-zA-Z0-9_\-]+|[a-zA-Z0-9\-]+\.(?:com|org|co|io|net|tv)(?:/[a-zA-Z0-9_\-]+)?|(?:go\s+to|visit|head\s+to|check\s+out|sign\s+up\s+at|learn\s+more\s+at)\s+[a-zA-Z0-9\-\s]{2,40}\s+dot\s+(?:com|org|co|io))\b",
         )
         .expect("Valid URL regex")
     })
@@ -39,7 +39,7 @@ fn url_regex() -> &'static Regex {
 
 fn outro_regex() -> &'static Regex {
     OUTRO_REGEX.get_or_init(|| {
-        Regex::new(r"(?i)\b(?:welcome\s+back\s+to|now\s+back\s+to\s+(?:the\s+show|our\s+conversation|the\s+episode|the\s+interview)|back\s+to\s+the\s+podcast|now\s+let's\s+get\s+back|and\s+we're\s+back)\b")
+        Regex::new(r"(?i)\b(?:welcome\s+back\s+to|now\s+back\s+to\s+(?:the\s+show|our\s+conversation|the\s+episode|the\s+interview)|back\s+to\s+the\s+podcast|now\s+let's\s+get\s+back|and\s+we're\s+back|welcome\s+to\s+(?:the\s+|today's\s+)?(?:show|episode|podcast|program)|joining\s+us\s+today|our\s+guest\s+today|today\s+we(?:'re|\s+are)\s+talking|let's\s+get\s+started|let's\s+dive\s+in|let's\s+jump\s+right\s+in)\b")
             .expect("Valid outro regex")
     })
 }
@@ -80,14 +80,31 @@ pub fn detect_cue_spans(segments: &[TranscriptSegment]) -> Vec<CueSpan> {
         let has_url = url_regex().is_match(text);
         let has_self = self_promo_regex().is_match(text);
 
-        let initial_score: f32 = (if has_intro { 0.45f32 } else { 0.0f32 })
-            + (if has_promo { 0.35f32 } else { 0.0f32 })
-            + (if has_url { 0.25f32 } else { 0.0f32 })
-            + (if has_self { 0.40f32 } else { 0.0f32 });
+        let initial_score: f32 = (if has_intro { 0.50f32 } else { 0.0f32 })
+            + (if has_promo { 0.45f32 } else { 0.0f32 })
+            + (if has_url { 0.35f32 } else { 0.0f32 })
+            + (if has_self { 0.45f32 } else { 0.0f32 });
 
         if initial_score >= 0.35f32 {
-            let start_ms = seg.start_ms;
+            // If the cue is in segment 1 right after a short pre-roll lead-in at 00:00,
+            // include segment 0 unless it is already a show-opening greeting/transition.
+            let mut start_ms = seg.start_ms;
+            if i == 1
+                && spans.is_empty()
+                && segments[0].start_ms <= 2_000
+                && segments[0].end_ms <= 12_000
+            {
+                let seg0_lower = segments[0].text.to_lowercase();
+                let is_show_greeting = outro_regex().is_match(&segments[0].text)
+                    || seg0_lower.contains("welcome")
+                    || seg0_lower.contains("today's episode")
+                    || seg0_lower.contains("today's show");
+                if !is_show_greeting {
+                    start_ms = segments[0].start_ms;
+                }
+            }
             let mut end_ms = seg.end_ms;
+            let mut last_cue_ms = seg.end_ms;
             let mut total_score: f32 = initial_score;
             let mut matched_cues = Vec::new();
             if has_intro {
@@ -109,7 +126,7 @@ pub fn detect_cue_spans(segments: &[TranscriptSegment]) -> Vec<CueSpan> {
                 "external_ad"
             };
 
-            // Scan forward up to 120s or until outro transition
+            // Scan forward up to 180s or until outro transition
             let mut j = i + 1;
             while j < segments.len() {
                 let next_seg = &segments[j];
@@ -120,40 +137,61 @@ pub fn detect_cue_spans(segments: &[TranscriptSegment]) -> Vec<CueSpan> {
 
                 let next_text = &next_seg.text;
                 let next_has_outro = outro_regex().is_match(next_text);
+                let next_has_intro = intro_regex().is_match(next_text);
                 let next_has_promo = promo_regex().is_match(next_text);
                 let next_has_url = url_regex().is_match(next_text);
 
+                if next_has_intro && !matched_cues.contains(&"intro".to_string()) {
+                    matched_cues.push("intro".into());
+                    total_score += 0.35f32;
+                }
                 if next_has_promo && !matched_cues.contains(&"promo_code".to_string()) {
                     matched_cues.push("promo_code".into());
-                    total_score += 0.25f32;
+                    total_score += 0.35f32;
                 }
                 if next_has_url && !matched_cues.contains(&"landing_url".to_string()) {
                     matched_cues.push("landing_url".into());
-                    total_score += 0.20f32;
+                    total_score += 0.25f32;
+                }
+                if next_has_intro || next_has_promo || next_has_url {
+                    last_cue_ms = next_seg.end_ms;
                 }
 
                 if next_has_outro {
                     matched_cues.push("outro_transition".into());
-                    // Ad ends right where the outro transition starts or ends
+                    // Ad ends right where the outro transition starts
                     end_ms = next_seg.start_ms.max(end_ms);
                     j += 1;
                     break;
                 }
 
                 end_ms = next_seg.end_ms;
-                // If this segment has no cues and gap to start is large, break
-                if !next_has_promo && !next_has_url && (next_seg.end_ms - start_ms > 60_000) {
-                    // Check if previous segment was the end of ad
+                // If this segment has no cues and we've gone 45s past the last cue, stop extending
+                if !next_has_intro
+                    && !next_has_promo
+                    && !next_has_url
+                    && (next_seg.end_ms - last_cue_ms > 45_000)
+                {
                     break;
                 }
                 j += 1;
             }
 
-            if total_score >= 0.50f32 && end_ms > start_ms {
+            // Calibrate confidence so multi-cue ads and explicit sponsor intros meet the
+            // default 0.85 minConfidence threshold, while isolated URLs remain below 0.85.
+            let confidence = if matched_cues.len() >= 2 {
+                total_score.max(0.88f32).min(1.0f32)
+            } else if has_intro {
+                0.85f32
+            } else {
+                total_score.min(1.0f32)
+            };
+
+            if total_score >= 0.45f32 && end_ms > start_ms {
                 spans.push(CueSpan {
                     start_ms,
                     end_ms,
-                    score: total_score.min(1.0f32),
+                    score: confidence,
                     matched_cues,
                     category: category.into(),
                 });
@@ -233,6 +271,32 @@ mod tests {
         let spans = detect_cue_spans(&segments);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].category, "host_self_promo");
+    }
+
+    #[test]
+    fn detects_immediate_preroll_ad_with_spoken_url_and_show_welcome_outro() {
+        let segments = vec![
+            seg(1, 0, 8_000, "Hey, it's Tucker. The dollar is losing value every single day."),
+            seg(
+                2,
+                8_000,
+                22_000,
+                "Go to American Hartford Gold dot com or call 866-555-0199 for your free gold guide.",
+            ),
+            seg(
+                3,
+                22_000,
+                32_000,
+                "Welcome to the show. Joining us today is our guest.",
+            ),
+            seg(4, 32_000, 60_000, "Let's talk about current events."),
+        ];
+
+        let spans = detect_cue_spans(&segments);
+        assert_eq!(spans.len(), 1);
+        assert_eq!(spans[0].start_ms, 0);
+        assert_eq!(spans[0].end_ms, 22_000);
+        assert!(spans[0].score >= 0.85);
     }
 
     #[test]

@@ -94,6 +94,7 @@ import {
 } from "../../api/podcastAd";
 import type { PodcastChapter, PodcastAdInterval, PodcastAdSettings } from "../../types/podcastAd";
 import { PodcastChapterSheet } from "../podcast/PodcastChapterSheet";
+import { PodcastTranscriptViewer } from "../podcast/PodcastTranscriptViewer";
 import { AdIntervalEditor } from "../podcast/AdIntervalEditor";
 import { AdSkipToast } from "../podcast/AdSkipToast";
 import { usePaletteActionListener } from "../../commandPalette/paletteActionEvents";
@@ -1206,13 +1207,14 @@ function AudiobookViewerSurface({
 
   useEffect(() => {
     if (!controllerBacked || !ownerPolicySkip) return;
+    if (podcastAdSettings?.showSkipNotifications === false) return;
     setAdSkipToastInfo({
       intervalId: ownerPolicySkip.id,
       category: ownerPolicySkip.category,
       fromSec: ownerPolicySkip.fromSec,
       toSec: ownerPolicySkip.toSec,
     });
-  }, [controllerBacked, ownerPolicySkip]);
+  }, [controllerBacked, ownerPolicySkip, podcastAdSettings?.showSkipNotifications]);
 
   const handleUndoAdSkip = (intervalId: string, fromSec: number) => {
     if (controllerBacked) {
@@ -1244,18 +1246,20 @@ function AudiobookViewerSurface({
           audio.currentTime = target;
           setCurrentTime(target);
           currentTimeRef.current = target;
-          setAdSkipToastInfo({
-            intervalId: interval.id,
-            category: interval.category,
-            fromSec: interval.startSec,
-            toSec: interval.endSec,
-          });
+          if (podcastAdSettings?.showSkipNotifications !== false) {
+            setAdSkipToastInfo({
+              intervalId: interval.id,
+              category: interval.category,
+              fromSec: interval.startSec,
+              toSec: interval.endSec,
+            });
+          }
           return true;
         }
       }
       return false;
     },
-    [activePodcastPolicyIntervals]
+    [activePodcastPolicyIntervals, podcastAdSettings?.showSkipNotifications]
   );
 
   // In legacy (!controllerBacked) mode, immediately skip if playhead is already inside an ad
@@ -4918,6 +4922,21 @@ const editionSectionIdsRef = useRef<string[]>([]);
                   )}
 
                   {/* Transcript segments */}
+                  {isPodcast && hasPodcastTranscript && episodeId ? (
+                    <PodcastTranscriptViewer
+                      episodeId={episodeId}
+                      documentId={document.id}
+                      segments={podcastDisplaySegments}
+                      adIntervals={adIntervals}
+                      currentTime={currentTime}
+                      onSeek={(timeSec) => {
+                        const targetTime = sponsorBlockCuts.length > 0
+                          ? mapOriginalTimeToCutTime(timeSec, sponsorBlockCuts)
+                          : timeSec;
+                        seek(targetTime);
+                      }}
+                    />
+                  ) : (
                   <div className="space-y-2">
                     {(hasPodcastTranscript ? podcastDisplaySegments : (transcript?.segments || documentTranscriptSegments)).map((segment, idx) => {
                       const id = (segment as any).id || `seg-${idx}`;
@@ -4966,6 +4985,7 @@ const editionSectionIdsRef = useRef<string[]>([]);
                       );
                     })}
                   </div>
+                  )}
 
                   {hasPartialAudiobookTranscript && (
                     <div

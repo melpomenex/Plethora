@@ -8576,8 +8576,9 @@ impl Repository {
             INSERT OR IGNORE INTO podcast_episodes (
                 id, feed_id, guid, title, description, published_date,
                 duration, audio_url, audio_type, file_size, image_url,
-                link, played, playback_position, date_added
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0.0, ?13)
+                link, played, playback_position, date_added,
+                chapters_url, chapters_type
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0.0, ?13, ?14, ?15)
             "#,
         )
         .bind(&id)
@@ -8593,8 +8594,24 @@ impl Repository {
         .bind(&episode.image_url)
         .bind(&episode.link)
         .bind(&now)
+        .bind(&episode.chapters_url)
+        .bind(&episode.chapters_type)
         .execute(self.pool())
         .await?;
+
+        if !episode.inline_chapters.is_empty() {
+            let mut chaps = episode.inline_chapters.clone();
+            for (idx, ch) in chaps.iter_mut().enumerate() {
+                ch.episode_id = id.clone();
+                if ch.id.is_empty() {
+                    ch.id = format!("{}:inline:{}", id, idx);
+                }
+            }
+            let _ = self.upsert_podcast_chapters(&id, &chaps).await;
+            let _ = self
+                .update_episode_chapters_source(&id, &chaps[0].source)
+                .await;
+        }
         Ok(())
     }
 
@@ -8649,17 +8666,21 @@ impl Repository {
                 PlethoraError::Internal(format!("Failed to begin transaction: {}", e))
             })?;
 
+        let mut inline_chapters_to_save: Vec<(String, Vec<crate::models::PodcastChapter>)> =
+            Vec::new();
+
         for episode in episodes {
             let id = uuid::Uuid::new_v4().to_string();
             let now = Utc::now().to_rfc3339();
 
-            sqlx::query(
+            let res = sqlx::query(
                 r#"
                 INSERT OR IGNORE INTO podcast_episodes (
                     id, feed_id, guid, title, description, published_date,
                     duration, audio_url, audio_type, file_size, image_url,
-                    link, played, playback_position, date_added
-                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0.0, ?13)
+                    link, played, playback_position, date_added,
+                    chapters_url, chapters_type
+                ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, 0, 0.0, ?13, ?14, ?15)
                 "#,
             )
             .bind(&id)
@@ -8675,13 +8696,32 @@ impl Repository {
             .bind(&episode.image_url)
             .bind(&episode.link)
             .bind(&now)
+            .bind(&episode.chapters_url)
+            .bind(&episode.chapters_type)
             .execute(&mut *tx)
             .await?;
+
+            if res.rows_affected() > 0 && !episode.inline_chapters.is_empty() {
+                let mut chaps = episode.inline_chapters.clone();
+                for (idx, ch) in chaps.iter_mut().enumerate() {
+                    ch.episode_id = id.clone();
+                    if ch.id.is_empty() {
+                        ch.id = format!("{}:inline:{}", id, idx);
+                    }
+                }
+                inline_chapters_to_save.push((id, chaps));
+            }
         }
 
         tx.commit()
             .await
             .map_err(|e| PlethoraError::Internal(format!("Failed to commit bulk insert: {}", e)))?;
+
+        for (ep_id, chaps) in inline_chapters_to_save {
+            let source = chaps[0].source.clone();
+            let _ = self.upsert_podcast_chapters(&ep_id, &chaps).await;
+            let _ = self.update_episode_chapters_source(&ep_id, &source).await;
+        }
 
         Ok(())
     }
@@ -9747,6 +9787,8 @@ fn map_row_to_podcast_episode(row: &SqliteRow) -> PodcastEpisode {
         clean_transcript_id: row.try_get("clean_transcript_id").ok().flatten(),
         chapters_source: row.try_get("chapters_source").ok().flatten(),
         ad_free_duration_ms: row.try_get("ad_free_duration_ms").ok().flatten(),
+        chapters_url: row.try_get("chapters_url").ok().flatten(),
+        chapters_type: row.try_get("chapters_type").ok().flatten(),
     }
 }
 

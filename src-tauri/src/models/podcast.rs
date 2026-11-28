@@ -59,6 +59,8 @@ pub struct PodcastEpisode {
     pub clean_transcript_id: Option<String>,
     pub chapters_source: Option<String>,
     pub ad_free_duration_ms: Option<i64>,
+    pub chapters_url: Option<String>,
+    pub chapters_type: Option<String>,
 }
 
 /// Parsed podcast feed from RSS XML (intermediate struct before DB insert)

@@ -17,7 +17,9 @@ use crate::models::{
     AdDetectionMethod, PodcastAdDetectionStatus, PodcastAdInterval, PodcastAdSettings,
     PodcastChapter, PodcastProcessingJob,
 };
-use crate::podcast::ad::boundary_refiner::snap_to_word_boundary;
+use crate::podcast::ad::boundary_refiner::{
+    detect_silence_gaps_around_points, refine_boundary_with_window, SilenceGap,
+};
 use crate::podcast::ad::chapter_classifier::classify_chapter_metadata;
 use crate::podcast::ad::cue_detector::detect_cue_spans;
 use crate::podcast::ad::interval_merger::merge_and_filter_intervals;
@@ -26,9 +28,10 @@ use crate::podcast::chapter_service::{
 };
 use crate::transcription::engine::TranscriptSegment;
 use crate::transcription::manager::collect_tokens_from_segments;
+use crate::transcription::model_manager::ModelManager;
 
 /// Pure, testable core: combines chapter metadata classification and transcript
-/// cue detection + word-boundary snapping + interval merging/filtering.
+/// cue detection + word/silence boundary snapping + interval merging/filtering.
 pub fn detect_ad_intervals_from_sources(
     episode_id: &str,
     media_revision: &str,
@@ -36,6 +39,29 @@ pub fn detect_ad_intervals_from_sources(
     transcript_segments: &[TranscriptSegment],
     episode_duration_ms: i64,
     min_ad_duration_ms: i64,
+) -> Vec<PodcastAdInterval> {
+    detect_ad_intervals_from_sources_with_silence(
+        episode_id,
+        media_revision,
+        chapters,
+        transcript_segments,
+        episode_duration_ms,
+        min_ad_duration_ms,
+        &[],
+        2500,
+    )
+}
+
+/// Core ad-detection pipeline with optional acoustic silence gaps and configurable snap window.
+pub fn detect_ad_intervals_from_sources_with_silence(
+    episode_id: &str,
+    media_revision: &str,
+    chapters: &[PodcastChapter],
+    transcript_segments: &[TranscriptSegment],
+    episode_duration_ms: i64,
+    min_ad_duration_ms: i64,
+    silence_gaps: &[SilenceGap],
+    boundary_snap_window_ms: i64,
 ) -> Vec<PodcastAdInterval> {
     let mut raw_intervals = Vec::new();
 
@@ -52,8 +78,20 @@ pub fn detect_ad_intervals_from_sources(
         if !cue_spans.is_empty() {
             let tokens = collect_tokens_from_segments(transcript_segments);
             for span in cue_spans {
-                let start_ms = snap_to_word_boundary(&tokens, span.start_ms, true);
-                let end_ms = snap_to_word_boundary(&tokens, span.end_ms, false);
+                let start_ms = refine_boundary_with_window(
+                    &tokens,
+                    silence_gaps,
+                    span.start_ms,
+                    true,
+                    boundary_snap_window_ms,
+                );
+                let end_ms = refine_boundary_with_window(
+                    &tokens,
+                    silence_gaps,
+                    span.end_ms,
+                    false,
+                    boundary_snap_window_ms,
+                );
                 if end_ms > start_ms {
                     raw_intervals.push(PodcastAdInterval {
                         id: Uuid::new_v4().to_string(),
@@ -219,9 +257,9 @@ async fn run_episode_ad_detection_inner(
             &repo,
             ChapterResolutionInput {
                 episode_id: episode_id.clone(),
-                chapters_url: None,
-                chapters_type: None,
-                local_audio_path,
+                chapters_url: episode.chapters_url.clone(),
+                chapters_type: episode.chapters_type.clone(),
+                local_audio_path: local_audio_path.clone(),
                 inline_chapters: Vec::new(),
                 description: episode.description.clone(),
                 duration_secs: episode.duration,
@@ -282,14 +320,41 @@ async fn run_episode_ad_detection_inner(
         .unwrap_or_else(|| episode_id.clone());
     let episode_duration_ms = episode.duration.unwrap_or(0).max(0) * 1000;
     let min_ad_duration_ms = (settings.min_ad_duration_seconds.max(3) as i64) * 1000;
+    let boundary_snap_window_ms =
+        ((settings.boundary_snap_window_seconds.max(0.0) * 1000.0).round() as i64).min(10_000);
 
-    let detected = detect_ad_intervals_from_sources(
+    let silence_gaps = if !transcript_segments.is_empty() {
+        if let Some(audio_path) = local_audio_path.clone() {
+            let candidate_spans = detect_cue_spans(&transcript_segments);
+            if candidate_spans.is_empty() || boundary_snap_window_ms <= 0 {
+                Vec::new()
+            } else {
+                let points: Vec<i64> = candidate_spans
+                    .iter()
+                    .flat_map(|s| [s.start_ms, s.end_ms])
+                    .collect();
+                tokio::task::spawn_blocking(move || {
+                    detect_silence_gaps_around_points(&audio_path, &points, boundary_snap_window_ms)
+                })
+                .await
+                .unwrap_or_default()
+            }
+        } else {
+            Vec::new()
+        }
+    } else {
+        Vec::new()
+    };
+
+    let detected = detect_ad_intervals_from_sources_with_silence(
         &episode_id,
         &media_revision,
         &chapters,
         &transcript_segments,
         episode_duration_ms,
         min_ad_duration_ms,
+        &silence_gaps,
+        boundary_snap_window_ms,
     );
 
     if let Err(e) = repo.upsert_ad_intervals(&episode_id, &detected).await {
@@ -322,60 +387,75 @@ async fn run_episode_ad_detection_inner(
         && trigger_transcription_if_missing
         && !transcript_in_progress
     {
-        if let Some(config) = read_transcription_config(&repo).await {
-            if config.provider == "local" {
-                if let Some(model_id) = config.preferred_model_id {
-                    update_job_status(
-                        &repo,
-                        &app_handle,
-                        &episode_id,
-                        PodcastAdDetectionStatus::Transcribing,
-                        10,
-                        35,
-                        None,
-                        None,
-                    )
-                    .await;
-
-                    let bg_ep_id = episode_id.clone();
-                    let bg_app = app_handle.clone();
-                    let bg_repo = repo.clone();
-                    let bg_tokens = tokens.clone();
-                    let bg_lang = Some(config.language);
-
-                    tokio::spawn(async move {
-                        if let Err(e) = Box::pin(run_transcription_job(
-                            bg_ep_id.clone(),
-                            Some(model_id),
-                            bg_lang,
-                            None,
-                            bg_app.clone(),
-                            bg_repo.clone(),
-                            bg_tokens,
-                        ))
-                        .await
-                        {
-                            eprintln!(
-                                "[podcast-ad] Background transcription for ad detection failed on {}: {}",
-                                bg_ep_id, e
-                            );
-                            let _ = bg_repo
-                                .update_episode_ad_status(&bg_ep_id, "ready")
-                                .await;
-                        }
-                    });
-
-                    let _ = app_handle.emit(
-                        "podcast://ad-detection-complete",
-                        serde_json::json!({
-                            "episodeId": &episode_id,
-                            "intervalCount": all_intervals.len(),
-                            "status": "transcribing",
-                        }),
-                    );
-                    return Ok(all_intervals);
-                }
+        let config = read_transcription_config(&repo).await;
+        let configured_local_model = config.as_ref().and_then(|c| {
+            if c.provider == "local" {
+                c.preferred_model_id.clone()
+            } else {
+                None
             }
+        });
+        let fallback_installed_model = if configured_local_model.is_none() {
+            ModelManager::new(&app_handle).ok().and_then(|mgr| {
+                mgr.list_profiles()
+                    .into_iter()
+                    .find(|p| mgr.is_model_installed(&p.id))
+                    .map(|p| p.id)
+            })
+        } else {
+            None
+        };
+
+        if let Some(model_id) = configured_local_model.or(fallback_installed_model) {
+            let bg_lang = config.map(|c| c.language);
+            update_job_status(
+                &repo,
+                &app_handle,
+                &episode_id,
+                PodcastAdDetectionStatus::Transcribing,
+                10,
+                35,
+                None,
+                None,
+            )
+            .await;
+
+            let bg_ep_id = episode_id.clone();
+            let bg_app = app_handle.clone();
+            let bg_repo = repo.clone();
+            let bg_tokens = tokens.clone();
+
+            tokio::spawn(async move {
+                if let Err(e) = Box::pin(run_transcription_job(
+                    bg_ep_id.clone(),
+                    Some(model_id),
+                    bg_lang,
+                    None,
+                    bg_app.clone(),
+                    bg_repo.clone(),
+                    bg_tokens,
+                ))
+                .await
+                {
+                    eprintln!(
+                        "[podcast-ad] Background transcription for ad detection failed on {}: {}",
+                        bg_ep_id, e
+                    );
+                    let _ = bg_repo
+                        .update_episode_ad_status(&bg_ep_id, "ready")
+                        .await;
+                }
+            });
+
+            let _ = app_handle.emit(
+                "podcast://ad-detection-complete",
+                serde_json::json!({
+                    "episodeId": &episode_id,
+                    "intervalCount": all_intervals.len(),
+                    "status": "transcribing",
+                }),
+            );
+            return Ok(all_intervals);
         }
     }
 

@@ -24,8 +24,10 @@ export function PodcastSettings() {
     minAdDurationSeconds: 10,
     mobileChargingOnly: true,
     processingMode: "smart",
+    showSkipNotifications: true,
+    boundarySnapWindowSeconds: 2.5,
+    autoTranscribeOnDownload: false,
   });
-  const [autoTranscribe, setAutoTranscribe] = useState(false);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -110,8 +112,8 @@ export function PodcastSettings() {
             </div>
             <div className="flex-shrink-0 pt-0.5">
               <Switch
-                checked={autoTranscribe}
-                onCheckedChange={setAutoTranscribe}
+                checked={settings.autoTranscribeOnDownload ?? false}
+                onCheckedChange={(val) => handleUpdate({ autoTranscribeOnDownload: val })}
                 touchTarget
                 aria-label="Auto-Transcribe on Download"
               />
@@ -173,6 +175,68 @@ export function PodcastSettings() {
                 }
                 className="w-16 px-2 py-1 text-sm bg-background border border-border rounded text-center text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
                 aria-label="Minimum Ad Duration Threshold in seconds"
+              />
+              <span className="text-xs text-muted-foreground">sec</span>
+            </div>
+          </div>
+        </SettingsSearchTarget>
+
+        {/* 5. Show Skip Notifications */}
+        <SettingsSearchTarget
+          id="settings.podcast.show_skip_notifications"
+          label="Show Skip Notifications"
+        >
+          <div className="flex items-start justify-between gap-4 py-2">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-foreground">
+                Show Skip Notifications
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Display a floating toast with an Undo action whenever an ad segment is skipped.
+              </div>
+            </div>
+            <div className="flex-shrink-0 pt-0.5">
+              <Switch
+                checked={settings.showSkipNotifications ?? true}
+                onCheckedChange={(val) => handleUpdate({ showSkipNotifications: val })}
+                touchTarget
+                aria-label="Show Skip Notifications"
+              />
+            </div>
+          </div>
+        </SettingsSearchTarget>
+
+        {/* 6. Boundary Snap Window */}
+        <SettingsSearchTarget
+          id="settings.podcast.boundary_snap_window"
+          label="Boundary Snap Window"
+        >
+          <div className="flex items-center justify-between gap-4 py-2">
+            <div className="min-w-0">
+              <div className="text-sm font-medium text-foreground">
+                Boundary Snap Window
+              </div>
+              <div className="text-xs text-muted-foreground mt-0.5">
+                Silence search tolerance around detected ad cue points (default 2.5s).
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                min={0}
+                max={10}
+                step={0.5}
+                value={settings.boundarySnapWindowSeconds ?? 2.5}
+                onChange={(e) => {
+                  const parsed = parseFloat(e.target.value);
+                  handleUpdate({
+                    boundarySnapWindowSeconds: Number.isFinite(parsed)
+                      ? Math.max(0, Math.min(10, parsed))
+                      : 2.5,
+                  });
+                }}
+                className="w-16 px-2 py-1 text-sm bg-background border border-border rounded text-center text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                aria-label="Boundary Snap Window in seconds"
               />
               <span className="text-xs text-muted-foreground">sec</span>
             </div>

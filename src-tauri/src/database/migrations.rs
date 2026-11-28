@@ -6628,6 +6628,16 @@ pub const MIGRATIONS: &[Migration] = &[
             ON study_mode_sessions(scope_key, updated_at DESC);
         "#,
     ),
+    Migration::new(
+        "167_podcast_chapters_and_ad_settings",
+        r#"
+        ALTER TABLE podcast_episodes ADD COLUMN chapters_url TEXT;
+        ALTER TABLE podcast_episodes ADD COLUMN chapters_type TEXT;
+        ALTER TABLE podcast_ad_settings ADD COLUMN show_skip_notifications INTEGER NOT NULL DEFAULT 1;
+        ALTER TABLE podcast_ad_settings ADD COLUMN boundary_snap_window_seconds REAL NOT NULL DEFAULT 2.5;
+        ALTER TABLE podcast_ad_settings ADD COLUMN auto_transcribe_on_download INTEGER NOT NULL DEFAULT 0;
+        "#,
+    ),
 ];
 
 /// Get the migrations directory path

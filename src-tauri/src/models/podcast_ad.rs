@@ -108,6 +108,14 @@ pub struct PodcastAdInterval {
     pub metadata_json: Option<String>,
 }
 
+fn default_true() -> bool {
+    true
+}
+
+fn default_snap_window_secs() -> f32 {
+    2.5
+}
+
 /// Global or feed-level ad removal and processing settings
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -121,6 +129,12 @@ pub struct PodcastAdSettings {
     pub min_ad_duration_seconds: i32,
     pub mobile_charging_only: bool,
     pub processing_mode: String, // "battery_saver" | "smart" | "always" | "manual"
+    #[serde(default = "default_true")]
+    pub show_skip_notifications: bool,
+    #[serde(default = "default_snap_window_secs")]
+    pub boundary_snap_window_seconds: f32,
+    #[serde(default)]
+    pub auto_transcribe_on_download: bool,
 }
 
 impl Default for PodcastAdSettings {
@@ -135,6 +149,9 @@ impl Default for PodcastAdSettings {
             min_ad_duration_seconds: 10,
             mobile_charging_only: true,
             processing_mode: "smart".to_string(),
+            show_skip_notifications: true,
+            boundary_snap_window_seconds: 2.5,
+            auto_transcribe_on_download: false,
         }
     }
 }

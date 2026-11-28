@@ -560,7 +560,8 @@ export class GlobalAudioController {
 
   seekTo = (seconds: number): Promise<void> => this.enqueue(async () => {
     if (!this.item || !this.snapshot || !this.ready) return;
-    const target = locateAudioPosition(this.item.parts, seconds);
+    const clamped = this.clampPositionPastAdIntervals(seconds);
+    const target = locateAudioPosition(this.item.parts, clamped);
     if (!target || !this.snapshot.capabilities.canSeekAbsolute) throw new Error("Absolute seek unavailable");
     await this.seekPart(target.partIndex, target.timeInPart);
   });
