@@ -12,7 +12,7 @@ Plethora ist eine leistungsstarke Lernanwendung, die zwei bewährte Techniken ko
 
 **Inkrementelles Lesen** – Verarbeiten Sie große Informationsmengen im Laufe der Zeit in kleinen, überschaubaren Blöcken. Anstatt Artikel von Anfang bis Ende zu lesen, extrahieren Sie wichtige Punkte und bauen nach und nach Verständnis auf.
 
-**Abgeteilte Wiederholungen** – Überprüfen Sie das Material in wissenschaftlich optimierten Abständen, um die Erinnerung zu maximieren. FSRS-7 sagt voraus, wann Sie etwas vergessen werden, und plant Überprüfungen rechtzeitig ein.
+**Abständige Wiederholung** – Überprüfen Sie das Material in wissenschaftlich optimierten Abständen, um die Erinnerung zu maximieren. FSRS-7 sagt voraus, wann Sie etwas vergessen werden, und plant Überprüfungen rechtzeitig ein.
 
 ### Schlüsselkonzepte
 
@@ -28,12 +28,27 @@ Plethora ist eine leistungsstarke Lernanwendung, die zwei bewährte Techniken ko
 
 ### Erster Start
 
-Wenn Sie Plethora zum ersten Mal starten, sehen Sie das **Dashboard** mit vier Hauptabschnitten:
+Wenn Sie Plethora zum ersten Mal starten, sehen Sie das **Dashboard** (**Heute**), das nach sieben primären Lernzielen organisiert ist:
 
-1. **Warteschlange** – Ihre Bewertungswarteschlange (zunächst leer)
-2. **Überprüfung** – Aktive Überprüfungssitzung
-3. **Dokumente** – Ihre Dokumentenbibliothek
-4. **Analysen** – Fortschrittsstatistiken
+1. **Heute** („Dashboard“) – Ihr täglicher Lernbrief, personalisierter Sitzungsstarter, aktiver Sitzungsleiter und Weiterlesekarten
+2. **Bibliothek** („Dokumente“) – Ihre Dokumente, Auszüge, Hörbücher, Bildregister und Importe
+3. **Lernen** („Studienpläne“) – Strukturierte Studienpläne, geführte Lesesitzungen und Sprachenlernen
+4. **Review** („Review“) – Lernkarten mit räumlicher Wiederholung, Lesewarteschlange und Scroll-Modus
+5. **Entdecken** („RSS“) – Intelligente Feeds, Podcasts, Newsletter und der integrierte Webbrowser
+6. **Wissen** („Knowledge Sphere“) – Wissensatlas, 2D-Netzwerkdiagramm, Dokument-Fragen und Antworten und NotebookLM
+7. **Einblicke** („Learning Insights“) – Lerneinblicke, Kompetenzfortschritte und Analysen
+
+### Heute Arbeitsbereich und personalisierte Lernsitzungen
+
+Oben im **Dashboard** erstellt der Held **Start learning** eine personalisierte, lokal eingestufte Sitzung, ohne dass Ziele, fällige Überprüfungen oder KI-Setup erforderlich sind:
+
+- **Fokusprofile**: Wählen Sie zwischen **Ausgewogen** (Mischung von fälligen Rezensionen, Zielen und Lektüre), **Freie Erkundung** (ohne Druck der Neugier folgen), **Memory Retention** (Priorisierung von Karten mit fälligen Wiederholungen), **Prüfungsvorbereitung** (Fokus auf Fristen und Wissenslücken) oder **Deep Study** (längere, ununterbrochene Fokusblöcke).
+- **Zeitbudgets**: Wählen Sie „5 m“, „15 m“, „30 m“, „60 m“, „120 m“ oder „Unbegrenzt“ über **Sitzung anpassen** (und passen Sie das Budget während der Sitzung über die Läuferleiste an).
+- **Aktiver Sitzungsläufer**: Nach dem Start verfolgt die Leiste **Aktive Sitzung** Ihren aktuellen Schritt und Fortschritt:
+  - Klicken Sie auf die primäre Aktionsschaltfläche (**Überprüfung starten**, **Lesung öffnen**, **Studienplan öffnen** oder **Bibliothek durchsuchen**), um direkt zu dieser Aktivität zu springen (z. B. direktes Öffnen der aktiven Lernkarten-Überprüfungssitzung).
+  - Klicken Sie auf **Warum wird mir das angezeigt?**, um die deterministischen lokalen Rankingfaktoren hinter der Empfehlung zu überprüfen.
+  - Verwenden Sie **Abschließen**, **Überspringen** oder **Verschieben**, um Schritte zu verwalten, oder **Pause**, **Fertig stellen** und **Beenden**, um die Sitzung zu steuern (angehaltene Sitzungen können mit **Vorherige Sitzung fortsetzen** fortgesetzt werden).
+- **Lernziele**: Erstellen Sie leichtgewichtige **Erkundungsziele** (nur ein Titel) oder **Deadline**-Ziele (Zieldatum, tägliches Minutenbudget und optionale Diagnose), halten Sie diese an oder setzen Sie sie fort und **entwickeln Sie sich zu strukturierten** Lernplänen weiter, wann immer Sie dazu bereit sind.
 
 ### Ersteinrichtung
 
@@ -161,7 +176,7 @@ Die Datei sollte ein flaches Objekt sein, das den Fragetext den Kartendaten zuor
 - Jede „.json“-Datei erstellt ein Deck. Der Deckname stammt aus dem Feld „deck_name“.
 - Importierte Karten verwenden standardmäßig den Plethora Classic-Algorithmus. Sie können den Algorithmus nach dem Import wechseln.
 - Wenn Sie dieselbe Datei zweimal löschen, entstehen keine Duplikate – vorhandene Karten werden übersprungen.
-- Mit „known_pile: true“ gekennzeichnete Karten werden als gesperrt importiert.
+- Karten mit der Markierung „known_pile: true“ werden als gesperrt importiert.
 
 #### Ingestion Airlock & Chapter/H2 Pre-Chunking
 
@@ -218,7 +233,7 @@ Wenn Sie eingehende Browser-Clips oder lange Dokumente in **Überprüfung erford
    - Bewegen Sie den Mauszeiger über einen breiten „<table>“, eine „.katex-display“-Gleichung oder einen „<pre><code>“-Block oder fokussieren Sie ihn (in Markdown, EPUB oder Extracts) und klicken Sie auf **Breakout-Ansicht**, um ein isoliertes „0,5x–3,0x“-Schwenk- und Zoom-Modal zu öffnen („+“, „-“, „0“ zum Zurücksetzen, „Esc“ zum Schließen).
 
 8. **U-Bahn-Minikarte**:
-   - Schalten Sie **Subway Map** in der Seitenleiste „Auszüge“ ein, um Dokumentabschnitte und Auszüge farblich nach Beherrschungsstatus codiert anzuzeigen.
+   - Schalten Sie **Subway Map** in der Seitenleiste „Auszüge“ ein, um Dokumentabschnitte und Auszüge farbcodiert nach Beherrschungsstatus anzuzeigen.
 
 ### Dokumentenorganisation
 
@@ -235,7 +250,7 @@ Wenn Sie eingehende Browser-Clips oder lange Dokumente in **Überprüfung erford
 **Suche:**
 - Volltextsuche in allen Dokumenten
 - Filtern Sie nach Kategorie, Tags und Datumsbereich
-- Sortieren nach Titel, Datum, Wortanzahl
+- Sortieren Sie nach Titel, Datum und Wortanzahl
 
 ---
 
@@ -273,7 +288,7 @@ SM-18:
 - **Schwierigkeitsgrad (D)**: Ein Wert von 0 (am einfachsten) bis 1 (am schwierigsten), aktualisiert durch Trailing-Average-Blending nach jeder Überprüfung
 - **Wiederauffindbarkeit (R)**: Aktuelle Rückrufwahrscheinlichkeit, berechnet als „0,9^(verstrichen/S)“.
 - **SInc**: Der aus der Matrix mit 9.261 Einträgen ermittelte Stabilitätssteigerungsfaktor – wie stark die Stabilität nach jeder erfolgreichen Überprüfung zunimmt
-- **Ausfälle**: Anzahl der Ausfälle, die die zukünftige Stabilität bei nachfolgenden Ausfällen beeinträchtigen
+- **Fehler**: Anzahl der Fehler, die die zukünftige Stabilität bei nachfolgenden Fehlern beeinträchtigen
 
 ### SM-20 und die Algorithmen-Arena verstehen
 
@@ -408,7 +423,7 @@ Teile eines Bildes ausblenden (Diagramme, Diagramme)
 
 **Am besten geeignet für:** Anatomie, Karten, Diagramme
 
-**Manuelle Erstellung:** Bewegen Sie den Mauszeiger über ein Bild in einem beliebigen Dokument und klicken Sie auf **Bildverdeckungskarte erstellen**, um den Verdeckungseditor zu öffnen. Zeichnen Sie einen Bereich, indem Sie über das Bild ziehen, verschieben Sie ihn dann durch Ziehen innerhalb des Bereichs, ändern Sie seine Größe über die Eckgriffe, benennen Sie ihn im Bereichsbereich neu oder löschen Sie ihn (Schaltfläche oder Entf-Taste). Sie müssen mindestens eine Region zum Speichern haben – andernfalls wird das Speichern abgelehnt.
+**Manuelle Erstellung:** Bewegen Sie den Mauszeiger über ein Bild in einem beliebigen Dokument und klicken Sie auf **Bildverdeckungskarte erstellen**, um den Verdeckungseditor zu öffnen. Zeichnen Sie einen Bereich, indem Sie über das Bild ziehen, verschieben Sie ihn dann durch Ziehen innerhalb des Bereichs, ändern Sie seine Größe über die Eckgriffe, beschriften Sie ihn im Bereichsbereich neu oder löschen Sie ihn (Schaltfläche oder Entf-Taste). Sie müssen mindestens eine Region zum Speichern haben – andernfalls wird das Speichern abgelehnt.
 
 **KI-Vorschläge sind korrigierbar:** Wenn die KI Okklusionsbereiche vorschlägt, wird der Editor mit diesen vorab ausgefüllt geöffnet. Passen Sie Regionen vor dem Speichern an, fügen Sie sie hinzu oder löschen Sie sie. Wenn das Modell unbrauchbare Bereiche zurückgibt, werden diese an das Bild geklammert und der Editor wird geöffnet, sodass Sie sie manuell zeichnen können – eine Karte mit null nutzbaren Bereichen wird niemals stillschweigend gespeichert.
 
@@ -549,7 +564,7 @@ Jede Schaltfläche zeigt das **nächste Überprüfungsdatum** an – dies ist di
 **Wiederherstellungsaktionen (Überprüfungswarteschlangen-Inspektor):**
 Verwenden Sie diese, wenn der Zeitplan eines Lernelements eine schnelle Änderung erfordert:
 
-- **Intervalle komprimieren**: Die nächste Überprüfung näher bringen (kürzeres Intervall).
+- **Intervalle komprimieren**: Die nächste Überprüfung näher heranziehen (kürzeres Intervall).
 - **Intelligent neu planen**: Verschieben Sie den Artikel auf „Jetzt fällig“.
 - **Downgrade-Häufigkeit**: Die nächste Bewertung wird verschoben (längeres Intervall).
 
@@ -722,7 +737,7 @@ Wenn Sie verstehen, wie die Warteschlange Artikel anordnet und warum sich Positi
 
 1. **FSRS-Planung und dynamische Prioritätsbewertung**:
    - Die Position jedes Elements wird anhand seiner FSRS-Speicherparameter (Fälligkeitsdatum, Intervall, Stabilität, Stabilität schnell, Abrufbarkeitsverfall) in Kombination mit Ihrer ausgewählten Smart Queue-Strategie oder der Voreinstellung für das adaptive Ranking (*Retention maximieren*, *Aggressives Aufholen*, *Zeit minimieren*, *Exploratorisch*, *Deep Work Sprint*, *Müde/mobiles Pendeln*, *Ruthless Triage* oder *Balanced Discovery*) berechnet. Für Dokumente stammen diese Parameter aus dem *Engaging* FSRS-7-Scheduler, der unter [Dokumentleseplan](#document-reading-schedule-incremental-reading) beschrieben wird – also ja, FSRS-Speicherwerte gelten sowohl für Dokumente als auch für Karten. Der einzige Unterschied besteht darin, dass die FSRS-Überprüfungen eines Dokuments separat verfolgt werden und den Lernkartenplaner nicht trainieren. Ausführliche Informationen finden Sie unten unter [Smart Queues & Adaptive Ranking (DAQE)](#smart-queues--adaptive-ranking-daqe).
-   - Wenn Sie Überprüfungen abschließen, Elemente verschieben oder Notizen machen, werden die Speicherparameter aktualisiert und die Elemente werden bei der Rückkehr in die Warteschlange automatisch neu eingestuft.
+   - Wenn Sie Überprüfungen abschließen, Elemente verschieben oder Notizen machen, werden die Speicherparameter aktualisiert und die Elemente werden automatisch neu eingestuft, wenn sie in die Warteschlange zurückkehren.
 
 2. **Gewichtete Auswahl-Randomisierung**:
    - Die Überprüfungs-Engine wendet beim Abrufen von Elementen aus dem Backend einen subtilen Algorithmus mit gewichtetem Abfall an (standardmäßig „Zufälligkeit = 0,3“). Dadurch bleiben Elemente mit ähnlichen Prioritäten ganz oben, während gleichzeitig eine leichte Abwechslung eingeführt wird, um eine Ermüdung der Warteschlange zu vermeiden.
@@ -751,8 +766,8 @@ Die neuronale Überprüfung ist ein optionaler, explorativer Modus, der vom Konz
 Engere Verbindungen – ein direktes Kind, ein nahezu identisches Dokument, ein gemeinsam genutztes Tag – tauchen früher in der Warteschlange auf. Wenn die erste Welle weniger als zwanzig Elemente hervorbringt, dehnt sich die Aktivierung nach außen über die Nachbarn der neu erreichten Elemente aus, bis die Warteschlange voll ist oder nichts weiter erreichbar ist.
 
 **Tipps:**
-- Markieren Sie Elemente, die Sie gemeinsam erkunden möchten – das Tag wird zu einem Konzept, auf das eine neuronale Überprüfung durch die Gruppe folgt.
-- Indizieren Sie Ihre Sammlung, um die semantische Entdeckung freizuschalten; Ohne sie basiert die neuronale Überprüfung allein auf der Baumstruktur und den Tags.
+- Markieren Sie Elemente, die Sie gemeinsam erkunden möchten – das Tag wird zu einem Konzept, dem eine neuronale Überprüfung durch die Gruppe folgt.
+- Indizieren Sie Ihre Sammlung, um die semantische Entdeckung freizuschalten; Ohne sie beruht die neuronale Überprüfung ausschließlich auf der Baumstruktur und den Tags.
 - Die neuronale Überprüfung ist in Bezug auf Ihre normale Warteschlange schreibgeschützt. Benutzen Sie es frei; Es ändert sich nichts an Ihrer Prioritätsbestellung oder den Fälligkeitsterminen.
 
 
@@ -921,7 +936,7 @@ Ihre fälligen Posten, ohne die zugrunde liegenden SM-20/FSRS-Intervalle zu änd
 - **Interferenz-Jitter**: Trennt Elemente, die Tags mit hoher Kohärenz teilen
   durch ein minimales Zeitfenster, wodurch semantische Interferenzen während der Überprüfung reduziert werden.
 
-TAS ist **opt-in** und **nicht-destruktiv** – Sie können es jederzeit deaktivieren
+TAS ist **Opt-in** und **nicht-destruktiv** – Sie können es jederzeit deaktivieren
 , um zur Standard-Warteschlangenreihenfolge zurückzukehren.  Blockierte oder verspätete Artikel bleiben erhalten
 ihre ursprünglichen Fälligkeitstermine und -intervalle.
 
@@ -1028,7 +1043,7 @@ Verwenden Sie Plethora, um eine Sprache zu lernen, während Sie lesen, ansehen u
 2. Öffnen Sie die Registerkarte **Sprachenlernen** und erstellen Sie ein **Sprachprofil**: Wählen Sie Ihre Zielsprache, Ihre Basissprache und eine geschätzte Kompetenz.
 3. Konfigurieren Sie einen KI-Anbieter in den Einstellungen (Cloud oder lokal) – die Tutor-, Übersetzungs- und Schreibmodi benötigen einen. Sprachmodi (Shadowing, Diktat, Aussprache) benötigen zusätzlich einen Spracherkennungsanbieter (z. B. Groq) und eine Mikrofonberechtigung.
 
-Profile steuern alles unten: Der KI-Lehrer passt sich an Ihren Wortschatz an und Dictionary Peek verfolgt Ihren Wissensstand pro Wort.
+Profile steuern alles unten: Der KI-Lehrer passt sich Ihrem Wortschatz an und der Wörterbuch-Einblick verfolgt Ihren Wissensstand pro Wort.
 
 ### Wörterbuch-Einblick
 
@@ -1227,13 +1242,13 @@ Inspiriert von Dr. Piotr Woźniaks klassischem SleepChart in SuperMemo modernisi
 Das **Schlafdiagramm** visualisiert Ihren Schlaf- und Lernverlauf auf einer einheitlichen, mehrmonatigen interaktiven Zeitleiste:
 
 - **Biologische Verankerung des Aufwachdatums**: Schlafepisoden sind am biologischen Aufwachdatum (Zeitzone und Sommerzeit-sicher) verankert, wodurch sichergestellt wird, dass der Nachtschlaf und die Mittagsschläfchen dem richtigen kognitiven Tag zugeordnet werden.
-- **Schlafstadien und Nickerchen**: Zeigt detaillierte Schlafstadien (Tiefschlaf, REM-Schlaf, Leichtschlaf und Wachzustand) sowie Nickerchen am Tag und Schlafunterbrechungen an.
+- **Schlafphasen und Nickerchen**: Zeigt detaillierte Schlafphasen (Tiefschlaf, REM-Schlaf, Leichtschlaf und Wachzustand) sowie Nickerchen am Tag und Schlafunterbrechungen an.
 - **Überlagerungen von Lernsitzungen**: Überlagert Sitzungen zur Durchsicht von Lernkarten, Lesesitzungen und Bewertungsversuche direkt auf der Zeitleiste und zeigt genau an, wann Sie im Verhältnis zu Ihren Schlafblockaden und Ihrer zirkadianen Phase gelernt haben.
 - **Datumsprüfung und Konfliktlösung**: Klicken Sie auf einen beliebigen Tag, um detaillierte Messwerte, Schlafphasenaufschlüsselung, Quellenherkunft und etwaige Diskrepanzen zwischen mehreren Geräten zu prüfen.
 
 ### Zirkadiane und Schlafintelligenz
 
-Plethora analysiert Schlafqualität und -zeit, ohne dass klinische Geräte erforderlich sind:
+Plethora analysiert die Qualität und das Timing des Schlafs, ohne dass eine klinische Ausrüstung erforderlich ist:
 
 - **Sleep Regularity Index (SRI)**: Misst die tägliche Konsistenz Ihres Schlafplans (berechnet die Wahrscheinlichkeit, dass Sie sich im Abstand von 24 Stunden im gleichen Zustand befinden – schlafend vs. wach). Eine höhere Regelmäßigkeit korreliert stark mit einer stabilen kognitiven Leistung.
 - **Borbély-Zwei-Prozess-Modell**: Zeigt eine explorative, nichtklinische Wachsamkeitssimulation an, die homöostatischen Schlafdruck (Prozess S) und zirkadiane Wachsamkeit (Prozess C) kombiniert, um Ihre natürlichen Spitzenlernfenster und zirkadianen Einbrüche hervorzuheben.
@@ -1358,6 +1373,18 @@ Plethora plant Flashcard-Überprüfungen mit **FSRS-7**, dem Production Spaced-R
 - Dadurch wird verhindert, dass lange Inhalte nach einem Teilfortschritt zu weit nach hinten eingeplant werden.
 - Bei Anwendung enthält der Planergrund zur Transparenz einen Hinweis zur **Dauerabhängigen Obergrenze**.
 
+#### Persönlicher Lerncoach & optionale Motivation
+
+Konfigurieren Sie unter **Einstellungen → Lernen → Persönlicher Lerncoach**, wie proaktiv Plethora Lernvorschläge anzeigt:
+
+- **Coach-Proaktivität**:
+  - **Aus (nur auf Abruf)**: Keine proaktiven Anstupser; Vorschläge manuell öffnen.
+  - **Sanft (dezente tägliche Anleitung)**: Leichte tägliche Anleitung (Standard).
+  - **Ausgewogen (Sitzungs- und Lücken-Nudges)**: Sitzungsempfehlungen und Aufforderungen zu Wissenslücken.
+  - **Proaktiv (aktive Taktung und Abhilfe)**: Aktive Taktung und gezielte Abhilfevorschläge.
+  - Proaktive Nudges werden bei Einzeluntersuchungen automatisch unterdrückt.
+- **Optionale Motivationshinweise**: Zwischen Fortschrittsreflexionen bei geringem Druck und Konsistenzmeilensteinen umschalten (standardmäßig deaktiviert).
+
 ### Überprüfen Sie die Einstellungen
 
 #### Sitzungslimits
@@ -1478,7 +1505,7 @@ Plethora bietet ein vollständiges Sicherungs- und Wiederherstellungssystem zum 
 5. Wählen Sie aus, ob Dokumentdateien einbezogen werden sollen:
    - **Nur Metadaten**: Kleinere Datei (~KB-MB), Dateien separat erneut importieren
    - **Dateien einschließen**: Größere Datei (~MB-GB), vollständige eigenständige Sicherung
-6. Klicken Sie auf **Backup exportieren** und speichern Sie die Datei „.incrementum“.
+6. Klicken Sie auf **Backup exportieren** und speichern Sie die „.incrementum“-Datei
 
 **Dateiformat:**
 - Erweiterung: `.incrementum`
@@ -1686,7 +1713,7 @@ Geben Sie im Assistenten (oder in Flashcard Studio) „#“ ein, um einen Teil e
 Verwalten Sie tragbare Verbindungen, Datenquellenpriorität und lokalen Tresorspeicher:
 
 1. Navigieren Sie zu **Einstellungen → Integrationen → Gesundheit & Wearables**.
-2. **Local Health Vault**: Überprüfen Sie die Speichergröße der Datenbank, die Anzahl der Datensätze und das Datum der letzten Optimierung.
+2. **Local Health Vault**: Überprüfen Sie die Datenbankspeichergröße, die Datensatzanzahl und das Datum der letzten Optimierung.
 3. **Anbieter verbinden**: Verbinden Sie unterstützte native Plattformen (Apple HealthKit auf iOS, Health Connect auf Android) oder Cloud-Anbieter (Oura, WHOOP, Google Health).
 4. **Quellenpriorität**: Ordnen Sie die Prioritätsreihenfolge Ihrer angeschlossenen Quellen an, um zu steuern, welcher Anbieter Vorrang hat, wenn überlappende Schlafdaten aufgezeichnet werden.
 5. **Datenübertragung**: Lokale Gesundheitsdateien importieren oder passwortverschlüsselte „.plethora-health.enc“-Backups exportieren.
@@ -1862,7 +1889,7 @@ Wenn **On-Device AI bevorzugen** aktiviert ist, versucht Plethora zuerst System 
 
 **Lokale Modelle (Ollama):**
 - **Kontextfenster** ist die Laufzeit-KV-Cache-Größe, die als „num_ctx“ gesendet wird (wie viel Eingabeaufforderung + Antwort passen). Beginnen Sie bei 8.000–16.000 Uhr; Höhere Werte verbrauchen mehr GPU/RAM.
-- **Max. Antworttokens** ist eine separate Obergrenze für die generierte Länge („num_predict“). Es ist nicht das Kontextfenster.
+- **Max. Antwort-Tokens** ist eine separate Obergrenze für die generierte Länge („num_predict“). Es ist nicht das Kontextfenster.
 - Die automatische Auflösung erfolgt auf einen praktischen Wert zwischen 4K und 16K – niemals auf das theoretische Maximum des Modells.
 - Cloud-Anbieter verwenden immer noch nur die Einstellung „max-response“ für die Ausgabelänge.
 
@@ -1893,6 +1920,7 @@ Visualisieren Sie Zusammenhänge zwischen Ihrem Wissen:
 - Identifizieren Sie Wissenslücken
 - **Heatmap-Modi**: Wechseln Sie zwischen **Standard**, **Abrufbarkeit/Blutegel** (purpurrot für Blutegel mit „4+“ Fehlern, Bernstein für niedrige Abrufbarkeit, Smaragd für gesunde Abrufbarkeit) und **Extraktdichte** (gefärbt durch die Anzahl unverarbeiteter Extrakte).
 - **Umschalt+Ziehen mit Lasso in die Warteschlange**: Halten Sie die Umschalttaste gedrückt und ziehen Sie ein Auswahlfeld über Knoten auf der 2D-Leinwand, um sie auszuwählen, und **Cram starten** oder **Fokussierte Bewertung erstellen** aus der schwebenden Aktionsleiste.
+- **Kompetenznachweisprüfer**: Zeigen Sie die Konzeptbeherrschung in fünf Beweisdimensionen an (**Belichtung**, **Verständnis**, **Aufbewahrung**, **Anwendung** und **Übertragung**). „Unbekannt“- und „Unzureichende Beweise“-Zustände werden nie als nachgewiesene Beherrschung dargestellt, Unsicherheitsgründe und nur lokal/KI-ausgeschlossene Badges werden explizit angezeigt und selbst deklarierte Level bleiben von verifizierten Beweisen getrennt.
 
 ### RSS-Reader
 
@@ -2329,7 +2357,7 @@ A: ATP (Adenosintriphosphat)
 
 **Tagesplan (20-30 Min.):**
 1. **Morgen**: Fällige Karten überprüfen (15 Min.)
-2. **Den ganzen Tag**: Erstellen Sie Auszüge aus der Lektüre
+2. **Den ganzen Tag**: Auszüge aus der Lektüre erstellen
 3. **Abend**: Karten aus Auszügen erstellen (10-15 Min.)
 
 **Wochenplan:**
@@ -2533,7 +2561,7 @@ Die Funktion **Vorschauintervall** zeigt Ihnen genau an, wann jede Karte für al
 2. **Binärpfad prüfen**: Legen Sie den Ollama-Binärpfad fest, wenn er nicht am Standardspeicherort ist
 3. **Linux-Berechtigungen**: Möglicherweise benötigen Sie „sudo“, um den Ollama-Dienst zu installieren oder auszuführen
 
-#### Windows: „Die Anwendung konnte nicht gestartet werden, weil ihre Parallelkonfiguration falsch ist.“
+#### Windows: „Die Anwendung konnte nicht gestartet werden, weil ihre Parallelkonfiguration falsch ist“
 
 **Symptome:** Unter Windows öffnet „plethora-tauri.exe“ (oder „pdf-reflow-diag.exe“) nie ein Fenster. Stattdessen erhalten Sie ein Dialogfeld, das besagt, dass die Side-by-Side-Konfiguration der Anwendung falsch ist, und „sxstrace.exe“ vorschlägt. Es wird nichts in die eigenen Protokolle von Plethora geschrieben, da der Prozess gestoppt wird, **bevor Anwendungscode ausgeführt wird**.
 

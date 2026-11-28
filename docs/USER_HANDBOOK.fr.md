@@ -4,36 +4,31 @@
 
 ---
 
-## Présentation
-
-### Qu'est-ce que Plethora ?
-
-Plethora est une puissante application d'apprentissage qui combine deux techniques éprouvées :
-
-**Lecture incrémentielle** : traitez de grandes quantités d'informations en petits morceaux gérables au fil du temps. Au lieu de lire les articles d'un bout à l'autre, vous extrayez les points clés et développez progressivement votre compréhension.
-
-**Répétition espacée** - Révisez le matériel à des intervalles scientifiquement optimisés pour maximiser la rétention. FSRS-7 prédit quand vous êtes sur le point d'oublier et planifie les révisions juste à temps.
-
-### Concepts clés
-
-- **Documents** : documents sources (PDF, EPUB, articles, vidéos)
-- **Extraits** : points ou sections clés que vous avez extraits de documents
-- **Éléments d'apprentissage** : Flashcards ou cartes de questions-réponses créées à partir d'extraits
-- **File d'attente** : éléments dont l'examen est programmé, organisés par priorité
-- **Avis** : sessions où vous rappelez et évaluez activement vos connaissances
-
----
-
 ## Pour commencer
 
 ### Premier lancement
 
-Lorsque vous lancez Plethora pour la première fois, vous verrez le **Tableau de bord** composé de quatre sections principales :
+Lorsque vous lancez Plethora pour la première fois, vous verrez le **Tableau de bord** (**Aujourd'hui**) organisé autour de sept destinations d'apprentissage principales :
 
-1. **File d'attente** - Votre file d'attente de révision (vide au début)
-2. **Révision** – Séance de révision active
-3. **Documents** - Votre bibliothèque de documents
-4. **Analytics** - Statistiques de progression
+1. **Aujourd'hui** (`Dashboard`) - Votre brief d'apprentissage quotidien, votre lanceur de session personnalisé, votre exécuteur de session actif et vos cartes de lecture continue
+2. **Bibliothèque** (`Documents`) - Vos documents, extraits, livres audio, registre d'images et importations
+3. **Apprendre** (« Plans d'études ») - Plans d'études structurés, séances de lecture guidée et apprentissage des langues
+4. **Review** (`Review`) - Flashcards à répétition espacée, file d'attente de lecture et mode de défilement
+5. **Découvrir** (`RSS`) - Flux intelligents, podcasts, newsletters et navigateur Web intégré
+6. **Connaissances** (« Knowledge Sphere ») - Atlas des connaissances, graphique de réseau 2D, questions-réponses sur les documents et NotebookLM
+7. **Insights** (« Learning Insights ») - Informations sur l'apprentissage, progression des compétences et analyses
+
+### Aujourd'hui, espace de travail et sessions d'apprentissage personnalisées
+
+En haut du **Tableau de bord**, le héros **Commencer à apprendre** crée une session personnalisée et classée localement sans nécessiter d'objectifs, d'évaluations à échéance ou de configuration de l'IA :
+
+- **Profils de concentration** : choisissez entre **Équilibré** (mélanger les révisions, les objectifs et les lectures), **Exploration gratuite** (suivre la curiosité sans pression), **Rétention de mémoire** (donner la priorité aux cartes de répétition espacées), **Préparation aux examens** (se concentrer sur les délais et les lacunes dans les connaissances) ou **Étude approfondie** (blocs de concentration plus longs et ininterrompus).
+- **Budgets de temps** : choisissez « 5 min », « 15 min », « 30 min », « 60 min », « 120 min » ou « Illimité » via **Personnaliser la session** (et ajustez le budget à mi-session à partir de la barre des coureurs).
+- **Active Session Runner** : Une fois démarrée, la barre **Active session** suit votre étape et votre progression en cours :
+  - Cliquez sur le bouton d'action principal (**Démarrer la révision**, **Ouvrir la lecture**, **Ouvrir le plan d'étude** ou **Parcourir la bibliothèque**) pour accéder directement à cette activité (par exemple, ouvrir directement la session de révision active des cartes mémoire).
+  - Cliquez sur **Pourquoi est-ce que je vois cela ?** pour inspecter les facteurs de classement local déterministes derrière la recommandation.
+  - Utilisez **Terminer**, **Skip** ou **Reporter** pour gérer les étapes, ou **Pause**, **Terminer** et **Quitter** pour contrôler la session (les sessions interrompues peuvent être reprises avec **Continuer la session précédente**).
+- **Objectifs d'apprentissage** : créez des objectifs d'**Exploration** légers (juste un titre) ou des objectifs de **Date limite** (date cible, budget quotidien en minutes et diagnostic facultatif), mettez-les en pause ou reprenez-les, et **Évoluez vers des plans d'étude structurés** dès que vous êtes prêt.
 
 ### Configuration initiale
 
@@ -47,7 +42,7 @@ Lorsque vous lancez Plethora pour la première fois, vous verrez le **Tableau de
    - **Apprendre par jour** : 20 à 50 éléments recommandés pour les débutants
 
 3. **Configurer les catégories** - Paramètres → Catégories
-   - Créer des catégories pour différents sujets (par exemple, "Programmation", "Science", "Langues")
+   - Créez des catégories pour différents sujets (par exemple, "Programmation", "Science", "Langues")
    - Les catégories vous aident à organiser et filtrer votre matériel d'apprentissage
 
 ### Votre premier document
@@ -84,7 +79,7 @@ Importons votre premier document :
 
 ### Importation de documents
 
-#### Méthode 1 : fichiers locaux
+#### Méthode 1 : fichiers locaux
 
 1. Cliquez sur **Documents** → **Importer**
 2. Sélectionnez **Fichier local**
@@ -95,7 +90,7 @@ Importons votre premier document :
    - Extraire les métadonnées (titre, auteur, etc.)
    - Si l'auto-segmentation est activée (Paramètres → Documents → Traitement automatique à l'importation), divisez automatiquement le document en extraits
 
-#### Méthode 2 : importation d'URL
+#### Méthode 2 : importation d'URL
 
 1. Copiez n'importe quelle URL Web
 2. Cliquez sur **Documents** → **Importer** → **URL**.
@@ -109,7 +104,7 @@ Importons votre premier document :
 - Pages de documentation
 - Moyen, Sous-pile, etc.
 
-#### Méthode 3 : Documents Arxiv
+#### Méthode 3 : Documents Arxiv
 
 1. Recherchez un article Arxiv (par exemple, « https://arxiv.org/abs/2301.07041 »)
 2. Copiez l'URL ou l'ID papier (`2301.07041`)
@@ -122,7 +117,7 @@ Importons votre premier document :
    -Date de parution
    - Références
 
-#### Méthode 4 : importation de deck JSON
+#### Méthode 4 : importation de deck JSON
 
 Importez des jeux de cartes mémoire à partir de fichiers JSON qui incluent des données de planification (intervalles, facteurs de facilité, historique des révisions).
 
@@ -161,7 +156,7 @@ Le fichier doit être un objet plat mappant le texte de la question aux données
 - Chaque fichier `.json` crée un deck. Le nom du deck vient du champ `deck_name`.
 - Les cartes importées utilisent l'algorithme Plethora Classic par défaut. Vous pouvez changer d'algorithme après l'importation.
 - Supprimer deux fois le même fichier ne créera pas de doublons : les cartes existantes sont ignorées.
-- Les cartes marquées « known_pile : true » sont importées comme suspendues.
+- Les cartes marquées «known_pile: true» sont importées comme suspendues.
 
 #### Sas d'ingestion et pré-chunking de chapitre/H2
 
@@ -272,14 +267,14 @@ SM-18 :
 - **Stabilité (S)** : combien de temps un souvenir persiste avant de se décomposer (mesuré en jours)
 - **Difficulté (D)** : une valeur de 0 (le plus facile) à 1 (le plus difficile), mise à jour via un mélange de moyenne finale après chaque révision
 - **Récupérabilité (R)** : probabilité de rappel actuelle, calculée comme `0,9^(écoulé/S)`
-- **SInc** : le facteur d'augmentation de la stabilité a été recherché à partir de la matrice de 9 261 entrées : le degré d'augmentation de la stabilité après chaque examen réussi
+- **SInc** : le facteur d'augmentation de la stabilité a été recherché à partir de la matrice de 9 261 entrées : le degré de stabilité augmente après chaque examen réussi.
 - **Lapses** : Nombre d'échecs, qui pénalisent la stabilité future sur les laps de temps ultérieurs
 
 ### Comprendre le SM-20 et l'arène des algorithmes
 
 L'option **SM-20** de Plethora est une **Algorithm Arena** — une implémentation d'ensemble indépendante qui exécute **cinq** algorithmes à répétition espacée en parallèle sur chaque flashcard et mélange leurs prédictions en un seul calendrier (distinct d'un mode SM-20 pur à noyau unique). Les cinq concurrents, avec les poids de mélange par défaut auxquels ils commencent :
 
-| Fente | Modèle | Poids par défaut | Apprend comment ? |
+| Fente | Modèle | Poids par défaut | Apprend comment? |
 |------|-------|---------------:|-------------|
 | 1 | **SM-2** | 6% | Fixe |
 | 2 | **SM-15** | 14% | En continu, à chaque révision |
@@ -306,7 +301,7 @@ L'option **SM-20** de Plethora est une **Algorithm Arena** — une implémentati
 - FSRS-7 est le planificateur de production unique et la seule option affichée dans les paramètres d'apprentissage.
 - SM-20 (Algorithm Arena) est un ensemble expérimental existant qui oppose cinq algorithmes les uns aux autres et permet à vos propres données de choisir le mélange (alors que le mode Pure SM-20 n'exécute directement que le noyau M4). Il reste dans la base de code pour la recherche mais est masqué par le sélecteur du planificateur.
 
-#### Choisir un Horizon Mémoire après un examen du SM-20
+#### Choisir un Memory Horizon après un examen du SM-20
 
 Sous **Paramètres → Apprentissage → Algorithm Arena → Après chaque évaluation**, choisissez le niveau de détails de planification souhaité :
 
@@ -349,7 +344,7 @@ L'évaluation d'un document utilise les **mêmes quatre boutons** comme une cart
 - ** FSRS-7 engageant (celui utilisé par l'application). ** Lorsque vous évaluez un document de la file d'attente ou de la visionneuse de documents, Plethora exécute FSRS-7 avec un objectif de rétention cible de 0,9, puis applique un multiplicateur *d'engagement* limité (0,25 × – 2,0 ×) pour la nouveauté, la variété et le hasard. Les intervalles sont calculés par FSRS et donc **variables** : ils augmentent avec la stabilité de la double trace du document, tout comme celle d'une carte, et non avec les valeurs fixes ci-dessous. Sur le contenu long que vous ne lisez que partiellement, une limite tenant compte de la durée ramène un intervalle Bon/Facile à 1 à 4 jours en fonction de la quantité de document que vous avez réellement couverte.
 - **Planificateur de lecture incrémentielle (la solution de secours).** Le chemin de notation API/MCP simple utilise un planificateur distinct, non FSRS, avec des intervalles courts et **fixes** et un plafond strict de 30 jours :
 
-| Évaluation | Intervalle incrémentiel (de repli) | Intervalle de carte mémoire (varie selon l'algorithme) |
+| Évaluation | Intervalle incrémentiel (de secours) | Intervalle de carte mémoire (varie selon l'algorithme) |
 |--------|-----------------------|---------------------------------------------------------|
 | **Encore** | ~4 heures | minutes |
 | **Dur** | ~1 jour | 1 à 2 jours |
@@ -583,7 +578,7 @@ Ces actions s'appliquent aux **éléments d'apprentissage uniquement** et metten
 - Ou définir une limite (Paramètres → Révision → Limites de session)
 - Les cartes inachevées restent dues pour la prochaine session
 
-### Stratégies d'examen
+### Stratégies d'examen
 
 #### Routine de révision quotidienne
 
@@ -729,7 +724,7 @@ Comprendre comment la file d'attente classe les éléments et pourquoi les posit
 
 3. **Synchronisation de l'état** :
    - L'exécution d'actions de modification de la file d'attente (telles que l'archivage d'un document, la priorité d'édition en masse ou la modification de balises) déclenche une actualisation en arrière-plan lors du retour à la vue de la file d'attente pour que votre liste reste alignée sur l'état de la base de données principale.
-   - Les changements de vue passifs ou les commutateurs d'onglets maintiennent un ordre local stable sans déclencher de remaniements inattendus.
+   - Les changements de vue passifs ou les changements d'onglets maintiennent un ordre local stable sans déclencher de remaniements inattendus.
 
 
 ### Examen neuronal (« Devenez neuronal »)
@@ -855,7 +850,7 @@ Les préréglages sont des vecteurs préconfigurés des six boutons. Vous pouvez
 - **Triage impitoyable** : élagage « 0,60 », urgence mémoire « 0,40 ». Place les éléments évités et reportés au premier plan, forçant une décision claire : conserver, diviser en extraits plus petits ou supprimer.
 - **Découverte équilibrée** : urgence de la mémoire « 0,35 », pertinence de l'objectif « 0,25 », variété du sujet « 0,25 », élagage « 0,15 », cible énergétique « 3 ». Un équilibre par défaut équitable entre la rétention, les objectifs et la variété.
 
-*Honnêteté de l'attribution* : L'interface utilisateur affiche le nom du préréglage uniquement lorsque vos boutons correspondent exactement à sa définition. Si vous déplacez un curseur, le badge évolue en douceur pour indiquer les paramètres personnalisés.
+*Honnêteté de l'attribution* : l'interface utilisateur affiche le nom du préréglage uniquement lorsque vos boutons correspondent exactement à sa définition. Si vous déplacez un curseur, le badge évolue en douceur pour indiquer les paramètres personnalisés.
 
 ---
 
@@ -937,7 +932,7 @@ leurs dates d'échéance et intervalles d'origine.
 |---|---|---|---|
 | Séparation minimale | 0–24 heures | 4 heures | Heures entre les éléments partageant une balise à haute cohérence |
 | Seuil de cohérence | 0,50-1,00 | 0,75 | Seules les balises avec une cohérence ≥ ceci sont séparées |
-| Taux de maturité | 0,50 à 1,00 | 0,70 | Fraction d'éléments dans une balise préalable qui doit être mature |
+| Taux de maturité | 0,50-1,00 | 0,70 | Fraction d'éléments dans une balise préalable qui doit être mature |
 
 #### Configuration des prérequis
 
@@ -1072,7 +1067,7 @@ Dans une vidéo, chaque phrase possède sa propre ligne de contrôle : **Replay
 
 ### Flashcard Studio
 
-Les brouillons linguistiques arrivent dans Flashcard Studio à partir de **Memorize** (aperçu du dictionnaire), **Mine** (vidéo) et de pratique linguistique. Les brouillons conservent leur **provenance** (le document ou la vidéo source, la plage exacte du média et le profil linguistique) afin que vous puissiez toujours retracer une carte jusqu'à l'endroit où vous l'avez rencontrée.
+Les brouillons linguistiques arrivent dans Flashcard Studio à partir de **Memorize** (aperçu du dictionnaire), **Mine** (vidéo) et de pratique linguistique. Les brouillons conservent leur **provenance** (le document ou la vidéo source, la plage multimédia exacte et le profil linguistique) afin que vous puissiez toujours retracer une carte jusqu'à l'endroit où vous l'avez rencontrée.
 
 ### Plans d'études
 
@@ -1358,6 +1353,18 @@ Plethora planifie les révisions de cartes mémoire avec **FSRS-7**, l'algorithm
 - Cela évite que le contenu long soit programmé trop loin après une progression partielle.
 - Une fois appliqué, le motif du planificateur inclut une note **Plafond tenant compte de la durée** pour plus de transparence.
 
+#### Coach d'apprentissage personnel et motivation facultative
+
+Sous **Paramètres → Apprentissage → Coach d'apprentissage personnel**, configurez la manière dont Plethora présente de manière proactive les suggestions d'étude :
+
+- **Proactivité du coach** :
+  - **Désactivé (à la demande uniquement)** : aucun coup de pouce proactif ; ouvrir les suggestions manuellement.
+  - **Doux (brièvement quotidien subtil)** : conseils quotidiens légers (par défaut).
+  - **Équilibré (coups de pouce de session et d'écart)** : recommandations de session et invites concernant les lacunes dans les connaissances.
+  - **Proactif (stimulation active et remédiation)** : stimulation active et suggestions de remédiation ciblées.
+  - Les nudges proactifs sont automatiquement supprimés lors des examens isolés.
+- **Indices de motivation facultatifs** : activez les réflexions de progression à faible pression et les jalons de cohérence (désactivés par défaut).
+
 ### Paramètres de révision
 
 #### Limites de session
@@ -1426,12 +1433,12 @@ Plethora synchronise vos données de lecture sur vos appareils via une **salle d
 
 > **Conseil :** Le bouton "Nouveau" génère un nouveau code de synchronisation. Utilisez-le uniquement si vous souhaitez recommencer : les appareils sur l'ancien code cesseront de se synchroniser avec les appareils sur le nouveau.
 
-#### Qu'est-ce qui synchronise
+#### Qu'est-ce qui synchronise
 
 - Les documents et leurs métadonnées
 - Extraits (faits saillants et notes)
 - Éléments d'apprentissage (flashcards, suppressions de cloze, questions et réponses)
-- Examiner l'historique et l'état de planification
+- Examiner l'historique et l'état de la planification
 - Paramètres de l'application
 - Fichiers joints aux documents (PDF, EPUB, etc.)
 
@@ -1445,7 +1452,7 @@ Sous **File Sync**, choisissez le degré d'agressivité avec lequel les nouveaux
 
 #### Chiffrement de bout en bout (facultatif)
 
-La synchronisation s'exécute par défaut en mode « TLS uniquement » : vos données voyagent cryptées sur le réseau et le code de synchronisation agit comme un secret partagé. Si vous souhaitez une protection plus renforcée, vous pouvez activer le **chiffrement de bout en bout**, qui crypte vos données sur votre appareil avant qu'elles ne disparaissent, afin que le serveur de synchronisation ne voie que le texte chiffré.
+La synchronisation s'exécute par défaut en mode « TLS uniquement » : vos données voyagent cryptées sur le réseau et le code de synchronisation agit comme un secret partagé. Si vous souhaitez une protection plus renforcée, vous pouvez activer le **chiffrement de bout en bout**, qui crypte vos données sur votre appareil avant qu'elles ne disparaissent, afin que le serveur de synchronisation ne voie que le texte chiffré.
 
 Lorsque le cryptage est activé, le code QR intègre le secret de votre chambre : partagez-le uniquement avec des appareils de confiance.
 
@@ -1623,7 +1630,7 @@ Utilisez NotebookLM dans Plethora pour rechercher, générer des artefacts d'ét
   - Guide d'étude
   - Carte mentale
   - Tableau de données
-  - Slide Deck (format : détaillé/présentateur, longueur : par défaut/court)
+  - Slide Deck (format : détaillé/présentateur, durée : par défaut/court)
   - Infographie (options d'orientation, de niveau de détail et de style)
   - Aperçu audio
   - Aperçu vidéo
@@ -1893,6 +1900,7 @@ Visualisez les liens entre vos connaissances :
 - Identifier les lacunes dans les connaissances
 - **Modes Heatmap** : basculez entre **Par défaut**, **Récupération / Sangsue** (cramoisi pour les sangsues avec « 4+ » intervalles, ambre pour une faible récupérabilité, émeraude pour un rappel sain) et **Densité d'extrait** (coloré par le nombre d'extraits non traités).
 - **`Shift+Drag` Lasso-to-Queue** : maintenez `Shift` et faites glisser une zone de sélection sur les nœuds du canevas 2D pour les sélectionner et **Lancer Cram** ou **Créer une évaluation ciblée** à partir de la barre d'action flottante.
+- **Inspecteur de preuves de compétences** : affichez la maîtrise du concept dans cinq dimensions de preuves (**Exposition**, **Compréhension**, **Rétention**, **Application** et **Transfert**). Les états « Inconnu » et « Preuves insuffisantes » ne sont jamais présentés comme une maîtrise démontrée, les raisons d'incertitude et les badges locaux uniquement/exclus par l'IA sont affichés explicitement, et les niveaux auto-déclarés restent séparés des preuves vérifiées.
 
 ### Lecteur RSS
 
@@ -1900,7 +1908,7 @@ Apprenez de vos flux préférés :
 
 #### Répertoire des newsletters
 
-Découvrez et abonnez-vous aux newsletters populaires directement dans Plethora :
+Découvrez et abonnez-vous aux newsletters populaires directement dans Plethora :
 
 **Accédez au répertoire des newsletters :**
 1. Cliquez sur l'onglet **RSS**
@@ -2083,7 +2091,7 @@ Remarques :
 
 Créez des transcriptions pour les livres audio afin de permettre la sélection et la synchronisation du texte.
 
-1. Importez un livre audio
+1. Importer un livre audio
 2. Ouvrez la visionneuse de livres audio
 3. Cliquez sur **Démarrer la transcription locale**
 4. Surveillez les progrès et ouvrez le panneau de transcription
@@ -2153,11 +2161,11 @@ llama.cpp fournit un serveur LLM local léger pour GLM-OCR sans nécessiter de G
 
 **Conseils de performances :**
 - Utilisez `-c 16384` ou supérieur pour les documents longs (4096 par défaut est trop petit pour la plupart des tâches OCR)
-- Use `-t $(nproc)` to use all CPU threads
+- Utilisez `-t $(nproc)` pour utiliser tous les threads du CPU
 - La quantification Q4_K_M offre le meilleur compromis qualité/vitesse pour l'inférence CPU
 - Pour l'accélération GPU, créez llama.cpp avec le support CUDA, Metal ou Vulkan
 
-**Setup (GLM-OCR with vLLM):**
+**Configuration (GLM-OCR avec vLLM) :**
 
 vLLM fournit une inférence accélérée par GPU pour les modèles plus grands. Nécessite un GPU NVIDIA avec suffisamment de VRAM.
 
@@ -2168,34 +2176,34 @@ vllm serve zai-org/GLM-OCR --allowed-local-media-path / --port 8080
 
 Configurez ensuite Plethora de la même manière (point de terminaison `http://localhost:8080/v1`).
 
-**Setup (GLM-OCR with Ollama):**
+**Configuration (GLM-OCR avec Ollama) :**
 
 L'option la plus simple pour démarrer : Ollama gère automatiquement les téléchargements et l'exécution des modèles.
 
 1. Paramètres → OCR → Fournisseur : **GLM-OCR (Local)**
-2. Backend: **Ollama (CPU)**
-3. Click **Download Ollama** (if not installed)
-4. Click **Start Runtime**
-5. Set model (e.g., `llava:7b` or `qwen2-vl:7b`)
+2. Backend : **Ollama (CPU)**
+3. Cliquez sur **Télécharger Ollama** (s'il n'est pas installé)
+4. Cliquez sur **Démarrer l'exécution**
+5. Définir le modèle (par exemple, `llava:7b` ou `qwen2-vl:7b`)
 6. Cliquez sur **Tirer le modèle**
 
 **OCR mathématique :**
-- Specialized handling for equations
+- Gestion spécialisée des équations
 - Sortie LaTeX
 - Reconnaissance des symboles
-- Best for: Scientific papers, textbooks
+- Idéal pour : articles scientifiques, manuels scolaires
 
 ### Palette de commandes
 
-Quick access to all commands:
+Accès rapide à toutes les commandes :
 
-**Open:** `Ctrl+K` (or `Cmd+K` on Mac)
+**Ouvrir :** `Ctrl+K` (ou `Cmd+K` sur Mac)
 
 **Caractéristiques :**
 - Recherche floue
 - Navigation au clavier
 - Commandes récemment utilisées
-- Search by name or shortcut
+- Recherche par nom ou raccourci
 - Les résultats de la recherche accèdent à l'emplacement correspondant dans les documents et mettent en surbrillance la requête (PDF, EPUB, Web Imports)
 - Les correspondances de transcription YouTube recherchent l'horodatage et démarrent la lecture
 - Survolez le résultat d'un document pour voir des correspondances supplémentaires du même document
@@ -2207,7 +2215,7 @@ Quick access to all commands:
 - "Ouvrir les paramètres"
 - "Exporter des données"
 - "Basculer le mode densité Zen / Architecte" (`Ctrl/Cmd + \`)
-- "Queue Ordering: Adaptive / Strict Manual"
+- "Ordre des files d'attente : adaptatif/manuel strict"
 - "Ouvrir Docked Q&A Creator" (`Ctrl/Cmd + Shift + Q`)
 - "Cloze enchaîné de la sélection"
 - "Thème du cycle"
@@ -2227,7 +2235,7 @@ Navigation au clavier de style Vim pour les utilisateurs expérimentés :
 - `n` / `N` : résultat de recherche suivant/précédent
 
 **Actions :**
-- `f`: Link hints (clickable elements)
+- `f` : astuces de lien (éléments cliquables)
 - `i` : entrez en mode de saisie
 - `Escape` : Quitter le mode de saisie
 
@@ -2264,23 +2272,23 @@ Recherche avancée sur tout le contenu :
 Connectez Plethora à la navigation Web :
 
 **Caractéristiques :**
-- Mettre en surbrillance des pages Web
+- Highlight web pages
 - Créer des extraits d'articles
-- Synchronisation avec l'application de bureau
-- Ajout rapide à la file d'attente
-- Avis basés sur un navigateur
+- Sync with desktop app
+- Quick-add to queue
+- Browser-based reviews
 
 **Configuration :**
 1. Installer l'extension (Chrome/Firefox)
-2. Associez-le à l'application de bureau
-3. Accorder des autorisations
-4. Commencez à utiliser !
+2. Pair with desktop app
+3. Grant permissions
+4. Start using!
 
-**Utilisation :**
-- Sélectionnez le texte sur la page Web
-- Cliquez sur l'icône d'extension
+**Usage:**
+- Select text on webpage
+- Click extension icon
 - Choisissez "Ajouter à Pléthore"
-- Se synchronise automatiquement
+- Syncs automatically
 
 ---
 
@@ -2357,7 +2365,7 @@ A : ATP (adénosine triphosphate)
 - Les cartes "Encore" sont des opportunités d'apprentissage
 - En cas d'oubli fréquent (>30 %), pensez à :
   - Diminution de la rétention souhaitée (85-90%)
-  - Création de cartes plus simples
+  - Créer des cartes plus simples
   - Ajout de plus de contexte
   - Réviser plus fréquemment
 
@@ -2415,7 +2423,7 @@ La fonction **Intervalle de prévisualisation** vous indique exactement quand ch
    - Votre emploi du temps (par exemple, examen à venir)
 
 **Exemple de stratégie :**
-- Examen dans 2 semaines : Notez « Facile » sur les cartes importantes pour les revoir prochainement
+- Examen dans 2 semaines : Notez « Facile » sur les cartes importantes pour les revoir bientôt
 - Journée chargée : notez "Bon" ou "Facile" pour espacer les avis
 - Vous voulez maîtriser : notez "Difficile" pour réviser plus fréquemment
 
@@ -2533,7 +2541,7 @@ La fonction **Intervalle de prévisualisation** vous indique exactement quand ch
 2. **Vérifiez le chemin binaire** : définissez le chemin binaire Ollama s'il n'est pas à l'emplacement par défaut
 3. **Autorisations Linux** : vous aurez peut-être besoin de « sudo » pour installer ou exécuter le service Ollama
 
-#### Windows : "L'application n'a pas pu démarrer car sa configuration côte à côte est incorrecte"
+#### Windows : "L'application n'a pas pu démarrer car sa configuration côte à côte est incorrecte"
 
 **Symptômes :** Sous Windows, `plethora-tauri.exe` (ou `pdf-reflow-diag.exe`) n'ouvre jamais de fenêtre. Au lieu de cela, vous obtenez une boîte de dialogue indiquant que la configuration côte à côte de l'application est incorrecte et suggère « sxstrace.exe ». Rien n'est écrit dans les propres journaux de Plethora, car le processus est arrêté **avant l'exécution de tout code d'application**.
 
@@ -2706,7 +2714,7 @@ Exportez vos données avant les changements majeurs (Paramètres → Sauvegarde 
 
 ---
 
-## FAQ
+##FAQ
 
 **Q : Comment ajouter des newsletters à Plethora ?**
 R : Vous pouvez ajouter des newsletters de deux manières :
@@ -2714,7 +2722,7 @@ R : Vous pouvez ajouter des newsletters de deux manières :
 2. **URL directe** : copiez n'importe quelle URL de newsletter (Substack, Beehiiv, etc.) → RSS → Ajouter un flux → Coller l'URL. Plethora découvrira automatiquement le flux RSS.
 
 **Q : Pourquoi ma vidéo, mon audio, mon infographie ou mon diaporama NotebookLM ne s'affichent-ils pas ?**
-R : Les artefacts multimédias nécessitent que leur fichier soit généré et prêt avant de pouvoir être prévisualisés. Attendez la fin de la génération, puis rouvrez l'artefact : les vidéos/audio et les infographies réessayent automatiquement via un autre chemin multimédia, et les diaporamas proposent une option "Ouvrir avec un autre visualiseur" lorsqu'ils ne se chargent pas. Si l'échec persiste, reconnectez NotebookLM dans Paramètres → Intégrations et régénérez l'artefact.
+R : Les artefacts multimédias nécessitent que leur fichier soit généré et prêt avant de pouvoir être prévisualisés. Attendez la fin de la génération, puis rouvrez l'artefact : la vidéo/audio et les infographies réessayent automatiquement via un autre chemin multimédia, et les diaporamas proposent une option "Ouvrir avec une autre visionneuse" lorsqu'ils ne se chargent pas. Si l'échec persiste, reconnectez NotebookLM dans Paramètres → Intégrations et régénérez l'artefact.
 
 **Q : Quelles plateformes de newsletter sont prises en charge ?**
 R : Plethora prend en charge les flux RSS des sites Substack, Beehiiv, Ghost blogs, Buttondown, ConvertKit, Revue, Medium et WordPress. La plupart des newsletters publient des flux RSS – consultez le site Web de la newsletter pour un lien RSS ou essayez d'ajouter « /feed » à l'URL.

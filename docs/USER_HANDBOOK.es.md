@@ -10,7 +10,7 @@
 
 Plethora es una poderosa aplicación de aprendizaje que combina dos técnicas probadas:
 
-**Lectura incremental**: procese grandes cantidades de información en fragmentos pequeños y manejables a lo largo del tiempo. En lugar de leer artículos de principio a fin, extrae puntos clave y desarrolla gradualmente la comprensión.
+**Lectura incremental**: procese grandes cantidades de información en fragmentos pequeños y manejables a lo largo del tiempo. En lugar de leer artículos de cabo a rabo, extrae puntos clave y gradualmente desarrolla la comprensión.
 
 **Repetición espaciada**: revise el material a intervalos científicamente optimizados para maximizar la retención. FSRS-7 predice cuándo está a punto de olvidar y programa revisiones justo a tiempo.
 
@@ -28,12 +28,27 @@ Plethora es una poderosa aplicación de aprendizaje que combina dos técnicas pr
 
 ### Primer lanzamiento
 
-Cuando inicie Plethora por primera vez, verá el **Panel** con cuatro secciones principales:
+Cuando inicie Plethora por primera vez, verá el **Panel** (**Hoy**) organizado en torno a siete destinos de aprendizaje principales:
 
-1. **Cola** - Tu cola de revisión (vacía al principio)
-2. **Revisión** - Sesión de revisión activa
-3. **Documentos** - Tu biblioteca de documentos
-4. **Análisis** - Estadísticas de progreso
+1. **Hoy** (`Dashboard`): su resumen de aprendizaje diario, iniciador de sesión personalizado, corredor de sesión activo y tarjetas para continuar leyendo.
+2. **Biblioteca** (`Documentos`): sus documentos, extractos, audiolibros, registro de imágenes e importaciones
+3. **Aprende** (`Planes de estudio`): planes de estudio estructurados, sesiones de lectura guiada y aprendizaje de idiomas.
+4. **Revisión** (`Revisión`): tarjetas didácticas con repetición espaciada, cola de lectura y modo de desplazamiento
+5. **Descubrir** (`RSS`): fuentes inteligentes, podcasts, boletines informativos y el navegador web integrado
+6. **Conocimiento** ("Esfera de conocimiento"): Atlas de conocimiento, gráfico de red 2D, Preguntas y respuestas sobre documentos y NotebookLM
+7. **Insights** ("Learning Insights"): conocimientos de aprendizaje, progreso de competencias y análisis
+
+### Espacio de trabajo actual y sesiones de aprendizaje personalizadas
+
+En la parte superior del **Panel**, el héroe **Comenzar a aprender** crea una sesión personalizada y clasificada localmente sin requerir objetivos, revisiones debidas ni configuración de IA:
+
+- **Perfiles de enfoque**: elija entre **Equilibrado** (combinación de revisiones, objetivos y lecturas), **Exploración libre** (seguir la curiosidad sin presión), **Retención de la memoria** (priorizar las tarjetas de repetición espaciadas), **Preparación para exámenes** (centrarse en los plazos y las lagunas de conocimiento) o **Estudio profundo** (bloques de enfoque más largos e ininterrumpidos).
+- **Presupuestos de tiempo**: elija `5m`, `15m`, `30m`, `60m`, `120m` o `Ilimitado` a través de **Personalizar sesión** (y ajuste el presupuesto a mitad de sesión desde la barra del corredor).
+- **Active Session Runner**: una vez iniciada, la barra **Active session** rastrea tu paso actual y tu progreso:
+  - Haga clic en el botón de acción principal (**Iniciar revisión**, **Abrir lectura**, **Abrir plan de estudio** o **Examinar biblioteca**) para ir directamente a esa actividad (por ejemplo, abrir directamente la sesión de revisión de tarjetas didácticas activas).
+  - Haga clic en **¿Por qué veo esto?** para inspeccionar los factores de clasificación locales deterministas detrás de la recomendación.
+  - Utilice **Completar**, **Omitir** o **Posponer** para administrar los pasos, o **Pausar**, **Finalizar** y **Salir** para controlar la sesión (las sesiones en pausa se pueden reanudar con **Continuar la sesión anterior**).
+- **Objetivos de aprendizaje**: cree objetivos ligeros de **exploración** (solo un título) o objetivos de **plazo** (fecha objetivo, presupuesto de minutos diarios y diagnóstico opcional), pausarlos o reanudarlos y **evolucionar a planes de estudio estructurados** cuando esté listo.
 
 ### Configuración inicial
 
@@ -356,7 +371,7 @@ Calificar un documento utiliza los **mismos cuatro botones** que una tarjeta did
 | **Bueno** | ~3 días | días–semanas |
 | **Fácil** | ~7 días | semanas |
 
-En el programador alternativo, las calificaciones consecutivas Bueno/Fácil agregan una pequeña bonificación y las calificaciones consecutivas Nuevo/Difícil agregan una pequeña penalización, y los intervalos tienen un límite aproximado de **30 días** para que el material permanezca en rotación. (La ruta Engaging FSRS-7 que llega desde la cola no tiene un límite fijo de 30 días; su único límite es el que tiene en cuenta la duración que se muestra arriba).
+En el programador alternativo, las calificaciones consecutivas Bueno/Fácil agregan una pequeña bonificación y las calificaciones consecutivas Nuevo/Difícil agregan una pequeña penalización, y los intervalos tienen un límite aproximado de **30 días** para que el material permanezca en rotación. (La ruta Engaging FSRS-7 que llega desde la cola no tiene un límite fijo de 30 días; su único límite es el que tiene en cuenta la duración anterior).
 
 **La interacción afecta tanto al orden como al espaciado.** La capa de interacción hace dos cosas: da forma a *qué* documento aparece a continuación (inyección de novedad, equilibrio de variedad, casualidad) y escala el intervalo FSRS-7 dentro de su banda de 0,25×–2,0×. Se superpone a las matemáticas FSRS-7; no lo reemplaza.
 
@@ -727,16 +742,16 @@ Comprender cómo la cola ordena los elementos y por qué cambian las posiciones 
 2. **Aleatorización de selección ponderada**:
    - El motor de revisión aplica un algoritmo sutil de disminución ponderada (`aleatoriedad = 0,3` por defecto) al extraer elementos del backend. Esto mantiene los elementos con prioridades similares cerca de la parte superior al tiempo que introduce una ligera variedad para evitar la fatiga en la cola.
 
-3. **Sincronización de estados**:
+3. **Sincronización de estado**:
    - La realización de acciones de modificación de la cola (como archivar un documento, editar la prioridad en masa o modificar etiquetas) activa una actualización en segundo plano al regresar a la vista de la cola para mantener la lista alineada con el estado de la base de datos backend.
    - Los cambios de vista pasiva o los cambios de pestañas mantienen el orden local estable sin provocar reorganizaciones inesperadas.
 
 
 ### Revisión neuronal ("Vuélvete neuronal")
 
-La revisión neuronal es un modo exploratorio opcional inspirado en el concepto *Learn: Go neural*. En lugar de trabajar en su cola de prioridades en orden, crea una nueva secuencia de revisión **difundiendo la activación** desde un único punto de partida (el elemento que está leyendo actualmente) y mostrando todo lo relacionado con él. Es el modo al que recurrir cuando quieres seguir un hilo a través de tu colección en lugar de esforzarte en lo que se debe.
+La revisión neuronal es un modo exploratorio opcional inspirado en el concepto *Learn: Go neural*. En lugar de trabajar en su cola de prioridades en orden, crea una nueva secuencia de revisión **difundiendo la activación** desde un único punto de partida (el elemento que está leyendo actualmente) y mostrando todo lo relacionado con él. Es el modo al que recurrir cuando quieres seguir un hilo a través de tu colección en lugar de esforzarte en lo que corresponde.
 
-**Cómo usarlo.** Mientras lees en modo de desplazamiento, haz clic en **Ir neuronal** en la barra superior. La sesión cambia a una cola de activación de difusión sembrada en el documento, tarjeta o extracto actual; la pastilla de posición se vuelve violeta y dice "Revisión neuronal · N restante". Haga clic en **Salir** para regresar exactamente al lugar donde se encontraba en su lectura: la revisión neuronal nunca altera su cola de prioridades o programación. Cuando la cola se agota, se recarga automáticamente desde el elemento que acaba de terminar.
+**Cómo usarlo.** Mientras lees en modo de desplazamiento, haz clic en **Ir neuronal** en la barra superior. La sesión cambia a una cola de activación de difusión iniciada en el documento, tarjeta o extracto actual; la pastilla de posición se vuelve violeta y dice "Revisión neuronal · N restante". Haga clic en **Salir** para regresar exactamente al lugar donde se encontraba en su lectura: la revisión neuronal nunca altera su cola de prioridades o programación. Cuando la cola se agota, se recarga automáticamente desde el elemento que acaba de terminar.
 
 **Las tarjetas didácticas y los extractos aún requieren una calificación para avanzar**, al igual que en el modo de desplazamiento normal, por lo que una sesión neuronal aún contribuye a la programación. Los documentos avanzan libremente.
 
@@ -954,7 +969,7 @@ El **gráfico de dependencia** de la derecha visualiza las relaciones: flechas
 punto desde el requisito previo hasta la etiqueta dependiente.  Las dependencias circulares son
 detectado y rechazado en el momento de guardar.
 
-> **Nota**: Las etiquetas se sincronizan automáticamente desde tus elementos existentes.
+> **Nota**: Las etiquetas se sincronizan automáticamente desde sus elementos existentes.
 > Si no aparece una etiqueta, etiquete algunos elementos primero y luego vuelva a abrir Etiqueta
 > Gestión: TAS los detectará y registrará.
 
@@ -1122,7 +1137,7 @@ Después de terminar una tarea de lectura, haga clic en **Finalizar lectura → 
 - **Opción múltiple de forma predeterminada**: presenta una pregunta de opción múltiple de 4 opciones (`A`–`D`) basada en el pasaje que acaba de leer (generada por IA cuando se configura un proveedor, con un respaldo determinista fuera de línea/seguro para la privacidad).
 - **Ángulos de preguntas flexibles**: cambie entre *Explicar con sus propias palabras*, *Aplicar a un nuevo ejemplo*, *Distinguir ideas relacionadas*, *Rastrear el argumento*, *Detectar un concepto erróneo* y *Síntesis basada en fuentes*, o haga clic en **Nueva pregunta**.
 - **Modo escrito opcional**: haga clic en **Escribir mi propia respuesta** en cualquier momento si prefiere escribir una explicación en formato libre.
-- **Comentarios inmediatos y siguiente tarea**: verificar su respuesta resalta la opción correcta, explica el razonamiento y proporciona un botón **Siguiente: \<Tema\>** para avanzar directamente a la siguiente tarea de lectura. Las comprobaciones formativas nunca modifican las calificaciones de sus exámenes formales ni los intervalos de las tarjetas didácticas de FSRS.
+- **Comentarios inmediatos y siguiente tarea**: verificar su respuesta resalta la opción correcta, explica el razonamiento y proporciona un botón **Siguiente: \<Tema\>** para avanzar directamente a la siguiente tarea de lectura. Las comprobaciones formativas nunca alteran las calificaciones de sus exámenes formales ni los intervalos de las tarjetas didácticas de FSRS.
 
 ### Elegibilidad de evaluación y remediación dirigida
 
@@ -1357,6 +1372,18 @@ Plethora programa revisiones de tarjetas con **FSRS-7**, el algoritmo de repetic
 - Si gastas menos del **75 %**, el siguiente intervalo tendrá un límite de **4 días**.
 - Esto evita que el contenido de formato largo se programe demasiado tarde después de un progreso parcial.
 - Cuando se aplica, el motivo del programador incluye una nota de **límite según la duración** para mayor transparencia.
+
+#### Entrenador de aprendizaje personal y motivación opcional
+
+En **Configuración → Aprendizaje → Entrenador de aprendizaje personal**, configure cómo Plethora muestra proactivamente las sugerencias de estudio:
+
+- **Proactividad del entrenador**:
+  - **Desactivado (solo bajo demanda)**: sin empujones proactivos; abrir sugerencias manualmente.
+  - **Suave (resumen diario sutil)**: guía diaria ligera (predeterminada).
+  - **Equilibrado (empujones de sesión y brecha)**: recomendaciones de sesión y avisos de brecha de conocimiento.
+  - **Proactivo (ritmo activo y corrección)**: ritmo activo y sugerencias de corrección específicas.
+  - Los empujones proactivos se suprimen automáticamente durante exámenes aislados.
+- **Señales de motivación opcionales**: alterna reflexiones de progreso de baja presión e hitos de coherencia (deshabilitados de forma predeterminada).
 
 ### Revisar configuración
 
@@ -1629,7 +1656,7 @@ Utilice NotebookLM dentro de Plethora para investigar, generar artefactos de est
   - Descripción general del vídeo
 - Vista previa de artefactos en la aplicación:
   - Texto/artefactos estructurados (informe, guía de estudio, mapa mental, tabla de datos) renderizados en visores dedicados
-  - Las descripciones generales de audio y video se reproducen en línea a través de los reproductores multimedia de la aplicación.
+  - Las resúmenes de audio y video se reproducen en línea a través de los reproductores multimedia de la aplicación.
   - Las infografías se muestran como imágenes.
   - Las presentaciones de diapositivas se muestran como archivos PDF
 - Sincronizar tarjetas didácticas/elementos de cuestionario generados en la cola de revisión de Plethora
@@ -1765,7 +1792,7 @@ Cuando está listo, Plethora utiliza automáticamente la IA de Apple en el dispo
 **Privacidad:**
 - El procesamiento permanece **en su dispositivo** de forma predeterminada
 - **Permitir respaldo en la nube** está desactivado de forma predeterminada: si la IA en el dispositivo no puede completar una tarea, Plethora **no** enviará silenciosamente su contenido a un proveedor de nube pago.
-- Puede habilitar el respaldo de la nube si desea que Plethora vuelva a intentarlo con su proveedor de nube configurado cuando la IA en el dispositivo no esté disponible
+- Puede habilitar el respaldo de la nube si desea que Plethora vuelva a intentarlo con su proveedor de nube configurado cuando la IA en el dispositivo no esté disponible.
 
 **Si el estado no es Listo:**
 
@@ -1893,6 +1920,7 @@ Visualice las conexiones entre sus conocimientos:
 - Identificar lagunas de conocimiento
 - **Modos de mapa de calor**: cambie entre **Predeterminado**, **Recuperabilidad/sanguijuela** (carmesí para sanguijuelas con lapsos de `4+`, ámbar para baja recuperabilidad, esmeralda para una recuperación saludable) y **Densidad de extracto** (coloreado según el recuento de extractos sin procesar).
 - **`Shift+Arrastrar` Lazo a cola**: Mantenga presionado `Shift` y arrastre un cuadro de marquesina sobre los nodos en el lienzo 2D para seleccionarlos y **Iniciar Cram** o **Crear evaluación enfocada** desde la barra de acción flotante.
+- **Inspector de evidencia de competencias**: vea el dominio del concepto en cinco dimensiones de evidencia (**Exposición**, **Comprensión**, **Retención**, **Aplicación** y **Transferencia**). Los estados "Desconocido" y "Evidencia insuficiente" nunca se presentan como dominio demostrado, las razones de incertidumbre y las insignias solo locales/excluidas de IA se muestran explícitamente, y los niveles autodeclarados permanecen separados de la evidencia verificada.
 
 ### Lector RSS
 
@@ -1933,7 +1961,7 @@ Plethora puede descubrir automáticamente canales RSS de plataformas de boletine
   - Ejemplo: `https://author.substack.com` → `https://author.substack.com/feed`
 - **Beehiiv**: descubre automáticamente el punto final `/feed`
 - **Blogs fantasma**: descubre automáticamente el punto final `/rss/`
-- **Botón**: agregue `/feed` a la URL del boletín
+- **Buttondown**: agregue `/feed` a la URL del boletín
 - **Genérico**: descubre automáticamente feeds RSS a partir de etiquetas HTML `<link>`
 
 **Suscripción rápida desde URL:**
@@ -2196,7 +2224,7 @@ Acceso rápido a todos los comandos:
 - Navegación por teclado
 - Comandos usados recientemente
 - Buscar por nombre o acceso directo
-- Los resultados de la búsqueda saltan a la ubicación coincidente en los documentos y resaltan la consulta (PDF, EPUB, Importaciones web)
+- Los resultados de la búsqueda saltan a la ubicación correspondiente en los documentos y resaltan la consulta (PDF, EPUB, Importaciones web)
 - Las coincidencias de transcripciones de YouTube buscan la marca de tiempo e inician la reproducción.
 - Pase el cursor sobre el resultado de un documento para ver coincidencias adicionales del mismo documento
 
@@ -2330,7 +2358,7 @@ R: ATP (trifosfato de adenosina)
 **Horario diario (20-30 min):**
 1. **Mañana**: Revisar las tarjetas de entrega (15 min)
 2. **A lo largo del día**: crea extractos de la lectura
-3. **Tarde**: crea tarjetas a partir de extractos (10-15 min)
+3. **Tarde**: Crea tarjetas a partir de extractos (10-15 min)
 
 **Horario Semanal:**
 - **Lunes a viernes**: revisiones periódicas y creación de tarjetas
@@ -2531,7 +2559,7 @@ La función **Intervalo de vista previa** le muestra exactamente cuándo aparece
 **Soluciones:**
 1. **Instala Ollama**: usa el botón Descargar en Configuración → OCR, o instálalo desde ollama.com
 2. **Verifique la ruta binaria**: configure la ruta binaria de Ollama si no está en la ubicación predeterminada
-3. **Permisos de Linux**: Es posible que necesite `sudo` para instalar o ejecutar el servicio Ollama
+3. **Permisos de Linux**: es posible que necesite `sudo` para instalar o ejecutar el servicio Ollama
 
 #### Windows: "La aplicación no pudo iniciarse porque su configuración en paralelo es incorrecta"
 
@@ -2710,7 +2738,7 @@ Exporte sus datos antes de cambios importantes (Configuración → Copia de segu
 
 **P: ¿Cómo agrego boletines a Plethora?**
 R: Puedes agregar boletines de dos maneras:
-1. **Directorio de boletines**: haga clic en RSS → Ícono de boletín (📬) → Explore y suscríbase a boletines seleccionados
+1. **Directorio de boletines**: haga clic en RSS → Icono de boletín (📬) → Explore y suscríbase a boletines seleccionados.
 2. **URL directa**: Copie la URL de cualquier boletín (Substack, Beehiiv, etc.) → RSS → Agregar fuente → Pegar URL. Plethora descubrirá automáticamente la fuente RSS.
 
 **P: ¿Por qué no se muestran los videos, audios, infografías o presentaciones de diapositivas de mi NotebookLM?**

@@ -50,12 +50,27 @@ Plethora is a powerful learning application that combines two proven techniques:
 
 ### First Launch
 
-When you first launch Plethora, you'll see the **Dashboard** with four main sections:
+When you first launch Plethora, you'll see the **Dashboard** (**Today**) organized around seven primary learning destinations:
 
-1. **Queue** - Your review queue (empty at first)
-2. **Review** - Active review session
-3. **Documents** - Your document library
-4. **Analytics** - Progress statistics
+1. **Today** (`Dashboard`) - Your daily learning brief, personalized session launcher, active session runner, and continue-reading cards
+2. **Library** (`Documents`) - Your documents, extracts, audiobooks, image registry, and imports
+3. **Learn** (`Study Plans`) - Structured study plans, guided reading sessions, and language learning
+4. **Review** (`Review`) - Spaced-repetition flashcards, reading queue, and scroll mode
+5. **Discover** (`RSS`) - Smart feeds, podcasts, newsletters, and the built-in web browser
+6. **Knowledge** (`Knowledge Sphere`) - Knowledge Atlas, 2D network graph, Document Q&A, and NotebookLM
+7. **Insights** (`Learning Insights`) - Learning insights, competency progress, and analytics
+
+### Today Workspace & Personalized Learning Sessions
+
+At the top of the **Dashboard**, the **Start learning** hero builds a personalized, locally ranked session without requiring goals, due reviews, or AI setup:
+
+- **Focus Profiles**: Choose between **Balanced** (mix due reviews, goals, and reading), **Free Exploration** (follow curiosity with zero pressure), **Memory Retention** (prioritize due spaced-repetition cards), **Exam Prep** (focus on deadlines and knowledge gaps), or **Deep Study** (longer uninterrupted focus blocks).
+- **Time Budgets**: Pick `5m`, `15m`, `30m`, `60m`, `120m`, or `Unlimited` via **Customize session** (and adjust the budget mid-session from the runner bar).
+- **Active Session Runner**: Once started, the **Active session** bar tracks your current step and progress:
+  - Click the primary action button (**Start review**, **Open reading**, **Open study plan**, or **Browse library**) to jump straight into that activity (for example, opening the active flashcard review session directly).
+  - Click **Why am I seeing this?** to inspect the deterministic local ranking factors behind the recommendation.
+  - Use **Complete**, **Skip**, or **Postpone** to manage steps, or **Pause**, **Finish**, and **Exit** to control the session (paused sessions can be resumed with **Continue previous session**).
+- **Learning Goals**: Create lightweight **Exploration** goals (just a title) or **Deadline** goals (target date, daily minute budget, and optional diagnostic), pause or resume them, and **Evolve to structured** study plans whenever you are ready.
 
 ### Initial Setup
 
@@ -1380,6 +1395,18 @@ Plethora schedules flashcard reviews with **FSRS-7**, the production spaced-repe
 - This prevents long-form content from being scheduled too far out after partial progress.
 - When applied, the scheduler reason includes a **Duration-aware cap** note for transparency.
 
+#### Personal Learning Coach & Optional Motivation
+
+Under **Settings → Learning → Personal Learning Coach**, configure how proactively Plethora surfaces study suggestions:
+
+- **Coach proactivity**:
+  - **Off (on-demand only)**: No proactive nudges; open suggestions manually.
+  - **Gentle (subtle daily brief)**: Light daily guidance (default).
+  - **Balanced (session & gap nudges)**: Session recommendations and knowledge-gap prompts.
+  - **Proactive (active pacing & remediation)**: Active pacing and targeted remediation suggestions.
+  - Proactive nudges are automatically suppressed during isolated exams.
+- **Optional motivation cues**: Toggle low-pressure progress reflections and consistency milestones (disabled by default).
+
 ### Review Settings
 
 #### Session Limits
@@ -1915,6 +1942,7 @@ Visualize connections between your knowledge:
 - Identify knowledge gaps
 - **Heatmap Modes**: Switch between **Default**, **Retrievability / Leech** (crimson for leeches with `4+` lapses, amber for low retrievability, emerald for healthy recall), and **Extract Density** (colored by unprocessed extract count).
 - **`Shift+Drag` Lasso-to-Queue**: Hold `Shift` and drag a marquee box over nodes on the 2D canvas to select them and **Launch Cram** or **Create Focused Assessment** from the floating action bar.
+- **Competency Evidence Inspector**: View concept mastery across five evidence dimensions (**Exposure**, **Comprehension**, **Retention**, **Application**, and **Transfer**). `Unknown` and `Insufficient evidence` states are never presented as demonstrated mastery, uncertainty reasons and local-only/AI-excluded badges are shown explicitly, and self-declared levels stay separate from verified evidence.
 
 ### RSS Reader
 
