@@ -131,9 +131,13 @@ vi.mock("../../../api/transcription", () => ({
   downloadTranscriptionModel: vi.fn(),
 }));
 
-vi.mock("../../common/Toast", () => ({
-  useToast: () => toastMocks,
-}));
+vi.mock("../../common/Toast", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../common/Toast")>();
+  return {
+    ...actual,
+    useToast: () => toastMocks,
+  };
+});
 
 vi.mock("../../common/Tabs", () => ({
   useIsActiveTab: () => true,
@@ -559,12 +563,14 @@ describe("transcription provider routing and labels", () => {
     audiobookApiMocks.searchAudiobookCover.mockResolvedValue([]);
     podcastMocks.getPodcastTranscript.mockResolvedValue({
       text: "Transcript saved by the queue.", status: "done",
-      segments: [{ start: 1.2, end: 2.4, text: "Transcript saved by the queue." }],
+      segments: [{ start: 65.2, end: 90.4, text: "Transcript saved by the queue." }],
     });
     podcastMocks.transcribePodcastEpisode.mockClear();
     render(<AudiobookViewer document={desktopDocument()} episodeId="episode-saved" />);
     openTranscript();
     expect(await screen.findByText("Transcript saved by the queue.")).toBeInTheDocument();
+    expect(screen.getByText("1:05")).toBeInTheDocument();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
     expect(podcastMocks.transcribePodcastEpisode).not.toHaveBeenCalled();
   });
 

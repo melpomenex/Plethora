@@ -3828,13 +3828,19 @@ const editionSectionIdsRef = useRef<string[]>([]);
             .map((s) => s.trim())
             .filter(Boolean)
             .map((text, i) => ({ start: 0, end: 0, text, wordTimings: undefined as never })))
-        .map((seg, i) => ({
-          id: `pod-seg-${i}`,
-          text: seg.text,
-          startTime: seg.start || 0,
-          endTime: seg.end || 0,
-          wordTimings: seg.wordTimings,
-        }))
+        .map((seg, i) => {
+          const start = Number.isFinite(seg.start) ? seg.start : 0;
+          const end = Number.isFinite(seg.end) ? seg.end : 0;
+          return {
+            id: `pod-seg-${i}`,
+            text: seg.text,
+            start,
+            end,
+            startTime: start,
+            endTime: end,
+            wordTimings: seg.wordTimings,
+          };
+        })
     : [];
   const hasPodcastTranscript = isPodcast && (podcastDisplaySegments.length > 0);
   const languageTranscriptSegments = useMemo(() => {

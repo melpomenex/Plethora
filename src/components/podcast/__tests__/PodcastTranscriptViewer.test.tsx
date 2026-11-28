@@ -111,4 +111,24 @@ describe("PodcastTranscriptViewer", () => {
     fireEvent.click(seekPastBtn);
     expect(handleSeek).toHaveBeenCalledWith(45);
   });
+
+  it("formats timestamps without NaN when segments use startTime/endTime or non-finite values", () => {
+    const legacyAndInvalidSegments = [
+      { id: "leg-1", startTime: 65, endTime: 90, text: "Legacy segment." },
+      { id: "nan-1", start: Number.NaN, end: Number.NaN, text: "Invalid segment." },
+    ] as unknown as TranscriptSegment[];
+
+    render(
+      <PodcastTranscriptViewer
+        episodeId="ep-1"
+        segments={legacyAndInvalidSegments}
+        currentTime={0}
+        initialMode="verbatim"
+      />
+    );
+
+    expect(screen.getByText("1:05")).toBeInTheDocument();
+    expect(screen.getByText("0:00")).toBeInTheDocument();
+    expect(screen.queryByText(/NaN/)).not.toBeInTheDocument();
+  });
 });

@@ -47,6 +47,9 @@ export interface PodcastTranscriptViewerProps {
 }
 
 function formatTime(seconds: number): string {
+  if (!Number.isFinite(seconds)) {
+    return "0:00";
+  }
   const s = Math.max(0, Math.floor(seconds));
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -80,13 +83,26 @@ export function PodcastTranscriptViewer({
   // Classify each segment as ad or clean
   const classifiedSegments = useMemo(() => {
     return segments.map((seg) => {
-      const segStartMs = seg.start * 1000;
-      const segEndMs = seg.end * 1000;
+      const legacy = seg as TranscriptSegment & { startTime?: number; endTime?: number };
+      const start = Number.isFinite(seg.start)
+        ? seg.start
+        : Number.isFinite(legacy.startTime)
+          ? legacy.startTime!
+          : 0;
+      const end = Number.isFinite(seg.end)
+        ? seg.end
+        : Number.isFinite(legacy.endTime)
+          ? legacy.endTime!
+          : start;
+      const segStartMs = start * 1000;
+      const segEndMs = end * 1000;
       const matchingAd = adIntervals.find(
         (ad) => segStartMs < ad.endMs && segEndMs > ad.startMs
       );
       return {
         ...seg,
+        start,
+        end,
         isAd: !!matchingAd,
         adCategory: matchingAd?.category,
       };
