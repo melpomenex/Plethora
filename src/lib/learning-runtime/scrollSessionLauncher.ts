@@ -143,11 +143,19 @@ export async function openScrollModeForSession(options: {
   });
 
   const baseTab = createCanonicalTab("queue-scroll");
-  useTabsStore.getState().addTab({
+  const nextData = {
+    ...(baseTab.data ?? {}),
+    ...data,
+    currentIndex: 0,
+    renderedIndex: 0,
+  };
+  const tabsStore = useTabsStore.getState();
+  const existingScrollTab = tabsStore.tabs?.find((t) => t.type === "queue-scroll");
+  if (existingScrollTab) {
+    tabsStore.updateTab?.(existingScrollTab.id, { data: nextData });
+  }
+  tabsStore.addTab({
     ...baseTab,
-    data: {
-      ...(baseTab.data ?? {}),
-      ...data,
-    },
+    data: nextData,
   });
 }

@@ -90,17 +90,24 @@ export function QueueTab() {
     mode?: "queue-list" | "optimal";
     itemTypes?: SessionItemTypes;
   }) => {
+    const nextData = {
+      customQueueItems: options?.items,
+      queueScrollMode: options?.mode ?? "queue-list",
+      itemTypes: options?.itemTypes,
+    };
+    const existingScrollTab = useTabsStore.getState().tabs?.find((t) => t.type === "queue-scroll");
+    if (existingScrollTab) {
+      useTabsStore.getState().updateTab?.(existingScrollTab.id, {
+        data: { ...nextData, currentIndex: 0, renderedIndex: 0 },
+      });
+    }
     addTab({
       title: "Scroll Mode",
       icon: <Stack className="w-4 h-4" />,
       type: "queue-scroll",
       content: QueueScrollPage,
       closable: true,
-      data: {
-        customQueueItems: options?.items,
-        queueScrollMode: options?.mode ?? "queue-list",
-        itemTypes: options?.itemTypes,
-      },
+      data: nextData,
     }, paneId);
   };
 
