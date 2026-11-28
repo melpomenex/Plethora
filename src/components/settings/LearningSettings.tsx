@@ -1031,6 +1031,65 @@ export function LearningSettings() {
           />
         </div>
       </div>
+
+      {/* Personal Learning Coach & Optional Motivation */}
+      <div className="p-6 bg-card border border-border rounded-lg space-y-4">
+        <SettingsSearchTarget id="learning.coach" label="Personal Learning Coach">
+          <h3 className="text-lg font-semibold text-foreground">Personal Learning Coach</h3>
+        </SettingsSearchTarget>
+        <p className="text-sm text-muted-foreground">
+          Control how proactively the learning coach surfaces study suggestions and whether optional motivation cues are shown.
+        </p>
+        <div className="space-y-4">
+          <SettingsSearchTarget id="learning.coachProactivity" label="Coach proactivity">
+            <div>
+              <label
+                htmlFor="learning-coach-proactivity"
+                className="block text-sm font-medium text-foreground mb-1"
+              >
+                Coach proactivity
+              </label>
+              <select
+                id="learning-coach-proactivity"
+                value={settings.learningCoach?.proactivity ?? "gentle"}
+                onChange={(e) =>
+                  updateSettings({
+                    learningCoach: {
+                      proactivity: e.target.value as "off" | "gentle" | "balanced" | "proactive",
+                      enableOptionalMotivation:
+                        settings.learningCoach?.enableOptionalMotivation ?? false,
+                    },
+                  })
+                }
+                className="w-full px-3 py-2 rounded-md border border-border bg-background text-foreground text-sm"
+              >
+                <option value="off">Off (on-demand only)</option>
+                <option value="gentle">Gentle (subtle daily brief)</option>
+                <option value="balanced">Balanced (session & gap nudges)</option>
+                <option value="proactive">Proactive (active pacing & remediation)</option>
+              </select>
+              <p className="text-xs text-muted-foreground mt-1">
+                Controls how often the coach offers next-step suggestions. Suppressed automatically during isolated exams.
+              </p>
+            </div>
+          </SettingsSearchTarget>
+          <SettingsSearchTarget id="learning.optionalMotivation" label="Optional motivation cues">
+            <SettingToggle
+              label="Optional motivation cues"
+              description="Show low-pressure progress reflections and consistency milestones. Disabled by default."
+              checked={settings.learningCoach?.enableOptionalMotivation ?? false}
+              onChange={(checked) =>
+                updateSettings({
+                  learningCoach: {
+                    proactivity: settings.learningCoach?.proactivity ?? "gentle",
+                    enableOptionalMotivation: checked,
+                  },
+                })
+              }
+            />
+          </SettingsSearchTarget>
+        </div>
+      </div>
     </div>
   );
 }

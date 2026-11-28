@@ -1162,6 +1162,10 @@ export interface Settings {
   handsFreeStudy: HandsFreeStudySettings;
   languageLearning: LanguageLearningSettings;
   studyMode: import("../types/studyMode").StudyModeSettings;
+  learningCoach?: {
+    proactivity: "off" | "gentle" | "balanced" | "proactive";
+    enableOptionalMotivation: boolean;
+  };
   sponsorBlock: SponsorBlockSettings;
   mediaPlayback: MediaPlaybackSettings;
   plethora?: PlethoraSettings;
@@ -1676,6 +1680,10 @@ export const defaultSettings: Settings = {
     enableCaching: true,
     enableEfficacyMeasurement: false,
   },
+  learningCoach: {
+    proactivity: "gentle",
+    enableOptionalMotivation: false,
+  },
   sponsorBlock: defaultSponsorBlockSettings,
   mediaPlayback: {
     compatibilityMode: "automatic-inexpensive",
@@ -2173,6 +2181,16 @@ export const useSettingsStore = create<SettingsState>()(
           studyMode: {
             ...defaultSettings.studyMode,
             ...persisted.studyMode,
+          },
+          learningCoach: {
+            proactivity:
+              persisted.learningCoach?.proactivity ??
+              defaultSettings.learningCoach?.proactivity ??
+              "gentle",
+            enableOptionalMotivation:
+              persisted.learningCoach?.enableOptionalMotivation ??
+              defaultSettings.learningCoach?.enableOptionalMotivation ??
+              false,
           },
           plethora: {
             ...defaultSettings.plethora,

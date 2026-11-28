@@ -977,6 +977,38 @@ export const SETTINGS_SEARCH_ENTRIES: readonly SettingsSearchEntry[] = [
     keywords: ["study", "mode", "learn", "personalization", "formative", "efficacy"],
     targetId: "learning.studyMode",
   },
+  {
+    id: "learning.coach",
+    kind: "group",
+    section: SettingsTab.Learning,
+    label: lit("Personal Learning Coach"),
+    description: lit("Control how proactively the learning coach surfaces study suggestions and optional motivation cues"),
+    aliases: [lit("learning coach"), lit("coach settings"), lit("study coach")],
+    keywords: ["coach", "proactivity", "motivation", "suggestions", "guidance"],
+    targetId: "learning.coach",
+  },
+  {
+    id: "learning.coachProactivity",
+    kind: "setting",
+    section: SettingsTab.Learning,
+    label: lit("Coach proactivity"),
+    description: lit("Controls how often the coach offers next-step suggestions"),
+    groupPath: [lit("Personal Learning Coach")],
+    aliases: [lit("coach frequency"), lit("proactive nudges"), lit("study suggestions")],
+    keywords: ["coach", "proactivity", "nudges", "gentle", "balanced", "off"],
+    targetId: "learning.coachProactivity",
+  },
+  {
+    id: "learning.optionalMotivation",
+    kind: "setting",
+    section: SettingsTab.Learning,
+    label: lit("Optional motivation cues"),
+    description: lit("Show low-pressure progress reflections and consistency milestones"),
+    groupPath: [lit("Personal Learning Coach")],
+    aliases: [lit("motivation"), lit("milestones"), lit("progress reflections")],
+    keywords: ["motivation", "milestones", "reflections", "cues", "optional"],
+    targetId: "learning.optionalMotivation",
+  },
 
   /* ── Smart Queues ────────────────────────────────────────────────────── */
   {
