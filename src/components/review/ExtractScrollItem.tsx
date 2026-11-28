@@ -272,6 +272,13 @@ export function ExtractScrollItem({
             setNotes(incomingNotes);
             lastSavedRef.current.notes = incomingNotes;
         }
+        if (
+            imagesKeyRef.current === lastSavedRef.current.imagesKey &&
+            nextImagesKey !== imagesKeyRef.current
+        ) {
+            setAttachedImages(nextImages);
+            lastSavedRef.current.imagesKey = nextImagesKey;
+        }
     }, [extract.id, extract.content, extract.notes, extract.html_content]);
 
     // Keyboard shortcuts: 1-4 to rate, C for Cloze (Q is handled by EndOfItemTriageBar)
@@ -504,8 +511,9 @@ export function ExtractScrollItem({
         const end = el.selectionEnd ?? 0;
         const res =
             direction === "indent"
-                ? indentContent(content, start, end)
-                : outdentContent(content, start, end);
+                ? indentContent(contentValueRef.current, start, end)
+                : outdentContent(contentValueRef.current, start, end);
+        contentValueRef.current = res.text;
         setContent(res.text);
         requestAnimationFrame(() => {
             if (contentRef.current) {

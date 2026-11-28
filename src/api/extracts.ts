@@ -185,6 +185,7 @@ export async function updateExtract(input: UpdateExtractInput): Promise<Extract>
   const extract = await invokeCommand<Extract>("update_extract", {
     id: input.id,
     content: input.content,
+    htmlContent: input.html_content,
     note: input.note,
     tags: input.tags,
     category: input.category,
