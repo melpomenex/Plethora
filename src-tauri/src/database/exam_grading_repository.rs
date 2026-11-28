@@ -329,6 +329,43 @@ impl ExamGradingRepository {
                 &new_grade_id,
             )
             .await?;
+
+            let event_input = crate::models::learning_event::AppendLearningEventInput {
+                idempotency_key: format!("assessment_graded:{}", new_grade_id),
+                event_type: crate::models::learning_event::LearningEventType::AssessmentGraded,
+                actor: Some("system".to_string()),
+                surface: "exam".to_string(),
+                session_id: None,
+                goal_id: None,
+                entity_kind: "exam_grade".to_string(),
+                entity_id: new_grade_id.clone(),
+                document_id: None,
+                is_local_only: None,
+                is_ai_excluded: None,
+                payload: serde_json::json!({
+                    "attemptId": &input.attempt_id,
+                    "responseSubmissionId": &input.response_submission_id,
+                    "questionRevisionId": &input.question_revision_id,
+                    "origin": &input.origin,
+                    "state": &input.state,
+                    "points": input.points,
+                    "maxPoints": input.max_points,
+                    "attemptStatus": next_status,
+                }),
+                occurred_at: Some(now.clone()),
+                retracts_event_id: None,
+            };
+            crate::database::LearningEventRepository::append_learning_event_tx(
+                &mut tx,
+                &event_input,
+            )
+            .await
+            .map_err(|e| {
+                StudyCommandError::storage_failed(format!(
+                    "Failed to append assessment_graded learning event: {}",
+                    e
+                ))
+            })?;
         }
 
         tx.commit().await.map_err(|e| {
