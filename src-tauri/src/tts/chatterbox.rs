@@ -606,17 +606,29 @@ pub async fn chatterbox_delete_model(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
+fn open_chatterbox_db(app: &AppHandle) -> Result<Option<rusqlite::Connection>, String> {
+    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
+    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
+    if !db_path.exists() {
+        return Ok(None);
+    }
+    let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+    conn.busy_timeout(std::time::Duration::from_secs(30))
+        .map_err(|e| e.to_string())?;
+    conn.execute_batch(
+        "PRAGMA journal_mode = WAL; PRAGMA synchronous = NORMAL; PRAGMA foreign_keys = ON;",
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(Some(conn))
+}
+
 #[tauri::command]
 pub async fn chatterbox_list_voice_profiles(
     app: AppHandle,
 ) -> Result<Vec<ChatterboxVoiceProfile>, String> {
-    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
-    if !db_path.exists() {
+    let Some(conn) = open_chatterbox_db(&app)? else {
         return Ok(vec![]);
-    }
-
-    let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+    };
     let mut stmt = conn
         .prepare(
             "SELECT id, name, description, avatar_color, playback_speed, preferred_content_types_json, embedding_path, is_default, created_at, updated_at
@@ -657,9 +669,8 @@ pub async fn chatterbox_create_voice_profile(
     app: AppHandle,
     profile: ChatterboxVoiceProfile,
 ) -> Result<ChatterboxVoiceProfile, String> {
-    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
-    let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+    let conn = open_chatterbox_db(&app)?
+        .ok_or_else(|| "Database does not exist".to_string())?;
 
     let types_json = serde_json::to_string(&profile.preferred_content_types)
         .unwrap_or_else(|_| "[]".to_string());
@@ -691,9 +702,8 @@ pub async fn chatterbox_create_voice_profile(
 
 #[tauri::command]
 pub async fn chatterbox_delete_voice_profile(app: AppHandle, id: String) -> Result<(), String> {
-    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
-    let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+    let conn = open_chatterbox_db(&app)?
+        .ok_or_else(|| "Database does not exist".to_string())?;
 
     conn.execute(
         "DELETE FROM chatterbox_voice_profiles WHERE id = ?1",
@@ -781,9 +791,8 @@ pub async fn chatterbox_clone_voice(
         .to_string();
 
     // 3. Persist voice profile to SQLite
-    let app_dir = app.path().app_data_dir().map_err(|e| e.to_string())?;
-    let db_path = app_dir.join(crate::database::connection::DB_FILE_NAME);
-    let conn = rusqlite::Connection::open(db_path).map_err(|e| e.to_string())?;
+    let conn = open_chatterbox_db(&app)?
+        .ok_or_else(|| "Database does not exist".to_string())?;
 
     let now = chrono::Utc::now().timestamp();
     let profile = ChatterboxVoiceProfile {
