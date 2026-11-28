@@ -157,6 +157,15 @@ export function ExtractScrollItem({
             .map((i) => i.src)
             .join("|"),
     });
+    const contentValueRef = useRef(content);
+    contentValueRef.current = content;
+    const notesValueRef = useRef(notes);
+    notesValueRef.current = notes;
+    const imagesKeyRef = useRef(attachedImages.map((i) => i.src).join("|"));
+    imagesKeyRef.current = attachedImages.map((i) => i.src).join("|");
+    const onUpdateRef = useRef(onUpdate);
+    onUpdateRef.current = onUpdate;
+    const prevExtractIdRef = useRef(extract.id);
     const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const statusTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     const isMountedRef = useRef(true);
@@ -221,17 +230,49 @@ export function ExtractScrollItem({
     }, []);
 
     useEffect(() => {
-        setContent(extract.content);
-        setNotes(extract.notes ?? "");
-        lastSavedRef.current = {
-            content: extract.content,
-            notes: extract.notes ?? "",
-            imagesKey: parseImagesFromHtml(extract.html_content)
-                .map((i) => i.src)
-                .join("|"),
-        };
-        setSaveStatus("idle");
-    }, [extract.id, extract.content, extract.notes]);
+        const nextImages = parseImagesFromHtml(extract.html_content);
+        const nextImagesKey = nextImages.map((i) => i.src).join("|");
+        const incomingNotes = extract.notes ?? "";
+
+        if (prevExtractIdRef.current !== extract.id) {
+            prevExtractIdRef.current = extract.id;
+            if (saveTimeoutRef.current) {
+                clearTimeout(saveTimeoutRef.current);
+                saveTimeoutRef.current = null;
+            }
+            if (statusTimeoutRef.current) {
+                clearTimeout(statusTimeoutRef.current);
+                statusTimeoutRef.current = null;
+            }
+            setContent(extract.content);
+            setNotes(incomingNotes);
+            setAttachedImages(nextImages);
+            lastSavedRef.current = {
+                content: extract.content,
+                notes: incomingNotes,
+                imagesKey: nextImagesKey,
+            };
+            setSaveStatus("idle");
+            return;
+        }
+
+        // Sync incoming prop changes only when there are no local unsaved edits,
+        // so an in-flight autosave echoing back via onUpdate never clobbers newer typing.
+        if (
+            contentValueRef.current === lastSavedRef.current.content &&
+            extract.content !== contentValueRef.current
+        ) {
+            setContent(extract.content);
+            lastSavedRef.current.content = extract.content;
+        }
+        if (
+            notesValueRef.current === lastSavedRef.current.notes &&
+            incomingNotes !== notesValueRef.current
+        ) {
+            setNotes(incomingNotes);
+            lastSavedRef.current.notes = incomingNotes;
+        }
+    }, [extract.id, extract.content, extract.notes, extract.html_content]);
 
     // Keyboard shortcuts: 1-4 to rate, C for Cloze (Q is handled by EndOfItemTriageBar)
     useEffect(() => {
@@ -362,33 +403,56 @@ export function ExtractScrollItem({
             clearTimeout(saveTimeoutRef.current);
         }
 
+        const targetExtractId = extract.id;
+        const contentToSave = content;
+        const notesToSave = notes;
+        const imagesToSave = attachedImages;
+        const imagesKeyToSave = imagesKey;
+        const existingHtmlContent = extract.html_content;
+
         saveTimeoutRef.current = setTimeout(async () => {
             setSaveStatus("saving");
             try {
                 const nextHtml =
-                    attachedImages.length > 0 || Boolean(extract.html_content)
-                        ? buildExtractHtmlContent(content, attachedImages)
+                    imagesToSave.length > 0 || Boolean(existingHtmlContent)
+                        ? buildExtractHtmlContent(contentToSave, imagesToSave)
                         : undefined;
                 await updateExtract({
-                    id: extract.id,
-                    content,
+                    id: targetExtractId,
+                    content: contentToSave,
                     ...(nextHtml !== undefined ? { html_content: nextHtml } : {}),
-                    note: notes,
+                    note: notesToSave,
                 });
-                if (!isMountedRef.current) return;
-                lastSavedRef.current = { content, notes, imagesKey };
-                onUpdate?.({ content, html_content: nextHtml, notes });
-                setSaveStatus("saved");
-                if (statusTimeoutRef.current) {
-                    clearTimeout(statusTimeoutRef.current);
-                }
-                statusTimeoutRef.current = setTimeout(() => {
-                    if (isMountedRef.current) {
-                        setSaveStatus("idle");
+                if (!isMountedRef.current || prevExtractIdRef.current !== targetExtractId) return;
+                lastSavedRef.current = {
+                    content: contentToSave,
+                    notes: notesToSave,
+                    imagesKey: imagesKeyToSave,
+                };
+                onUpdateRef.current?.({
+                    content: contentToSave,
+                    html_content: nextHtml,
+                    notes: notesToSave,
+                });
+                const hasNewerEdits =
+                    contentValueRef.current !== contentToSave ||
+                    notesValueRef.current !== notesToSave ||
+                    imagesKeyRef.current !== imagesKeyToSave;
+                if (hasNewerEdits) {
+                    setSaveStatus("dirty");
+                } else {
+                    setSaveStatus("saved");
+                    if (statusTimeoutRef.current) {
+                        clearTimeout(statusTimeoutRef.current);
                     }
-                }, 2000);
+                    statusTimeoutRef.current = setTimeout(() => {
+                        if (isMountedRef.current) {
+                            setSaveStatus("idle");
+                        }
+                    }, 2000);
+                }
             } catch (error) {
-                if (!isMountedRef.current) return;
+                if (!isMountedRef.current || prevExtractIdRef.current !== targetExtractId) return;
                 console.error("Failed to save extract edits:", error);
                 setSaveStatus("error");
             }
@@ -399,7 +463,7 @@ export function ExtractScrollItem({
                 clearTimeout(saveTimeoutRef.current);
             }
         };
-    }, [content, notes, attachedImages, extract.id, extract.html_content, onUpdate]);
+    }, [content, notes, attachedImages, extract.id, extract.html_content]);
 
     const handleInsertImageFiles = async (files: FileList | File[]) => {
         const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
