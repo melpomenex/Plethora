@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { gateScrollItemsByComposition, gateScrollItemsByType, resolveMissingExtractContent } from "../queueScrollItemTypes";
+import {
+  endOfUtcDayMs,
+  gateScrollItemsByComposition,
+  gateScrollItemsByType,
+  isRescheduledPastToday,
+  resolveMissingExtractContent,
+} from "../queueScrollItemTypes";
 import type { SessionItemTypes } from "../../utils/reviewUx";
 import type { Extract } from "../../api/extracts";
 import type { QueueItem } from "../../types/queue";
@@ -250,5 +256,27 @@ describe("resolveMissingExtractContent", () => {
     expect(fetchOne).toHaveBeenCalledTimes(2); // unchanged
     expect(second.get("a")?.content).toBe("content a");
     expect(second.get("b")?.content).toBe("content b");
+  });
+});
+
+describe("isRescheduledPastToday", () => {
+  const endOfToday = endOfUtcDayMs(Date.UTC(2026, 10, 28, 12, 0, 0));
+
+  it("excludes items that were due/new at snapshot time and are now scheduled past today", () => {
+    expect(isRescheduledPastToday("2026-12-05T12:00:00Z", undefined, endOfToday)).toBe(true);
+    expect(isRescheduledPastToday("2026-12-05T12:00:00Z", "2026-11-28T10:00:00Z", endOfToday)).toBe(true);
+  });
+
+  it("keeps items still due today or in the past (e.g. rated Again)", () => {
+    expect(isRescheduledPastToday("2026-11-28T18:00:00Z", "2026-11-28T10:00:00Z", endOfToday)).toBe(false);
+    expect(isRescheduledPastToday("2026-01-01T00:00:00Z", undefined, endOfToday)).toBe(false);
+  });
+
+  it("keeps intentionally non-due items whose future due date has not changed", () => {
+    expect(isRescheduledPastToday("2026-12-10T00:00:00Z", "2026-12-10T00:00:00Z", endOfToday)).toBe(false);
+  });
+
+  it("excludes intentionally non-due items that were re-rated to a different future date", () => {
+    expect(isRescheduledPastToday("2026-12-20T00:00:00Z", "2026-12-10T00:00:00Z", endOfToday)).toBe(true);
   });
 });

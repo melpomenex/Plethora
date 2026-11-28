@@ -755,6 +755,53 @@ describe("QueueScrollPage session rebuild stability (queue-list path)", () => {
     await revealAndRateFlashcard();
     await awaitDocumentCurrent("doc-2");
   }, 20000);
+
+  it("prunes rated items from customQueueItems and skips items rescheduled past today on reopen", async () => {
+    const futureDate = new Date(Date.now() + 7 * 86_400_000).toISOString();
+    api.rateDocumentEngaging.mockResolvedValue({ next_review_date: futureDate } as any);
+
+    const { unmount } = render(<QueueScrollPage />);
+    expect(await screen.findByTestId("document-viewer")).toHaveAttribute("data-document-id", "doc-1");
+
+    // Rate doc-1 Easy (key "4"): it should be pruned from persisted tab customQueueItems.
+    await rateCurrentViaKeyboard("4");
+    await awaitFlashcardCurrent();
+    expect(
+      mocks.tabsState.tabs[0].data.customQueueItems.some(
+        (item: { documentId: string }) => item.documentId === "doc-1",
+      ),
+    ).toBe(false);
+
+    // Simulate reopening the app with a stale customQueueItems snapshot where doc-1
+    // was not yet pruned, but the database has doc-1's updated future nextReadingDate
+    // and card-1's updated future due_date. Neither should replay.
+    unmount();
+    sessionStorage.clear();
+    mocks.tabsState.tabs[0].data.customQueueItems = [
+      makeDocRow("doc-1", "First Epub", 11),
+      {
+        id: "flashcard-card-1",
+        itemType: "learning-item",
+        learningItemId: "card-1",
+        documentId: "doc-1",
+        documentTitle: "Card",
+        priority: 5,
+        estimatedTime: 2,
+        tags: ["books"],
+        progress: 0,
+      },
+      makeDocRow("doc-2", "Second Epub", 10),
+    ];
+    useDocumentStore.setState({
+      documents: [{ ...doc1, nextReadingDate: futureDate }, doc2],
+    });
+    api.getDueItems.mockResolvedValue([]);
+    api.getLearningItem.mockResolvedValue({ ...card1, due_date: futureDate });
+
+    render(<QueueScrollPage />);
+    await awaitDocumentCurrent("doc-2");
+    expect(flashcardInView()).toBe(false);
+  }, 20000);
 });
 
 describe("QueueScrollPage overlay controls recovery from the content iframe", () => {

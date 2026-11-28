@@ -161,3 +161,32 @@ export async function resolveMissingQueueCards(
   }
   return { cards, failures };
 }
+
+/** End of the current UTC calendar day in epoch milliseconds. */
+export function endOfUtcDayMs(nowMs: number = Date.now()): number {
+  const d = new Date(nowMs);
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 23, 59, 59, 999);
+}
+
+/**
+ * Returns true when a `customQueueItems` snapshot entry has been scheduled
+ * strictly past today in live database state since the snapshot was captured.
+ *
+ * Intentionally non-due items from "All Items" keep the same future due date
+ * as their snapshot and stay eligible; items that were due/new at capture or
+ * whose due date moved to a future day after rating are excluded so reopening
+ * the app or Scroll Mode does not replay already-rated items.
+ */
+export function isRescheduledPastToday(
+  liveDueDate: string | null | undefined,
+  snapshotDueDate: string | null | undefined,
+  endOfTodayMs: number = endOfUtcDayMs(),
+): boolean {
+  if (!liveDueDate) return false;
+  const liveMs = Date.parse(liveDueDate);
+  if (Number.isNaN(liveMs) || liveMs <= endOfTodayMs) return false;
+  if (!snapshotDueDate) return true;
+  const snapshotMs = Date.parse(snapshotDueDate);
+  if (Number.isNaN(snapshotMs) || snapshotMs <= endOfTodayMs) return true;
+  return liveMs !== snapshotMs;
+}

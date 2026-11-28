@@ -105,7 +105,14 @@ import {
   type CompositionTargets,
 } from "./queueScrollBudget";
 import { DEFAULT_COMBINED_SORT_CONFIG, orderScrollItemsByCombinedCriterion, selectByQuotaInOrder } from "../utils/queueScrollOrder";
-import { gateScrollItemsByComposition, gateScrollItemsByType, resolveMissingExtractContent, resolveMissingQueueCards } from "./queueScrollItemTypes";
+import {
+  endOfUtcDayMs,
+  gateScrollItemsByComposition,
+  gateScrollItemsByType,
+  isRescheduledPastToday,
+  resolveMissingExtractContent,
+  resolveMissingQueueCards,
+} from "./queueScrollItemTypes";
 import { orderFeedPriorities } from "./queueScrollExternalPriority";
 import {
   FLASHCARD_REVEAL_EVENT,
@@ -612,6 +619,23 @@ export function QueueScrollPage() {
       updateTab(tabId, { data: { ...existing, ...patch } });
     },
     [updateTab]
+  );
+
+  // Prune rated/dismissed items from persisted `customQueueItems` so reopening
+  // the app or switching back to Scroll Mode does not replay completed items.
+  const pruneCustomQueueItem = useCallback(
+    (matchesItem: (item: QueueItem) => boolean) => {
+      if (!activeTabId) return;
+      const currentCustomItems = useTabsStore
+        .getState()
+        .tabs.find((t) => t.id === activeTabId)?.data?.customQueueItems as QueueItem[] | undefined;
+      if (!Array.isArray(currentCustomItems) || currentCustomItems.length === 0) return;
+      const filtered = currentCustomItems.filter((item) => !matchesItem(item));
+      if (filtered.length !== currentCustomItems.length) {
+        patchTabData(activeTabId, { customQueueItems: filtered });
+      }
+    },
+    [activeTabId, patchTabData]
   );
   const toast = useToast();
 
@@ -1562,6 +1586,8 @@ export function QueueScrollPage() {
         if (cancelled) return;
         if (resolvedCards.failures.length > 0) toast.error(t("queueScroll.cardsUnavailable"));
 
+        const isFromCustomSnapshot = Boolean(customQueueItems && customQueueItems.length > 0);
+        const endOfTodayMs = endOfUtcDayMs();
         const sequentialItems: ScrollItem[] = sourceQueueItems
           .map((item) => {
             const sourceDocument = documentsMap.get(item.documentId);
@@ -1576,6 +1602,12 @@ export function QueueScrollPage() {
               // Omit extracts whose content cannot be resolved (e.g. deleted)
               // rather than rendering a blank or truncated card.
               if (!extractObj) return null;
+              if (
+                isFromCustomSnapshot &&
+                isRescheduledPastToday(extractObj.next_review_date, item.dueDate, endOfTodayMs)
+              ) {
+                return null;
+              }
               const doc = documentsMap.get(item.documentId);
               return {
                 id: item.id.startsWith("extract-") ? item.id : `extract-${extractId}`,
@@ -1607,6 +1639,12 @@ export function QueueScrollPage() {
                 resolvedCards.cards.get(cardId) ??
                 resolvedCards.cards.get(rawCardId);
               if (!cardObj || cardObj.is_suspended) return null;
+              if (
+                isFromCustomSnapshot &&
+                isRescheduledPastToday(cardObj.due_date, item.dueDate, endOfTodayMs)
+              ) {
+                return null;
+              }
               const canonicalCard = cardObj.id.startsWith("flashcard-")
                 ? { ...cardObj, id: cardObj.id.replace(/^flashcard-/, "") }
                 : cardObj;
@@ -1671,6 +1709,12 @@ export function QueueScrollPage() {
             if (item.documentId && ratedDocumentIds.has(item.documentId)) return null;
             const doc = documentsMap.get(item.documentId);
             if (doc?.isArchived || doc?.isDismissed) return null;
+            if (
+              isFromCustomSnapshot &&
+              isRescheduledPastToday(doc?.nextReadingDate, item.dueDate, endOfTodayMs)
+            ) {
+              return null;
+            }
             return {
               id: item.id,
               type: "document" as const,
@@ -4109,6 +4153,9 @@ export function QueueScrollPage() {
           next.add(extractId);
           return next;
         });
+        if (rating >= 2) {
+          pruneCustomQueueItem((item) => item.itemType === "video-extract" && (item.entityId ?? item.id) === extractId);
+        }
         const nextSessionCount = itemsReviewedThisSession + 1;
         setItemsReviewedThisSession(nextSessionCount);
         if (nextSessionCount > 0 && nextSessionCount % 5 === 0) {
@@ -4163,6 +4210,7 @@ export function QueueScrollPage() {
           });
         } else {
           useQueueStore.getState().removeItemsLocally([currentItem.documentId]);
+          pruneCustomQueueItem((item) => item.itemType === "document" && item.documentId === currentItem.documentId);
         }
 
         // Track items reviewed this session
@@ -4227,6 +4275,17 @@ export function QueueScrollPage() {
           next.add(currentItem.learningItem!.id);
           return next;
         });
+        const flashcardScheduledFuture = updatedLearningItem?.due_date
+          ? Date.parse(updatedLearningItem.due_date) > endOfUtcDayMs()
+          : rating >= 2;
+        if (flashcardScheduledFuture) {
+          const ratedCardId = currentItem.learningItem.id;
+          pruneCustomQueueItem((item) => {
+            if (item.itemType !== "learning-item") return false;
+            const rawId = (item.learningItemId ?? item.id).replace(/^flashcard-/, "");
+            return rawId === ratedCardId || item.id === currentItem.id;
+          });
+        }
         advanceAfterRemoval(ratedItemId);
       } else if (currentItem.type === "rss" && currentItem.rssItem && currentItem.rssFeed) {
         // Mark RSS item as read
@@ -4239,6 +4298,8 @@ export function QueueScrollPage() {
           newSet.add(currentItem.rssItem!.id);
           return newSet;
         });
+        const ratedRssId = currentItem.rssItem.id;
+        pruneCustomQueueItem((item) => item.itemType === "rss-article" && (item.id === currentItem.id || (item as any).rssItem?.id === ratedRssId));
 
         // Track items reviewed
         setItemsReviewedThisSession(prev => prev + 1);
@@ -4247,7 +4308,7 @@ export function QueueScrollPage() {
         // handle refreshing the full list (filtering out read items via readRssItemIds)
         advanceAfterRemoval(ratedItemId);
       } else if (currentItem.type === "extract" && currentItem.extract) {
-        await submitExtractReview(currentItem.extract.id, rating, timeTaken);
+        const updatedExtract = await submitExtractReview(currentItem.extract.id, rating, timeTaken);
         useQueueStore.getState().removeItemsLocally([currentItem.extract.id]);
 
         // Track items reviewed
@@ -4260,10 +4321,18 @@ export function QueueScrollPage() {
           next.add(currentItem.extract!.id);
           return next;
         });
+        const extractScheduledFuture = updatedExtract?.next_review_date
+          ? Date.parse(updatedExtract.next_review_date) > endOfUtcDayMs()
+          : rating >= 2;
+        if (extractScheduledFuture) {
+          const ratedExtractId = currentItem.extract.id;
+          pruneCustomQueueItem((item) => item.itemType === "extract" && (item.extractId ?? item.id) === ratedExtractId);
+        }
         advanceAfterRemoval(ratedItemId);
       } else if (currentItem.type === "podcast" && currentItem.podcastEpisode) {
         // Mark podcast episode as played
         await markEpisodePlayed(currentItem.podcastEpisode.id, true);
+        pruneCustomQueueItem((item) => item.id === currentItem.id);
 
         // Track items reviewed
         setItemsReviewedThisSession(prev => prev + 1);
@@ -4375,6 +4444,7 @@ export function QueueScrollPage() {
           newSet.add(currentItem.documentId!);
           return newSet;
         });
+        pruneCustomQueueItem((item) => item.itemType === "document" && item.documentId === currentItem.documentId);
 
         // Track items reviewed this session
         setItemsReviewedThisSession((prev) => prev + 1);
@@ -4396,6 +4466,11 @@ export function QueueScrollPage() {
           const next = new Set(prev);
           next.add(cardId);
           return next;
+        });
+        pruneCustomQueueItem((item) => {
+          if (item.itemType !== "learning-item") return false;
+          const rawId = (item.learningItemId ?? item.id).replace(/^flashcard-/, "");
+          return rawId === cardId || item.id === currentItem.id;
         });
 
         toast.success(
@@ -4419,6 +4494,7 @@ export function QueueScrollPage() {
           next.add(extractId);
           return next;
         });
+        pruneCustomQueueItem((item) => item.itemType === "extract" && (item.extractId ?? item.id) === extractId);
 
         toast.success(
           t("queueScroll.extractDeleted") !== "queueScroll.extractDeleted" ? t("queueScroll.extractDeleted") : "Extract deleted",
