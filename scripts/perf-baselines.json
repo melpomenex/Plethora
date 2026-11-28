@@ -369,6 +369,14 @@
       "cost": 67.93,
       "tolerance": 1.5,
       "reason": "add-ai-smart-rss-feeds: seeded incremental cached skip path over 5000 articles, measured with the full anchor-normalized local bench gate."
+    },
+    "daqe/orchestrate-2000-candidates-balanced-30m": {
+      "cost": 16.28,
+      "reason": "extend-daqe-learning-orchestration: seeded 2,000-candidate balanced 30m session orchestration across 5 goals and 8 providers, measured with anchor-normalized local bench gate."
+    },
+    "daqe/orchestrate-2000-candidates-exam-prep-60m": {
+      "cost": 13.14,
+      "reason": "extend-daqe-learning-orchestration: seeded 2,000-candidate exam_prep 60m session orchestration across 5 goals and 8 providers, measured with anchor-normalized local bench gate."
     }
   }
 }
