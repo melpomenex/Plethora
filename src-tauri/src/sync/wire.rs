@@ -99,6 +99,7 @@ pub fn entity_type_for_table_kind(table_kind: &str) -> Option<EntityType> {
         "settings" | "setting" => Some(EntityType::Setting),
         "image_assets" | "image_asset" => Some(EntityType::ImageAsset),
         "tombstones" | "tombstone" => Some(EntityType::Tombstone),
+        "learning_events" | "learning_event" => Some(EntityType::LearningEvent),
         _ => EntityType::parse(table_kind),
     }
 }
@@ -217,7 +218,10 @@ pub fn decode_remote_record(
                 .and_then(|value| {
                     if value.get("deleted_at").is_some() || value.get("deletedAt").is_some() {
                         Some(SyncOperation::Delete)
-                    } else if entity_type == EntityType::ReviewResult {
+                    } else if matches!(
+                        entity_type,
+                        EntityType::ReviewResult | EntityType::LearningEvent
+                    ) {
                         Some(SyncOperation::AppendEvent)
                     } else {
                         // Legacy create/update records are safely handled as

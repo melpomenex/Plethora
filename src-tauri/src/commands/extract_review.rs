@@ -88,6 +88,37 @@ pub async fn submit_extract_review(
     // already committed and failing here would report a successful review as
     // failed.
     let active_seconds = time_taken.max(0) as i64;
+    let mut tx = repo.pool().begin().await?;
+    let extract_event_input = crate::models::learning_event::AppendLearningEventInput {
+        idempotency_key: format!("extract_review:{}:{}", extract.id, now.timestamp_millis()),
+        event_type: crate::models::learning_event::LearningEventType::ReviewCommitted,
+        actor: Some("user".to_string()),
+        surface: "queue".to_string(),
+        session_id: None,
+        goal_id: None,
+        entity_kind: "extract".to_string(),
+        entity_id: extract.id.clone(),
+        document_id: Some(extract.document_id.clone()),
+        is_local_only: None,
+        is_ai_excluded: None,
+        payload: serde_json::json!({
+            "rating": rating,
+            "timeTaken": time_taken,
+            "newIntervalDays": new_interval_days,
+            "nextReviewDate": result.next_review.to_rfc3339(),
+            "stability": result.stability,
+            "difficulty": result.difficulty,
+        }),
+        occurred_at: Some(now.to_rfc3339()),
+        retracts_event_id: None,
+    };
+    crate::database::LearningEventRepository::append_learning_event_tx(
+        &mut tx,
+        &extract_event_input,
+    )
+    .await?;
+    tx.commit().await?;
+
     let activity = ItemActivityRepository::new(repo.pool().clone());
     activity
         .accumulate_item_time(ActivityItemType::Extract, &extract.id, active_seconds)

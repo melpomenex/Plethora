@@ -192,11 +192,22 @@ pub async fn apply_remote_record(
         return Ok(ApplyOutcome::SkippedDuplicate);
     }
 
-    // Review events are immutable set members: every distinct event is kept.
+    // Review events and canonical learning events are immutable set members: every distinct event is kept.
     if record.entity_type == EntityType::ReviewResult {
         let outcome = apply_review_result(tx, record).await?;
         // The event itself remains append-only; this state row only records
         // cloud provenance/revision so bootstrap does not echo it back.
+        if matches!(
+            outcome,
+            ApplyOutcome::Applied | ApplyOutcome::SkippedDuplicate
+        ) {
+            record_sync_state(tx, record, &record.record_id, false).await?;
+        }
+        return Ok(outcome);
+    }
+
+    if record.entity_type == EntityType::LearningEvent {
+        let outcome = apply_learning_event(tx, record).await?;
         if matches!(
             outcome,
             ApplyOutcome::Applied | ApplyOutcome::SkippedDuplicate
@@ -233,7 +244,7 @@ pub async fn apply_remote_record(
     }
 
     let outcome = match record.entity_type {
-        EntityType::ReviewResult => unreachable!(),
+        EntityType::ReviewResult | EntityType::LearningEvent => unreachable!(),
         EntityType::LearningItem => apply_learning_item(tx, record).await,
         EntityType::Document => apply_document(tx, record).await,
         EntityType::Extract => apply_extract(tx, record).await,
@@ -270,6 +281,60 @@ async fn apply_image_asset(
         PlethoraError::Internal("Image metadata payload decode failed".to_string())
     })?;
     super::image_sync::apply_remote(tx, &payload).await?;
+    Ok(ApplyOutcome::Applied)
+}
+
+async fn apply_learning_event(
+    tx: &mut Transaction<'_, Sqlite>,
+    record: &RemoteSyncRecord,
+) -> Result<ApplyOutcome> {
+    let event: crate::models::learning_event::LearningEvent = serde_json::from_slice(&record.payload)
+        .map_err(|e| PlethoraError::Internal(format!("LearningEvent payload decode failed: {e}")))?;
+
+    if event.is_local_only {
+        return Ok(ApplyOutcome::SkippedDuplicate);
+    }
+
+    let payload_json = serde_json::to_string(&event.payload)?;
+    let inserted = sqlx::query(
+        r#"
+        INSERT INTO learning_events (
+            id, idempotency_key, schema_version, event_type, actor, surface,
+            session_id, goal_id, entity_kind, entity_id, document_id,
+            is_local_only, is_ai_excluded, payload_json, occurred_at, created_at,
+            retracted_by_event_id
+        ) VALUES (
+            ?1, ?2, ?3, ?4, ?5, ?6,
+            ?7, ?8, ?9, ?10, ?11,
+            ?12, ?13, ?14, ?15, ?16,
+            ?17
+        ) ON CONFLICT(idempotency_key) DO NOTHING
+        "#,
+    )
+    .bind(&event.id)
+    .bind(&event.idempotency_key)
+    .bind(event.schema_version)
+    .bind(event.event_type.as_str())
+    .bind(&event.actor)
+    .bind(&event.surface)
+    .bind(&event.session_id)
+    .bind(&event.goal_id)
+    .bind(&event.entity_kind)
+    .bind(&event.entity_id)
+    .bind(&event.document_id)
+    .bind(0_i64)
+    .bind(if event.is_ai_excluded { 1_i64 } else { 0_i64 })
+    .bind(&payload_json)
+    .bind(&event.occurred_at)
+    .bind(&event.created_at)
+    .bind(&event.retracted_by_event_id)
+    .execute(&mut **tx)
+    .await?;
+
+    if inserted.rows_affected() == 0 {
+        return Ok(ApplyOutcome::SkippedDuplicate);
+    }
+
     Ok(ApplyOutcome::Applied)
 }
 

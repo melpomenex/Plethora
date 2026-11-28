@@ -12,6 +12,17 @@ pub async fn sync_entity_allowed(
     entity_type: EntityType,
     entity_id: &str,
 ) -> Result<bool> {
+    if entity_type == EntityType::LearningEvent {
+        let local_only: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM learning_events WHERE id = ?1 AND is_local_only = 1)",
+        )
+        .bind(entity_id)
+        .fetch_one(&mut *connection)
+        .await?;
+        if local_only {
+            return Ok(false);
+        }
+    }
     if !matches!(
         entity_type,
         EntityType::Document
@@ -19,6 +30,7 @@ pub async fn sync_entity_allowed(
             | EntityType::LearningItem
             | EntityType::ReviewResult
             | EntityType::ImageAsset
+            | EntityType::LearningEvent
     ) {
         return Ok(true);
     }

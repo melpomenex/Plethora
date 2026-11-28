@@ -12,6 +12,7 @@ pub enum EntityType {
     Setting,
     ImageAsset,
     Tombstone,
+    LearningEvent,
 }
 
 impl EntityType {
@@ -26,6 +27,7 @@ impl EntityType {
             EntityType::Setting => "setting",
             EntityType::ImageAsset => "image_asset",
             EntityType::Tombstone => "tombstone",
+            EntityType::LearningEvent => "learning_event",
         }
     }
 
@@ -40,6 +42,7 @@ impl EntityType {
             "setting" | "settings" => Some(EntityType::Setting),
             "image_asset" | "image_assets" => Some(EntityType::ImageAsset),
             "tombstone" | "tombstones" => Some(EntityType::Tombstone),
+            "learning_event" | "learning_events" => Some(EntityType::LearningEvent),
             _ => None,
         }
     }
@@ -126,6 +129,7 @@ pub enum TableKind {
     Settings,
     ImageAssets,
     Tombstones,
+    LearningEvents,
 }
 
 impl TableKind {
@@ -140,6 +144,7 @@ impl TableKind {
             TableKind::Settings => "settings",
             TableKind::ImageAssets => "image_assets",
             TableKind::Tombstones => "tombstones",
+            TableKind::LearningEvents => "learning_events",
         }
     }
 }
@@ -156,6 +161,7 @@ impl From<EntityType> for TableKind {
             EntityType::Setting => TableKind::Settings,
             EntityType::ImageAsset => TableKind::ImageAssets,
             EntityType::Tombstone => TableKind::Tombstones,
+            EntityType::LearningEvent => TableKind::LearningEvents,
         }
     }
 }

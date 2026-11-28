@@ -4695,6 +4695,37 @@ impl Repository {
         )
         .await?;
 
+        let learning_event_input = crate::models::learning_event::AppendLearningEventInput {
+            idempotency_key: format!("review_committed:{}", review_result_id),
+            event_type: crate::models::learning_event::LearningEventType::ReviewCommitted,
+            actor: Some("user".to_string()),
+            surface: "review".to_string(),
+            session_id: session_id.map(|s| s.to_string()),
+            goal_id: None,
+            entity_kind: "learning_item".to_string(),
+            entity_id: item.id.clone(),
+            document_id: item.document_id.clone(),
+            is_local_only: None,
+            is_ai_excluded: None,
+            payload: serde_json::json!({
+                "reviewResultId": review_result_id,
+                "rating": rating,
+                "timeTaken": time_taken,
+                "newDueDate": item.due_date.to_rfc3339(),
+                "newInterval": item.interval,
+                "newEaseFactor": item.ease_factor,
+                "algorithmType": item.algorithm_type,
+                "state": state_str,
+            }),
+            occurred_at: Some(reviewed_at.to_rfc3339()),
+            retracts_event_id: None,
+        };
+        crate::database::LearningEventRepository::append_learning_event_tx(
+            &mut tx,
+            &learning_event_input,
+        )
+        .await?;
+
         tx.commit().await?;
         notify_after_commit();
         Ok(())
@@ -5269,6 +5300,38 @@ impl Repository {
             &review_clock,
             &device_id,
             &["schedule".to_string()],
+        )
+        .await?;
+
+        let learning_event_input = crate::models::learning_event::AppendLearningEventInput {
+            idempotency_key: format!("review_committed:{}", review_result_id),
+            event_type: crate::models::learning_event::LearningEventType::ReviewCommitted,
+            actor: Some("user".to_string()),
+            surface: "review".to_string(),
+            session_id: session_id.map(|s| s.to_string()),
+            goal_id: None,
+            entity_kind: "learning_item".to_string(),
+            entity_id: item.id.clone(),
+            document_id: item.document_id.clone(),
+            is_local_only: None,
+            is_ai_excluded: None,
+            payload: serde_json::json!({
+                "reviewResultId": review_result_id,
+                "rating": rating,
+                "timeTaken": time_taken,
+                "newDueDate": item.due_date.to_rfc3339(),
+                "newInterval": item.interval,
+                "newEaseFactor": item.ease_factor,
+                "algorithmType": item.algorithm_type,
+                "state": state_str,
+                "arenaCommitId": provenance.arena_commit_id,
+            }),
+            occurred_at: Some(reviewed_at.to_rfc3339()),
+            retracts_event_id: None,
+        };
+        crate::database::LearningEventRepository::append_learning_event_tx(
+            &mut tx,
+            &learning_event_input,
         )
         .await?;
 

@@ -59,7 +59,7 @@ pub async fn bootstrap_upload_scan(pool: &Pool<Sqlite>) -> Result<BootstrapProgr
     // Parent/reference entities must be published before their children.
     // This keeps the initial log replay valid even on databases that enforce
     // collection/document foreign keys.
-    let tables: [(&str, EntityType); 8] = [
+    let tables: [(&str, EntityType); 9] = [
         ("collections", EntityType::Collection),
         ("tags", EntityType::Tag),
         ("documents", EntityType::Document),
@@ -67,6 +67,7 @@ pub async fn bootstrap_upload_scan(pool: &Pool<Sqlite>) -> Result<BootstrapProgr
         ("extracts", EntityType::Extract),
         ("learning_items", EntityType::LearningItem),
         ("review_results", EntityType::ReviewResult),
+        ("learning_events", EntityType::LearningEvent),
         ("settings", EntityType::Setting),
     ];
 
@@ -401,6 +402,52 @@ async fn build_bootstrap_payload(
                 }))
                 .map_err(|e| PlethoraError::Internal(format!("Bootstrap tag payload: {e}")))?,
             ))
+        }
+        EntityType::LearningEvent => {
+            let row = sqlx::query(
+                "SELECT seq, id, idempotency_key, schema_version, event_type, actor, surface,
+                        session_id, goal_id, entity_kind, entity_id, document_id,
+                        is_local_only, is_ai_excluded, payload_json, occurred_at, created_at,
+                        retracted_by_event_id
+                 FROM learning_events WHERE id = ?1",
+            )
+            .bind(entity_id)
+            .fetch_optional(&mut **tx)
+            .await?;
+            let Some(row) = row else {
+                return Ok(None);
+            };
+            let is_local_only: i64 = sqlx::Row::try_get(&row, "is_local_only").unwrap_or(0);
+            if is_local_only != 0 {
+                return Ok(None);
+            }
+            let event_type_str: String = sqlx::Row::try_get(&row, "event_type")?;
+            let payload_json: String = sqlx::Row::try_get(&row, "payload_json")?;
+            let payload = serde_json::from_str(&payload_json)
+                .unwrap_or_else(|_| serde_json::Value::Object(serde_json::Map::new()));
+            let event = crate::models::learning_event::LearningEvent {
+                seq: sqlx::Row::try_get(&row, "seq")?,
+                id: sqlx::Row::try_get(&row, "id")?,
+                idempotency_key: sqlx::Row::try_get(&row, "idempotency_key")?,
+                schema_version: sqlx::Row::try_get(&row, "schema_version")?,
+                event_type: crate::models::learning_event::LearningEventType::from_db_str(&event_type_str)?,
+                actor: sqlx::Row::try_get(&row, "actor")?,
+                surface: sqlx::Row::try_get(&row, "surface")?,
+                session_id: sqlx::Row::try_get(&row, "session_id")?,
+                goal_id: sqlx::Row::try_get(&row, "goal_id")?,
+                entity_kind: sqlx::Row::try_get(&row, "entity_kind")?,
+                entity_id: sqlx::Row::try_get(&row, "entity_id")?,
+                document_id: sqlx::Row::try_get(&row, "document_id")?,
+                is_local_only: false,
+                is_ai_excluded: sqlx::Row::try_get::<i64, _>(&row, "is_ai_excluded")? != 0,
+                payload,
+                occurred_at: sqlx::Row::try_get(&row, "occurred_at")?,
+                created_at: sqlx::Row::try_get(&row, "created_at")?,
+                retracted_by_event_id: sqlx::Row::try_get(&row, "retracted_by_event_id")?,
+            };
+            Ok(Some(serde_json::to_vec(&event).map_err(|e| {
+                PlethoraError::Internal(format!("Bootstrap learning_event payload: {e}"))
+            })?))
         }
         _ => Ok(None),
     }

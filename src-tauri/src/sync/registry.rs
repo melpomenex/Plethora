@@ -13,7 +13,7 @@ pub fn entity_spec(entity_type: EntityType) -> Option<EntitySpec> {
             entity_type,
             merge_strategy: MergeStrategy::FieldLww,
         },
-        EntityType::ReviewResult => EntitySpec {
+        EntityType::ReviewResult | EntityType::LearningEvent => EntitySpec {
             entity_type,
             merge_strategy: MergeStrategy::AppendOnly,
         },
