@@ -265,23 +265,123 @@ export const NAVIGATION_DESTINATIONS: NavigationDestination[] = [
   },
 ];
 
+export type PrimaryLearningDestination =
+  | "today"
+  | "library"
+  | "learn"
+  | "review"
+  | "discover"
+  | "knowledge"
+  | "insights";
+
+export interface PrimaryLearningDestinationSpec {
+  id: PrimaryLearningDestination;
+  canonicalTabType: TabType;
+  label: string;
+  description: string;
+  secondaryTabs: readonly TabType[];
+  capabilityId?: PlatformCapabilityId;
+}
+
+export const PRIMARY_LEARNING_DESTINATION_ORDER: readonly PrimaryLearningDestination[] = [
+  "today",
+  "library",
+  "learn",
+  "review",
+  "discover",
+  "knowledge",
+  "insights",
+] as const;
+
+export const PRIMARY_LEARNING_DESTINATIONS: Readonly<
+  Record<PrimaryLearningDestination, PrimaryLearningDestinationSpec>
+> = {
+  today: {
+    id: "today",
+    canonicalTabType: "dashboard",
+    label: "Today",
+    description: "Daily learning brief, active session resume, and continue reading",
+    secondaryTabs: ["continue-reading"],
+    capabilityId: "tab_dashboard",
+  },
+  library: {
+    id: "library",
+    canonicalTabType: "documents",
+    label: "Library",
+    description: "Documents, extracts, audiobooks, image registry, and imports",
+    secondaryTabs: ["extracts", "audiobook", "image-registry", "import-needs-review"],
+    capabilityId: "tab_documents",
+  },
+  learn: {
+    id: "learn",
+    canonicalTabType: "study-plans",
+    label: "Learn",
+    description: "Study plans, guided learning sessions, and language learning",
+    secondaryTabs: ["language-learning"],
+  },
+  review: {
+    id: "review",
+    canonicalTabType: "review",
+    label: "Review",
+    description: "Spaced repetition flashcards, reading queue, and scroll mode",
+    secondaryTabs: ["queue", "queue-scroll"],
+    capabilityId: "tab_review",
+  },
+  discover: {
+    id: "discover",
+    canonicalTabType: "rss",
+    label: "Discover",
+    description: "Smart feeds, podcasts, newsletters, and built-in web browser",
+    secondaryTabs: ["podcast", "newsletter", "web-browser"],
+    capabilityId: "tab_rss",
+  },
+  knowledge: {
+    id: "knowledge",
+    canonicalTabType: "knowledge-sphere",
+    label: "Knowledge",
+    description: "Knowledge Atlas, network graph, Document Q&A, and NotebookLM",
+    secondaryTabs: ["knowledge-network", "doc-qa", "notebooklm"],
+    capabilityId: "tab_knowledge_sphere",
+  },
+  insights: {
+    id: "insights",
+    canonicalTabType: "learning-insights",
+    label: "Insights",
+    description: "Learning insights, competency progress, and analytics",
+    secondaryTabs: ["analytics"],
+    capabilityId: "tab_learning_insights",
+  },
+};
+
+export function resolvePrimaryLearningDestination(
+  tabType: TabType
+): PrimaryLearningDestination | null {
+  for (const id of PRIMARY_LEARNING_DESTINATION_ORDER) {
+    const spec = PRIMARY_LEARNING_DESTINATIONS[id];
+    if (spec.canonicalTabType === tabType || spec.secondaryTabs.includes(tabType)) {
+      return id;
+    }
+  }
+  return null;
+}
+
 /**
  * Navigate-event path → tab type aliases. Moved here from `MainLayout` so the
  * palette registry and the navigate handler share exactly one map.
  */
 export const TAB_TYPE_ALIASES: Record<string, TabType> = {
-  dash: "dashboard", dashboard: "dashboard", home: "dashboard",
-  docs: "documents", documents: "documents", doc: "documents",
+  dash: "dashboard", dashboard: "dashboard", home: "dashboard", today: "dashboard",
+  docs: "documents", documents: "documents", doc: "documents", library: "documents",
   queue: "queue", q: "queue",
   "queue-scroll": "queue-scroll", qs: "queue-scroll", scroll: "queue-scroll", "scroll-mode": "queue-scroll", "optimal-queue": "queue-scroll",
   rev: "review", review: "review",
   anal: "analytics", analytics: "analytics", stats: "analytics",
   set: "settings", settings: "settings",
-  rss: "rss", feeds: "rss",
+  rss: "rss", feeds: "rss", discover: "rss",
   news: "newsletter", newsletter: "newsletter",
   pod: "podcast", podcast: "podcast", podcasts: "podcast",
   audiobook: "audiobook", audiobooks: "audiobook", ab: "audiobook",
-  ks: "knowledge-sphere", sphere: "knowledge-sphere", "knowledge-sphere": "knowledge-sphere",
+  ks: "knowledge-sphere", sphere: "knowledge-sphere", "knowledge-sphere": "knowledge-sphere", knowledge: "knowledge-sphere",
   kn: "knowledge-network", network: "knowledge-network", "knowledge-network": "knowledge-network",
   qa: "doc-qa", "doc-qa": "doc-qa",
   nb: "notebooklm", notebook: "notebooklm", notebooklm: "notebooklm",
@@ -291,8 +391,10 @@ export const TAB_TYPE_ALIASES: Record<string, TabType> = {
   "continue-reading": "continue-reading",
   extracts: "extracts",
   "learning-insights": "learning-insights",
+  insights: "learning-insights",
   "study-plans": "study-plans",
   "study-plan": "study-plans",
+  learn: "study-plans",
   curriculum: "study-plans",
   plans: "study-plans",
   "learning-paths": "study-plans",
