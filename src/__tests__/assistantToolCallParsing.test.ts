@@ -6,6 +6,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { buildConfirmationMessage } from "../features/assistant/chatFlashcardArtifacts";
 
 // ─── Types (mirrored from AssistantPanel.tsx) ───────────────────────────
 
@@ -247,59 +248,6 @@ function parseToolCalls(
   }
 
   return { cleanedContent, toolCalls };
-}
-
-// ─── Extracted buildConfirmationMessage (mirror of AssistantPanel.tsx) ──
-
-function buildConfirmationMessage(
-  results: Array<{ name: string; status: "success" | "error"; error?: string }>
-): string | null {
-  const succeeded = results.filter((r) => r.status === "success");
-  const failed = results.filter((r) => r.status === "error");
-
-  const parts: string[] = [];
-
-  if (succeeded.length > 0) {
-    const counts: Record<string, number> = {};
-    succeeded.forEach((r) => {
-      counts[r.name] = (counts[r.name] || 0) + 1;
-    });
-
-    const hasCards =
-      counts["create_qa_card"] ||
-      counts["create_cloze_card"] ||
-      counts["batch_create_cards"];
-    const hasDeck = counts["create_deck"];
-
-    if (hasDeck && !hasCards) {
-      // Deck was created but no cards — likely the LLM didn't include card calls
-      parts.push(
-        `⚠️ Deck created but no flashcards were saved. The AI may have only created the deck without the card tool calls. Try asking again to add cards.`
-      );
-    } else {
-      const summaries = Object.entries(counts).map(([name, count]) => {
-        const label =
-          name === "create_qa_card" ||
-          name === "create_cloze_card" ||
-          name === "batch_create_cards"
-            ? `${count} flashcard${count > 1 ? "s" : ""}`
-            : name === "create_extract"
-              ? `${count} extract${count > 1 ? "s" : ""}`
-              : name === "create_document"
-                ? `${count} document${count > 1 ? "s" : ""}`
-                : `${count} ${name}${count > 1 ? "s" : ""}`;
-        return label;
-      });
-      parts.push(`Created ${summaries.join(", ")} and saved to your library.`);
-    }
-  }
-
-  if (failed.length > 0) {
-    const errors = failed.map((r) => `${r.name}: ${r.error}`).join("; ");
-    parts.push(`Failed: ${errors}`);
-  }
-
-  return parts.join(" ") || null;
 }
 
 // ─── Extracted normalizeToolParameters (mirror of AssistantPanel.tsx) ───
@@ -571,19 +519,40 @@ Done.`;
 });
 
 describe("buildConfirmationMessage", () => {
-  it("returns confirmation for successful card creation", () => {
+  it("combines Q&A and cloze flashcards with a clear type breakdown", () => {
     const results = [
       { name: "create_qa_card", status: "success" as const },
       { name: "create_qa_card", status: "success" as const },
       { name: "create_cloze_card", status: "success" as const },
     ];
     const msg = buildConfirmationMessage(results);
-    expect(msg).toContain("flashcard");
-    expect(msg).toContain("saved to your library");
+    expect(msg).toBe("Created 3 flashcards (2 Q&A, 1 cloze) and saved to your library.");
   });
 
-  it("returns null for empty results", () => {
-    expect(buildConfirmationMessage([])).toBeNull();
+  it("combines batch and single card counts by card type", () => {
+    const results = [
+      { name: "batch_create_cards", status: "success" as const, count: 40, qaCount: 40, clozeCount: 0 },
+      { name: "batch_create_cards", status: "success" as const, count: 27, qaCount: 0, clozeCount: 27 },
+    ];
+    expect(buildConfirmationMessage(results)).toBe(
+      "Created 67 flashcards (40 Q&A, 27 cloze) and saved to your library."
+    );
+  });
+
+  it("specifies Q&A or cloze when only one type is created", () => {
+    expect(
+      buildConfirmationMessage([{ name: "create_qa_card", status: "success" as const }])
+    ).toBe("Created 1 Q&A flashcard and saved to your library.");
+    expect(
+      buildConfirmationMessage([
+        { name: "create_cloze_card", status: "success" as const },
+        { name: "create_cloze_card", status: "success" as const },
+      ])
+    ).toBe("Created 2 cloze flashcards and saved to your library.");
+  });
+
+  it("returns empty string for empty results", () => {
+    expect(buildConfirmationMessage([])).toBe("");
   });
 
   it("includes error details for failed calls", () => {

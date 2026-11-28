@@ -292,3 +292,114 @@ export function buildFlashcardToolInstruction(toolNames: string[]): string {
   if (cardTools.length === 0) return "";
   return `When the user explicitly asks to create, save, add, or make flashcards, use ${cardTools.join(" or ")} in one tool_calls block. When they ask only to preview, brainstorm, or discuss card ideas, do not save cards. Never duplicate created cards as raw JSON, a markdown table, or a prose card list.`;
 }
+
+export interface ToolExecutionResult {
+  name: string;
+  status: "success" | "error";
+  count?: number;
+  qaCount?: number;
+  clozeCount?: number;
+  error?: string;
+}
+
+/** Count saved Q&A and cloze cards in a batch_create_cards result. */
+export function countSavedBatchCardTypes(
+  result: unknown,
+  cards: unknown[],
+): { qa: number; cloze: number } {
+  const results = batchResults(result);
+  let qa = 0;
+  let cloze = 0;
+  for (let i = 0; i < cards.length; i += 1) {
+    const entry = results[i];
+    if (!entry || entry.success !== true || !extractPersistedCardId(entry)) continue;
+    const card = normalizeCardCandidate(cards[i]);
+    if (card.type === "cloze") cloze += 1;
+    else qa += 1;
+  }
+  return { qa, cloze };
+}
+
+function formatFlashcardSummary(qaCount: number, clozeCount: number, otherCardCount: number): string {
+  const total = qaCount + clozeCount + otherCardCount;
+  if (qaCount > 0 && clozeCount > 0) {
+    const breakdown = [`${qaCount} Q&A`, `${clozeCount} cloze`];
+    if (otherCardCount > 0) breakdown.push(`${otherCardCount} other`);
+    return `${total} flashcards (${breakdown.join(", ")})`;
+  }
+  if (qaCount > 0 && otherCardCount === 0) {
+    return `${qaCount} Q&A flashcard${qaCount > 1 ? "s" : ""}`;
+  }
+  if (clozeCount > 0 && otherCardCount === 0) {
+    return `${clozeCount} cloze flashcard${clozeCount > 1 ? "s" : ""}`;
+  }
+  return `${total} flashcard${total > 1 ? "s" : ""}`;
+}
+
+/** Build the assistant confirmation message summarizing saved items and any failures. */
+export function buildConfirmationMessage(results: ToolExecutionResult[]): string {
+  const succeeded = results.filter((r) => r.status === "success");
+  const failed = results.filter((r) => r.status === "error");
+
+  const parts: string[] = [];
+
+  if (succeeded.length > 0) {
+    let qaCount = 0;
+    let clozeCount = 0;
+    let otherCardCount = 0;
+    const otherCounts: Record<string, number> = {};
+
+    for (const r of succeeded) {
+      const count = r.count ?? 1;
+      if (FLASHCARD_TOOL_NAMES.has(r.name)) {
+        if (r.qaCount !== undefined || r.clozeCount !== undefined) {
+          const qa = r.qaCount ?? 0;
+          const cloze = r.clozeCount ?? 0;
+          qaCount += qa;
+          clozeCount += cloze;
+          const accounted = qa + cloze;
+          if (count > accounted) otherCardCount += count - accounted;
+        } else if (r.name === "create_qa_card") {
+          qaCount += count;
+        } else if (r.name === "create_cloze_card") {
+          clozeCount += count;
+        } else {
+          otherCardCount += count;
+        }
+      } else {
+        otherCounts[r.name] = (otherCounts[r.name] || 0) + count;
+      }
+    }
+
+    const totalCards = qaCount + clozeCount + otherCardCount;
+    const hasDeck = Boolean(otherCounts["create_deck"]);
+
+    if (hasDeck && totalCards === 0) {
+      // Deck was created but no cards — likely the LLM didn't include card calls
+      parts.push("⚠️ Deck created but no flashcards were saved. The AI may have only created the deck without the card tool calls. Try asking again to add cards.");
+    } else {
+      const summaries: string[] = [];
+      if (totalCards > 0) {
+        summaries.push(formatFlashcardSummary(qaCount, clozeCount, otherCardCount));
+      }
+      for (const [name, count] of Object.entries(otherCounts)) {
+        const label = name === "create_extract"
+          ? `${count} extract${count > 1 ? "s" : ""}`
+          : name === "create_document"
+            ? `${count} document${count > 1 ? "s" : ""}`
+            : name === "create_deck"
+              ? `${count} deck${count > 1 ? "s" : ""}`
+              : `${count} ${name}${count > 1 ? "s" : ""}`;
+        summaries.push(label);
+      }
+      parts.push(`Created ${summaries.join(", ")} and saved to your library.`);
+    }
+  }
+
+  if (failed.length > 0) {
+    const errors = failed.map((r) => `${r.name}: ${r.error}`).join("; ");
+    parts.push(`Failed: ${errors}`);
+  }
+
+  return parts.join(" ");
+}

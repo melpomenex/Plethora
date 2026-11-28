@@ -161,7 +161,9 @@ import { extractDocumentText, getDocument } from "../../api/documents";
 import { createDocumentQaRequestContent, loadDocumentQaText } from "../../features/documentQa/sectionContextRequest";
 import { ChatFlashcardCollection } from "./ChatFlashcardCollection";
 import {
+  buildConfirmationMessage,
   buildFlashcardToolInstruction,
+  countSavedBatchCardTypes,
   withCardCandidateIdentities,
   mergeBatchCandidateResult,
   safeCardCreationError,
@@ -172,6 +174,7 @@ import {
   summarizeBatchCardResults,
   toolCallsToFlashcardArtifacts,
   type ChatFlashcardArtifact,
+  type ToolExecutionResult,
 } from "../../features/assistant/chatFlashcardArtifacts";
 import {
   buildTwentyRulesSystemPrompt,
@@ -3181,7 +3184,7 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     stillCurrent: () => boolean = () => true,
   ) => {
     const capturedToolContext = { ...toolExecutionContextRef.current };
-    const results: Array<{ name: string; status: "success" | "error"; count?: number; error?: string }> = [];
+    const results: ToolExecutionResult[] = [];
     // Track deck names created in this batch so we can tag subsequent cards with matching tags
     const batchDeckNames: string[] = [];
     const createsCards = calls.some((call) => CARD_CREATION_TOOL_NAMES.has(call.name));
@@ -3267,8 +3270,17 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
         // Batch receipts are authoritative even when the envelope is partial.
         if (call.name === "batch_create_cards") {
           const outcome = summarizeBatchCardResults(result, createdCount);
+          const typeCounts = countSavedBatchCardTypes(result, Array.isArray(parameters.cards) ? parameters.cards : []);
           updateToolCall(messageId, index, { result, status: outcome.failed > 0 ? "error" : "success" });
-          if (outcome.saved > 0) results.push({ name: call.name, status: "success", count: outcome.saved });
+          if (outcome.saved > 0) {
+            results.push({
+              name: call.name,
+              status: "success",
+              count: outcome.saved,
+              qaCount: typeCounts.qa,
+              clozeCount: typeCounts.cloze,
+            });
+          }
           if (outcome.failed > 0) results.push({ name: call.name, status: "error", count: outcome.failed, error: translateRecentFeature("i18nAudit.ui.some-cards-could-not-be-save.b64aa3d9") });
         } else if (result.isError) {
           updateToolCall(messageId, index, { result, status: "error" });
@@ -3279,7 +3291,13 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
           results.push({ name: call.name, status: "error", count: 1, error });
         } else {
           updateToolCall(messageId, index, { result, status: "success" });
-          results.push({ name: call.name, status: "success", count: createdCount });
+          results.push({
+            name: call.name,
+            status: "success",
+            count: createdCount,
+            ...(call.name === "create_qa_card" ? { qaCount: createdCount, clozeCount: 0 } : {}),
+            ...(call.name === "create_cloze_card" ? { qaCount: 0, clozeCount: createdCount } : {}),
+          });
         }
 
         // The extract was created directly by the Rust-side MCP tool, bypassing
@@ -3331,47 +3349,6 @@ When you ask me to create flashcards or extracts, I'll use tool calls like:
     }
 
     return results;
-  };
-
-  const buildConfirmationMessage = (results: Array<{ name: string; status: "success" | "error"; count?: number; error?: string }>) => {
-    const succeeded = results.filter((r) => r.status === "success");
-    const failed = results.filter((r) => r.status === "error");
-
-    const parts: string[] = [];
-
-    if (succeeded.length > 0) {
-      const counts: Record<string, number> = {};
-      succeeded.forEach((r) => {
-        counts[r.name] = (counts[r.name] || 0) + (r.count ?? 1);
-      });
-
-      const hasCards = counts["create_qa_card"] || counts["create_cloze_card"] || counts["batch_create_cards"];
-      const hasDeck = counts["create_deck"];
-
-      if (hasDeck && !hasCards) {
-        // Deck was created but no cards — likely the LLM didn't include card calls
-        parts.push(`⚠️ Deck created but no flashcards were saved. The AI may have only created the deck without the card tool calls. Try asking again to add cards.`);
-      } else {
-        const summaries = Object.entries(counts).map(([name, count]) => {
-          const label = name === "create_qa_card" || name === "create_cloze_card" || name === "batch_create_cards"
-            ? translateRecentFeature("i18nAudit.ui.var0-flashcard-var1.34ff2e67", {var0: count, var1: count > 1 ? "s" : ""})
-            : name === "create_extract"
-              ? translateRecentFeature("i18nAudit.ui.var0-extract-var1.bd5ba038", {var0: count, var1: count > 1 ? "s" : ""})
-              : name === "create_document"
-                ? translateRecentFeature("i18nAudit.ui.var0-document-var1.f1c21426", {var0: count, var1: count > 1 ? "s" : ""})
-                : `${count} ${name}${count > 1 ? "s" : ""}`;
-          return label;
-        });
-        parts.push(`Created ${summaries.join(", ")} and saved to your library.`);
-      }
-    }
-
-    if (failed.length > 0) {
-      const errors = failed.map((r) => `${r.name}: ${r.error}`).join("; ");
-      parts.push(`Failed: ${errors}`);
-    }
-
-    return parts.join(" ");
   };
 
   const updateToolCall = (messageId: string, index: number, updates: Partial<ToolCall>) => {

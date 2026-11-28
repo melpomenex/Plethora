@@ -363,7 +363,7 @@ describe("AssistantPanel # section index", () => {
 
     expect(await screen.findByRole("region", { name: "2 created flashcards" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Open deck Podcast Episode" })).toBeInTheDocument();
-    expect(screen.getByText(/Created 2 flashcards and saved to your library/i)).toBeInTheDocument();
+    expect(screen.getByText(/Created 2 Q&A flashcards and saved to your library/i)).toBeInTheDocument();
     expect(screen.queryByText("batch_create_cards")).not.toBeInTheDocument();
   });
 
